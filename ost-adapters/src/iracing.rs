@@ -50,7 +50,7 @@ mod windows_impl {
                 sample.get(name).ok().and_then(|v| v.try_into().ok())
             };
 
-            let get_bool = |name: &'static str| -> Option<bool> {
+            let _get_bool = |name: &'static str| -> Option<bool> {
                 sample.get(name).ok().and_then(|v| v.try_into().ok())
             };
 
@@ -215,50 +215,105 @@ mod windows_impl {
 
         /// Extract per-wheel telemetry data
         fn extract_wheel_data(sample: &IRacingSample) -> Option<WheelData> {
-            // Helper to get f32 values from sample
-            let get_f32 = |name: &str| -> Option<f32> {
+            // Helper to get f32 from sample (takes static str as required by iracing.rs API)
+            let get_f32 = |name: &'static str| -> Option<f32> {
                 sample.get(name).ok().and_then(|v| v.try_into().ok())
             };
 
-            // Helper to create wheel info for a specific wheel
-            let create_wheel = |prefix: &str| -> WheelInfo {
-                let shock_defl = format!("{}shockDefl", prefix);
-                let air_pressure = format!("{}airPressure", prefix);
-                let temp_cl = format!("{}tempCL", prefix);
-                let temp_cc = format!("{}tempCC", prefix);
-                let temp_cr = format!("{}tempCR", prefix);
-                let wear = format!("{}wear", prefix);
-                let speed = format!("{}speed", prefix);
+            // Extract each wheel's data directly using static field names
+            let front_left = WheelInfo {
+                suspension_travel: get_f32("LFshockDefl").map(Meters),
+                tyre_pressure: get_f32("LFairPressure").map(Kilopascals),
+                tyre_temp_surface: get_f32("LFtempCL")
+                    .or_else(|| {
+                        let l = get_f32("LFtempCL");
+                        let c = get_f32("LFtempCC");
+                        let r = get_f32("LFtempCR");
+                        match (l, c, r) {
+                            (Some(l), Some(c), Some(r)) => Some((l + c + r) / 3.0),
+                            _ => None,
+                        }
+                    })
+                    .map(Celsius),
+                tyre_temp_inner: get_f32("LFtempCC").map(Celsius),
+                tyre_wear: get_f32("LFwear").map(Percentage::new),
+                slip_ratio: None,
+                slip_angle: None,
+                load: None,
+                rotation_speed: get_f32("LFspeed").map(RadiansPerSecond),
+            };
 
-                WheelInfo {
-                    suspension_travel: get_f32(&shock_defl).map(Meters),
-                    tyre_pressure: get_f32(&air_pressure).map(|p| Kilopascals(p)),
-                    tyre_temp_surface: get_f32(&temp_cl)
-                        .or_else(|| {
-                            // Average of L, C, R temps if available
-                            let l = get_f32(&temp_cl);
-                            let c = get_f32(&temp_cc);
-                            let r = get_f32(&temp_cr);
-                            match (l, c, r) {
-                                (Some(l), Some(c), Some(r)) => Some((l + c + r) / 3.0),
-                                _ => None,
-                            }
-                        })
-                        .map(Celsius),
-                    tyre_temp_inner: get_f32(&temp_cc).map(Celsius),
-                    tyre_wear: get_f32(&wear).map(|w| Percentage::new(w)),
-                    slip_ratio: None, // Not directly available
-                    slip_angle: None, // Not directly available
-                    load: None,       // Not directly available
-                    rotation_speed: get_f32(&speed).map(|s| RadiansPerSecond(s)),
-                }
+            let front_right = WheelInfo {
+                suspension_travel: get_f32("RFshockDefl").map(Meters),
+                tyre_pressure: get_f32("RFairPressure").map(Kilopascals),
+                tyre_temp_surface: get_f32("RFtempCL")
+                    .or_else(|| {
+                        let l = get_f32("RFtempCL");
+                        let c = get_f32("RFtempCC");
+                        let r = get_f32("RFtempCR");
+                        match (l, c, r) {
+                            (Some(l), Some(c), Some(r)) => Some((l + c + r) / 3.0),
+                            _ => None,
+                        }
+                    })
+                    .map(Celsius),
+                tyre_temp_inner: get_f32("RFtempCC").map(Celsius),
+                tyre_wear: get_f32("RFwear").map(Percentage::new),
+                slip_ratio: None,
+                slip_angle: None,
+                load: None,
+                rotation_speed: get_f32("RFspeed").map(RadiansPerSecond),
+            };
+
+            let rear_left = WheelInfo {
+                suspension_travel: get_f32("LRshockDefl").map(Meters),
+                tyre_pressure: get_f32("LRairPressure").map(Kilopascals),
+                tyre_temp_surface: get_f32("LRtempCL")
+                    .or_else(|| {
+                        let l = get_f32("LRtempCL");
+                        let c = get_f32("LRtempCC");
+                        let r = get_f32("LRtempCR");
+                        match (l, c, r) {
+                            (Some(l), Some(c), Some(r)) => Some((l + c + r) / 3.0),
+                            _ => None,
+                        }
+                    })
+                    .map(Celsius),
+                tyre_temp_inner: get_f32("LRtempCC").map(Celsius),
+                tyre_wear: get_f32("LRwear").map(Percentage::new),
+                slip_ratio: None,
+                slip_angle: None,
+                load: None,
+                rotation_speed: get_f32("LRspeed").map(RadiansPerSecond),
+            };
+
+            let rear_right = WheelInfo {
+                suspension_travel: get_f32("RRshockDefl").map(Meters),
+                tyre_pressure: get_f32("RRairPressure").map(Kilopascals),
+                tyre_temp_surface: get_f32("RRtempCL")
+                    .or_else(|| {
+                        let l = get_f32("RRtempCL");
+                        let c = get_f32("RRtempCC");
+                        let r = get_f32("RRtempCR");
+                        match (l, c, r) {
+                            (Some(l), Some(c), Some(r)) => Some((l + c + r) / 3.0),
+                            _ => None,
+                        }
+                    })
+                    .map(Celsius),
+                tyre_temp_inner: get_f32("RRtempCC").map(Celsius),
+                tyre_wear: get_f32("RRwear").map(Percentage::new),
+                slip_ratio: None,
+                slip_angle: None,
+                load: None,
+                rotation_speed: get_f32("RRspeed").map(RadiansPerSecond),
             };
 
             Some(WheelData {
-                front_left: create_wheel("LF"),
-                front_right: create_wheel("RF"),
-                rear_left: create_wheel("LR"),
-                rear_right: create_wheel("RR"),
+                front_left,
+                front_right,
+                rear_left,
+                rear_right,
             })
         }
 
