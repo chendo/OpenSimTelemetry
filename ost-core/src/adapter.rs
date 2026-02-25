@@ -40,4 +40,12 @@ pub trait TelemetryAdapter: Send + Sync {
 
     /// Get whether the adapter is currently active
     fn is_active(&self) -> bool;
+
+    /// Whether session info has changed since last check.
+    ///
+    /// Adapters that track session info versions (like iRacing) can override this
+    /// to signal when session metadata has been refreshed.
+    fn session_info_changed(&self) -> bool {
+        false
+    }
 }

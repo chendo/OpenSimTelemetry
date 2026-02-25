@@ -83,3 +83,27 @@ impl GForce {
         Self(accel.0 / G)
     }
 }
+
+/// Liters (volume, primarily for fuel)
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Liters(pub f32);
+
+/// Liters per hour (fuel consumption rate)
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LitersPerHour(pub f32);
+
+/// Volts (electrical)
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Volts(pub f32);
+
+/// Bar (pressure, typically manifold pressure)
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Bar(pub f32);
+
+/// Newton-meters (torque)
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct NewtonMeters(pub f32);
+
+/// Kilograms per cubic meter (density)
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct KilogramsPerCubicMeter(pub f32);
