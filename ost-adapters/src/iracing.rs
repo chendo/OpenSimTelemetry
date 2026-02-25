@@ -8,11 +8,7 @@ mod windows_impl {
     use anyhow::Result;
     use chrono::Utc;
     use iracing::telemetry::{Connection, Sample as IRacingSample};
-    use ost_core::{
-        adapter::TelemetryAdapter,
-        model::*,
-        units::*,
-    };
+    use ost_core::{adapter::TelemetryAdapter, model::*, units::*};
     use std::collections::HashMap;
     use std::convert::TryInto;
     use std::time::Duration;
@@ -68,9 +64,9 @@ mod windows_impl {
             };
 
             // Calculate speed from velocity if available
-            let speed = velocity.as_ref().map(|v| {
-                MetersPerSecond((v.x.0.powi(2) + v.y.0.powi(2) + v.z.0.powi(2)).sqrt())
-            });
+            let speed = velocity
+                .as_ref()
+                .map(|v| MetersPerSecond((v.x.0.powi(2) + v.y.0.powi(2) + v.z.0.powi(2)).sqrt()));
 
             // Acceleration (lateral, longitudinal, vertical)
             let acceleration = if let (Some(lat), Some(long), Some(vert)) = (
@@ -97,16 +93,10 @@ mod windows_impl {
             });
 
             // Rotation (pitch, yaw, roll)
-            let rotation = if let (Some(pitch), Some(yaw), Some(roll)) = (
-                get_f32("Pitch"),
-                get_f32("Yaw"),
-                get_f32("Roll"),
-            ) {
-                Some(Vector3::new(
-                    Radians(pitch),
-                    Radians(yaw),
-                    Radians(roll),
-                ))
+            let rotation = if let (Some(pitch), Some(yaw), Some(roll)) =
+                (get_f32("Pitch"), get_f32("Yaw"), get_f32("Roll"))
+            {
+                Some(Vector3::new(Radians(pitch), Radians(yaw), Radians(roll)))
             } else {
                 None
             };
@@ -137,9 +127,8 @@ mod windows_impl {
             // Engine and fuel
             let engine_temp = get_f32("WaterTemp").map(Celsius);
             let fuel_level = get_f32("FuelLevel");
-            let fuel_capacity = get_f32("FuelLevelPct").and_then(|pct| {
-                fuel_level.map(|level| level / pct)
-            });
+            let fuel_capacity =
+                get_f32("FuelLevelPct").and_then(|pct| fuel_level.map(|level| level / pct));
 
             // Wheel data - iRacing provides per-wheel data
             let wheels = Self::extract_wheel_data(sample);
@@ -151,8 +140,7 @@ mod windows_impl {
             let lap_number = get_i32("Lap").map(|l| l as u32);
 
             // Session info
-            let session_time_remaining = get_f64("SessionTimeRemain")
-                .map(|t| Seconds(t as f32));
+            let session_time_remaining = get_f64("SessionTimeRemain").map(|t| Seconds(t as f32));
             let track_temp = get_f32("TrackTempCrew").map(Celsius);
             let air_temp = get_f32("AirTemp").map(Celsius);
 
@@ -228,23 +216,27 @@ mod windows_impl {
             let create_wheel = |prefix: &str| -> WheelInfo {
                 WheelInfo {
                     suspension_travel: get_f32(&format!("{}shockDefl", prefix)).map(Meters),
-                    tyre_pressure: get_f32(&format!("{}airPressure", prefix)).map(|p| Kilopascals(p)),
-                    tyre_temp_surface: get_f32(&format!("{}tempCL", prefix)).or_else(|| {
-                        // Average of L, C, R temps if available
-                        let l = get_f32(&format!("{}tempCL", prefix));
-                        let c = get_f32(&format!("{}tempCC", prefix));
-                        let r = get_f32(&format!("{}tempCR", prefix));
-                        match (l, c, r) {
-                            (Some(l), Some(c), Some(r)) => Some((l + c + r) / 3.0),
-                            _ => None,
-                        }
-                    }).map(Celsius),
+                    tyre_pressure: get_f32(&format!("{}airPressure", prefix))
+                        .map(|p| Kilopascals(p)),
+                    tyre_temp_surface: get_f32(&format!("{}tempCL", prefix))
+                        .or_else(|| {
+                            // Average of L, C, R temps if available
+                            let l = get_f32(&format!("{}tempCL", prefix));
+                            let c = get_f32(&format!("{}tempCC", prefix));
+                            let r = get_f32(&format!("{}tempCR", prefix));
+                            match (l, c, r) {
+                                (Some(l), Some(c), Some(r)) => Some((l + c + r) / 3.0),
+                                _ => None,
+                            }
+                        })
+                        .map(Celsius),
                     tyre_temp_inner: get_f32(&format!("{}tempCC", prefix)).map(Celsius),
                     tyre_wear: get_f32(&format!("{}wear", prefix)).map(|w| Percentage::new(w)),
                     slip_ratio: None, // Not directly available
                     slip_angle: None, // Not directly available
                     load: None,       // Not directly available
-                    rotation_speed: get_f32(&format!("{}speed", prefix)).map(|s| RadiansPerSecond(s)),
+                    rotation_speed: get_f32(&format!("{}speed", prefix))
+                        .map(|s| RadiansPerSecond(s)),
                 }
             };
 
@@ -259,12 +251,15 @@ mod windows_impl {
         /// Extract flag status from session state
         fn extract_flag_status(sample: &IRacingSample) -> Option<FlagType> {
             // SessionFlags is a bitfield, but for simplicity we'll check SessionState
-            let state: Option<i32> = sample.get("SessionState").ok().and_then(|v| v.try_into().ok());
+            let state: Option<i32> = sample
+                .get("SessionState")
+                .ok()
+                .and_then(|v| v.try_into().ok());
 
             match state {
-                Some(4) => Some(FlagType::Green),   // Racing
+                Some(4) => Some(FlagType::Green),     // Racing
                 Some(5) => Some(FlagType::Checkered), // Checkered
-                Some(6) => Some(FlagType::Yellow),  // CoolDown/Yellow
+                Some(6) => Some(FlagType::Yellow),    // CoolDown/Yellow
                 _ => Some(FlagType::None),
             }
         }
@@ -330,6 +325,7 @@ pub use windows_impl::IRacingAdapter;
 
 // Stub implementation for non-Windows platforms
 #[cfg(not(target_os = "windows"))]
+#[derive(Default)]
 pub struct IRacingAdapter;
 
 #[cfg(not(target_os = "windows"))]

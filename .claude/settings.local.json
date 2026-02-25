@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/opt/homebrew/bin/cargo build)",
+      "Bash(curl:*)",
+      "Bash(/opt/homebrew/bin/cargo build:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(/opt/homebrew/bin/cargo clippy:*)"
+    ]
+  }
+}

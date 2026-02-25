@@ -9,11 +9,11 @@ use axum::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse,
     },
-    routing::{delete, get, post},
+    routing::{delete, get},
     Json, Router,
 };
 use futures::stream::{Stream, StreamExt as FuturesStreamExt};
-use ost_core::model::{FieldMask, TelemetryFrame};
+use ost_core::model::FieldMask;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use tokio_stream::wrappers::BroadcastStream;
@@ -72,29 +72,29 @@ async fn telemetry_stream(
     Query(query): Query<StreamQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.subscribe();
-    let field_mask = query.fields.map(|f| FieldMask::from_str(&f));
+    let field_mask = query.fields.map(|f| FieldMask::parse(&f));
 
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
-            let mask = field_mask.clone();
-            async move {
-                match result {
-                    Ok(frame) => {
-                        // Serialize with field mask
-                        match frame.to_json_filtered(mask.as_ref()) {
-                            Ok(json) => Some(Ok(Event::default().data(json))),
-                            Err(e) => {
-                                tracing::error!("Failed to serialize frame: {}", e);
-                                None
-                            }
+        let mask = field_mask.clone();
+        async move {
+            match result {
+                Ok(frame) => {
+                    // Serialize with field mask
+                    match frame.to_json_filtered(mask.as_ref()) {
+                        Ok(json) => Some(Ok(Event::default().data(json))),
+                        Err(e) => {
+                            tracing::error!("Failed to serialize frame: {}", e);
+                            None
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!("Broadcast stream error: {}", e);
-                        None
-                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Broadcast stream error: {}", e);
+                    None
                 }
             }
-        });
+        }
+    });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }

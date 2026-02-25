@@ -12,6 +12,7 @@ use crate::units::*;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
 /// Complete telemetry frame with all available data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -277,7 +278,7 @@ impl FieldMask {
     }
 
     /// Create a mask from a comma-separated list of field names
-    pub fn from_str(fields: &str) -> Self {
+    pub fn parse(fields: &str) -> Self {
         let fields: HashSet<String> = fields
             .split(',')
             .map(|s| s.trim().to_lowercase())
@@ -306,6 +307,14 @@ impl FieldMask {
     }
 }
 
+impl FromStr for FieldMask {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::parse(s))
+    }
+}
+
 /// Builder for FieldMask
 #[derive(Debug, Default)]
 pub struct FieldMaskBuilder {
@@ -313,45 +322,45 @@ pub struct FieldMaskBuilder {
 }
 
 impl FieldMaskBuilder {
-    pub fn add(mut self, field: &str) -> Self {
+    pub fn with_field(mut self, field: &str) -> Self {
         self.fields.insert(field.to_lowercase());
         self
     }
 
     pub fn rpm(self) -> Self {
-        self.add("rpm")
+        self.with_field("rpm")
     }
 
     pub fn speed(self) -> Self {
-        self.add("speed")
+        self.with_field("speed")
     }
 
     pub fn gear(self) -> Self {
-        self.add("gear")
+        self.with_field("gear")
     }
 
     pub fn throttle(self) -> Self {
-        self.add("throttle")
+        self.with_field("throttle")
     }
 
     pub fn brake(self) -> Self {
-        self.add("brake")
+        self.with_field("brake")
     }
 
     pub fn steering(self) -> Self {
-        self.add("steering")
+        self.with_field("steering")
     }
 
     pub fn g_force(self) -> Self {
-        self.add("g_force")
+        self.with_field("g_force")
     }
 
     pub fn position(self) -> Self {
-        self.add("position")
+        self.with_field("position")
     }
 
     pub fn velocity(self) -> Self {
-        self.add("velocity")
+        self.with_field("velocity")
     }
 
     pub fn build(self) -> FieldMask {
@@ -376,7 +385,10 @@ impl TelemetryFrame {
         let mut map = serde_json::Map::new();
 
         // Always include timestamp and game
-        map.insert("timestamp".to_string(), serde_json::to_value(&self.timestamp)?);
+        map.insert(
+            "timestamp".to_string(),
+            serde_json::to_value(self.timestamp)?,
+        );
         map.insert("game".to_string(), serde_json::to_value(&self.game)?);
 
         // Conditionally include other fields
@@ -517,7 +529,10 @@ impl TelemetryFrame {
         }
         if mask.includes("session_time_remaining") {
             if let Some(ref v) = self.session_time_remaining {
-                map.insert("session_time_remaining".to_string(), serde_json::to_value(v)?);
+                map.insert(
+                    "session_time_remaining".to_string(),
+                    serde_json::to_value(v)?,
+                );
             }
         }
         if mask.includes("track_temp") {

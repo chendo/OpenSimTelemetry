@@ -2,6 +2,8 @@
 //!
 //! Sinks forward telemetry data to various destinations (HTTP, UDP, file)
 
+#![allow(dead_code)]
+
 use crate::state::{SinkConfig, SinkType};
 use anyhow::Result;
 use ost_core::model::{FieldMask, TelemetryFrame};
@@ -72,10 +74,7 @@ pub struct FileSink {
 impl FileSink {
     pub fn new(path: String) -> Result<Self> {
         use std::fs::OpenOptions;
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
         Ok(Self { file })
     }
 }

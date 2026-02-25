@@ -22,9 +22,7 @@ pub async fn run(state: AppState) {
     state
         .register_adapter(Box::new(IRacingAdapter::new()))
         .await;
-    state
-        .register_adapter(Box::new(DemoAdapter::new()))
-        .await;
+    state.register_adapter(Box::new(DemoAdapter::new())).await;
 
     info!("Adapter manager started");
 

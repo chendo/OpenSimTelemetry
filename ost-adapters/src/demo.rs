@@ -5,11 +5,7 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use ost_core::{
-    adapter::TelemetryAdapter,
-    model::*,
-    units::*,
-};
+use ost_core::{adapter::TelemetryAdapter, model::*, units::*};
 use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::time::Instant;
@@ -93,8 +89,8 @@ impl DemoAdapter {
                 GForce(longitudinal_g),
             )),
             rotation: Some(Vector3::new(
-                Radians(0.0),                         // pitch
-                Radians(elapsed * 0.1),               // yaw (slowly rotating)
+                Radians(0.0),                          // pitch
+                Radians(elapsed * 0.1),                // yaw (slowly rotating)
                 Radians(0.05 * (elapsed * 0.5).sin()), // roll
             )),
             angular_velocity: Some(Vector3::new(
