@@ -480,18 +480,24 @@
             color: var(--text-muted);
             cursor: pointer;
             user-select: none;
-            padding: 2px 6px;
+            padding: 2px 8px;
             border-radius: 3px;
+            border: 1px solid transparent;
+            transition: all 0.12s ease;
         }
         .graph-legend-item .graph-legend-dot { opacity: 0.3; }
-        .graph-legend-item.active { color: var(--text-secondary); }
+        .graph-legend-item.active {
+            color: var(--text-primary);
+            background: rgba(255,255,255,0.06);
+            border-color: rgba(255,255,255,0.1);
+        }
         .graph-legend-item.active .graph-legend-dot { opacity: 1; }
-        .graph-legend-item:hover { background: rgba(255,255,255,0.04); }
+        .graph-legend-item:hover { background: rgba(255,255,255,0.08); }
 
         .graph-legend-dot {
             width: 8px;
-            height: 3px;
-            border-radius: 1px;
+            height: 8px;
+            border-radius: 50%;
             flex-shrink: 0;
         }
 
