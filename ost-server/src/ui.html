@@ -833,6 +833,7 @@
         yaw_rate:    { label: 'Yaw Rate',   color: '#eab308', unit: 'deg/s', norm: 'centered',  extract: f => (f.motion?.angular_velocity?.y ?? 0) * RAD2DEG },
         roll:        { label: 'Roll',       color: '#14b8a6', unit: 'deg',   norm: 'centered',  extract: f => (f.motion?.rotation?.z ?? 0) * RAD2DEG },
     };
+    const GRAPH_METRIC_KEYS = Object.keys(GRAPH_METRICS);
 
     /* ==================== TelemetryStore ==================== */
     class TelemetryStore {
@@ -840,6 +841,7 @@
             this.currentFrame = null;
             this.adapters = [];
             this.sinks = [];
+            this._dirty = false;
             // Ring buffer: fixed-size array with write pointer
             this._ring = new Array(BUFFER_MAX);
             this._head = 0;  // next write position
@@ -848,26 +850,35 @@
 
         pushFrame(frame) {
             this.currentFrame = frame;
+            this._dirty = true;
             const entry = { t: performance.now() };
-            for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
-                entry[key] = metric.extract(frame);
+            for (let i = 0; i < GRAPH_METRIC_KEYS.length; i++) {
+                const key = GRAPH_METRIC_KEYS[i];
+                entry[key] = GRAPH_METRICS[key].extract(frame);
             }
             this._ring[this._head] = entry;
             this._head = (this._head + 1) % BUFFER_MAX;
             if (this._count < BUFFER_MAX) this._count++;
         }
 
-        getBufferWindow(durationMs) {
-            if (this._count === 0) return [];
-            const cutoff = performance.now() - durationMs;
-            const result = [];
-            // Start from oldest entry in ring
-            const start = this._count < BUFFER_MAX ? 0 : this._head;
-            for (let i = 0; i < this._count; i++) {
-                const entry = this._ring[(start + i) % BUFFER_MAX];
-                if (entry.t >= cutoff) result.push(entry);
+        // Returns { start, count } indices into ring for the given time window.
+        // Caller uses ringAt(idx) to access entries without allocating an array.
+        getWindowRange(durationMs, now) {
+            if (this._count === 0) return { start: 0, count: 0 };
+            const cutoff = now - durationMs;
+            const oldest = this._count < BUFFER_MAX ? 0 : this._head;
+            // Binary search for first entry >= cutoff
+            let lo = 0, hi = this._count;
+            while (lo < hi) {
+                const mid = (lo + hi) >>> 1;
+                if (this._ring[(oldest + mid) % BUFFER_MAX].t < cutoff) lo = mid + 1;
+                else hi = mid;
             }
-            return result;
+            return { start: (oldest + lo) % BUFFER_MAX, count: this._count - lo };
+        }
+
+        ringAt(idx) {
+            return this._ring[idx % BUFFER_MAX];
         }
     }
 
@@ -898,16 +909,26 @@
         }
     }
 
+    /* ==================== Widget Visibility Observer ==================== */
+    const widgetVisibilityObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+            const widget = entry.target._widget;
+            if (widget) widget._visible = entry.isIntersecting;
+        }
+    }, { rootMargin: '50px' });
+
     /* ==================== Widget Base ==================== */
     class Widget {
         constructor(id, title, defaultLayout) {
             this.id = id;
             this.title = title;
             this.layout = { ...defaultLayout };
+            this._visible = true;
 
             this.element = document.createElement('div');
             this.element.className = 'widget';
             this.element.dataset.widgetId = id;
+            this.element._widget = this;
 
             this.titleBar = document.createElement('div');
             this.titleBar.className = 'widget-title';
@@ -931,11 +952,12 @@
         init() {
             this.buildContent(this.contentArea);
             this.applyLayout();
+            widgetVisibilityObserver.observe(this.element);
             return this;
         }
 
         buildContent(container) {}
-        update(store) {}
+        update(store, now) {}
         onResize() {}
 
         applyLayout() {
@@ -1112,6 +1134,7 @@
         removeWidget(id) {
             const w = this.widgets.get(id);
             if (w) {
+                widgetVisibilityObserver.unobserve(w.element);
                 w.element.remove();
                 this.widgets.delete(id);
                 this.saveLayout();
@@ -1225,8 +1248,10 @@
     class GForceWidget extends Widget {
         constructor() {
             super('gforce', 'G-Force', { col: 5, row: 1, width: 4, height: 6 });
-            this.trail = [];
             this.trailMax = 40;
+            this._trail = new Array(this.trailMax);
+            this._trailHead = 0;
+            this._trailCount = 0;
             this.gScale = 2.0;
         }
 
@@ -1248,12 +1273,14 @@
 
         _cache(c, map) { this.valEls = {}; for (const [k, sel] of Object.entries(map)) this.valEls[k] = c.querySelector(sel); }
 
-        update(store) {
+        update(store, now) {
             const f = store.currentFrame; if (!f) return;
             const gf = f.motion?.g_force;
             const gx = gf?.x ?? 0, gy = gf?.y ?? 0, gz = gf?.z ?? 0;
-            this.trail.push({ x: gx, y: gz });
-            if (this.trail.length > this.trailMax) this.trail.shift();
+            // Ring buffer trail
+            this._trail[this._trailHead] = { x: gx, y: gz };
+            this._trailHead = (this._trailHead + 1) % this.trailMax;
+            if (this._trailCount < this.trailMax) this._trailCount++;
 
             this.valEls.lat.textContent = gx.toFixed(2);
             this.valEls.long.textContent = gz.toFixed(2);
@@ -1302,17 +1329,19 @@
             const scale = radius / this.gScale;
             const toP = (lat, lon) => ({ px: cx + lat * scale, py: cy - lon * scale });
 
-            // Trail
-            for (let i = 0; i < this.trail.length - 1; i++) {
-                const alpha = (i / this.trail.length) * 0.5;
-                const p = toP(this.trail[i].x, this.trail[i].y);
+            // Trail (ring buffer iteration, oldest to newest, skip last which is current dot)
+            const trailStart = this._trailCount < this.trailMax ? 0 : this._trailHead;
+            for (let i = 0; i < this._trailCount - 1; i++) {
+                const alpha = (i / this._trailCount) * 0.5;
+                const entry = this._trail[(trailStart + i) % this.trailMax];
+                const p = toP(entry.x, entry.y);
                 ctx.beginPath(); ctx.arc(p.px, p.py, 2, 0, Math.PI * 2);
                 ctx.fillStyle = `rgba(0,214,143,${alpha})`; ctx.fill();
             }
 
             // Current dot
-            if (this.trail.length > 0) {
-                const last = this.trail[this.trail.length - 1];
+            if (this._trailCount > 0) {
+                const last = this._trail[(this._trailHead - 1 + this.trailMax) % this.trailMax];
                 const p = toP(last.x, last.y);
                 ctx.beginPath(); ctx.arc(p.px, p.py, 6, 0, Math.PI * 2);
                 ctx.fillStyle = 'rgba(0,214,143,0.3)'; ctx.fill();
@@ -1450,7 +1479,7 @@
             }
         }
 
-        update(store) {
+        update(store, now) {
             const canvas = this.canvas;
             const dpr = window.devicePixelRatio || 1;
             const wrap = canvas.parentElement;
@@ -1465,10 +1494,11 @@
             const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
             ctx.clearRect(0, 0, w, h);
 
-            const data = store.getBufferWindow(this.timeWindowMs);
-            if (data.length < 2) return;
+            const { start, count } = store.getWindowRange(this.timeWindowMs, now);
+            if (count < 2) return;
 
-            const tMin = data[0].t, tMax = data[data.length - 1].t;
+            const tMin = store.ringAt(start).t;
+            const tMax = store.ringAt(start + count - 1).t;
             const tRange = Math.max(tMax - tMin, 1);
 
             // Compute max values for enabled metrics in this window
@@ -1477,11 +1507,11 @@
                 if (!metric) continue;
                 if (metric.norm === 'autoscale') {
                     let mx = 0;
-                    for (const e of data) { if (Math.abs(e[key]) > mx) mx = Math.abs(e[key]); }
+                    for (let i = 0; i < count; i++) { const v = Math.abs(store.ringAt(start + i)[key]); if (v > mx) mx = v; }
                     this.maxSeen[key] = Math.max(mx, this.maxSeen[key] || 0, 0.001);
                 } else if (metric.norm === 'centered') {
                     let mx = 0;
-                    for (const e of data) { if (Math.abs(e[key]) > mx) mx = Math.abs(e[key]); }
+                    for (let i = 0; i < count; i++) { const v = Math.abs(store.ringAt(start + i)[key]); if (v > mx) mx = v; }
                     this.maxSeen[key] = Math.max(mx, 0.001);
                 }
             }
@@ -1501,8 +1531,8 @@
                 if (!metric) continue;
                 ctx.beginPath(); ctx.strokeStyle = metric.color; ctx.lineWidth = 1.5;
 
-                for (let i = 0; i < data.length; i++) {
-                    const entry = data[i];
+                for (let i = 0; i < count; i++) {
+                    const entry = store.ringAt(start + i);
                     const x = pad.left + ((entry.t - tMin) / tRange) * pw;
                     let val;
                     if (metric.norm === 'pct') {
@@ -1680,9 +1710,8 @@
             this.filterInput.addEventListener('input', () => this.renderFields());
         }
 
-        update(store) {
+        update(store, now) {
             this.lastFrame = store.currentFrame;
-            const now = performance.now();
             if (!this._lastRender || now - this._lastRender > 250) {
                 this._lastRender = now;
                 this.renderFields();
@@ -1867,7 +1896,13 @@
 
     // Render loop (decoupled from SSE)
     function renderLoop() {
-        for (const w of grid.widgets.values()) w.update(store);
+        if (store._dirty) {
+            store._dirty = false;
+            const now = performance.now();
+            for (const w of grid.widgets.values()) {
+                if (w._visible) w.update(store, now);
+            }
+        }
         requestAnimationFrame(renderLoop);
     }
 
