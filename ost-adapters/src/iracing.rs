@@ -19,6 +19,13 @@ mod windows_impl {
         active: bool,
     }
 
+    // SAFETY: iRacing's shared memory is thread-safe for reading.
+    // The Connection and Blocking types contain raw pointers to memory-mapped files,
+    // which are safe to access from multiple threads (Windows handles the synchronization).
+    // We never mutate the shared state, only read from it.
+    unsafe impl Send for IRacingAdapter {}
+    unsafe impl Sync for IRacingAdapter {}
+
     impl IRacingAdapter {
         pub fn new() -> Self {
             Self {
@@ -208,35 +215,42 @@ mod windows_impl {
 
         /// Extract per-wheel telemetry data
         fn extract_wheel_data(sample: &IRacingSample) -> Option<WheelData> {
-            let get_f32 = |name: &'static str| -> Option<f32> {
+            // Helper to get f32 values from sample
+            let get_f32 = |name: &str| -> Option<f32> {
                 sample.get(name).ok().and_then(|v| v.try_into().ok())
             };
 
             // Helper to create wheel info for a specific wheel
             let create_wheel = |prefix: &str| -> WheelInfo {
+                let shock_defl = format!("{}shockDefl", prefix);
+                let air_pressure = format!("{}airPressure", prefix);
+                let temp_cl = format!("{}tempCL", prefix);
+                let temp_cc = format!("{}tempCC", prefix);
+                let temp_cr = format!("{}tempCR", prefix);
+                let wear = format!("{}wear", prefix);
+                let speed = format!("{}speed", prefix);
+
                 WheelInfo {
-                    suspension_travel: get_f32(&format!("{}shockDefl", prefix)).map(Meters),
-                    tyre_pressure: get_f32(&format!("{}airPressure", prefix))
-                        .map(|p| Kilopascals(p)),
-                    tyre_temp_surface: get_f32(&format!("{}tempCL", prefix))
+                    suspension_travel: get_f32(&shock_defl).map(Meters),
+                    tyre_pressure: get_f32(&air_pressure).map(|p| Kilopascals(p)),
+                    tyre_temp_surface: get_f32(&temp_cl)
                         .or_else(|| {
                             // Average of L, C, R temps if available
-                            let l = get_f32(&format!("{}tempCL", prefix));
-                            let c = get_f32(&format!("{}tempCC", prefix));
-                            let r = get_f32(&format!("{}tempCR", prefix));
+                            let l = get_f32(&temp_cl);
+                            let c = get_f32(&temp_cc);
+                            let r = get_f32(&temp_cr);
                             match (l, c, r) {
                                 (Some(l), Some(c), Some(r)) => Some((l + c + r) / 3.0),
                                 _ => None,
                             }
                         })
                         .map(Celsius),
-                    tyre_temp_inner: get_f32(&format!("{}tempCC", prefix)).map(Celsius),
-                    tyre_wear: get_f32(&format!("{}wear", prefix)).map(|w| Percentage::new(w)),
+                    tyre_temp_inner: get_f32(&temp_cc).map(Celsius),
+                    tyre_wear: get_f32(&wear).map(|w| Percentage::new(w)),
                     slip_ratio: None, // Not directly available
                     slip_angle: None, // Not directly available
                     load: None,       // Not directly available
-                    rotation_speed: get_f32(&format!("{}speed", prefix))
-                        .map(|s| RadiansPerSecond(s)),
+                    rotation_speed: get_f32(&speed).map(|s| RadiansPerSecond(s)),
                 }
             };
 
