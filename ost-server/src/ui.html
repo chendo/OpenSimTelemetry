@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenSimTelemetry</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0f1419;
+            color: #e6e6e6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #58a6ff;
+            margin-bottom: 30px;
+            font-size: 2rem;
+        }
+
+        h2 {
+            color: #79c0ff;
+            margin-bottom: 15px;
+            font-size: 1.3rem;
+            border-bottom: 2px solid #30363d;
+            padding-bottom: 8px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 20px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .status-active {
+            background: #238636;
+            color: white;
+        }
+
+        .status-detected {
+            background: #1f6feb;
+            color: white;
+        }
+
+        .status-inactive {
+            background: #484f58;
+            color: #8b949e;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #30363d;
+        }
+
+        th {
+            color: #79c0ff;
+            font-weight: 600;
+        }
+
+        .gauge-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .gauge {
+            background: #0d1117;
+            border-radius: 6px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .gauge-label {
+            color: #8b949e;
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+        }
+
+        .gauge-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #58a6ff;
+        }
+
+        .gauge-unit {
+            font-size: 0.9rem;
+            color: #8b949e;
+            margin-left: 4px;
+        }
+
+        .g-force-display {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .g-force-axis {
+            background: #0d1117;
+            padding: 12px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .g-force-label {
+            font-size: 0.8rem;
+            color: #8b949e;
+            margin-bottom: 4px;
+        }
+
+        .g-force-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .g-positive {
+            color: #3fb950;
+        }
+
+        .g-negative {
+            color: #f85149;
+        }
+
+        button {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        button:hover {
+            background: #2ea043;
+        }
+
+        button.danger {
+            background: #da3633;
+        }
+
+        button.danger:hover {
+            background: #f85149;
+        }
+
+        input, select {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            color: #e6e6e6;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #58a6ff;
+        }
+
+        label {
+            display: block;
+            color: #8b949e;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+            margin-top: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .connection-connected {
+            background: #238636;
+            color: white;
+        }
+
+        .connection-disconnected {
+            background: #da3633;
+            color: white;
+        }
+
+        .no-data {
+            text-align: center;
+            color: #8b949e;
+            padding: 40px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-status" id="connectionStatus">Connecting...</div>
+
+    <div class="container">
+        <h1>🏎️ OpenSimTelemetry</h1>
+
+        <!-- Adapter Status -->
+        <div class="card">
+            <h2>Adapters</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="adapterList">
+                    <tr><td colspan="2" class="no-data">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Live Telemetry -->
+        <div class="card">
+            <h2>Live Telemetry</h2>
+            <div id="telemetryContainer">
+                <p class="no-data">Waiting for telemetry data...</p>
+            </div>
+        </div>
+
+        <!-- Sink Management -->
+        <div class="card">
+            <h2>Output Sinks</h2>
+            <div id="sinkList">
+                <p class="no-data">No sinks configured</p>
+            </div>
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #30363d;">
+            <h3 style="color: #8b949e; font-size: 1rem; margin-bottom: 10px;">Add New Sink</h3>
+            <form id="addSinkForm">
+                <div class="form-group">
+                    <label>Sink Type</label>
+                    <select id="sinkType">
+                        <option value="http">HTTP POST</option>
+                        <option value="udp">UDP</option>
+                        <option value="file">File (NDJSON)</option>
+                    </select>
+                </div>
+                <div id="sinkTypeFields"></div>
+                <div class="form-group">
+                    <label>Field Filter (optional, comma-separated)</label>
+                    <input type="text" id="fieldMask" placeholder="e.g., rpm,speed,gear,throttle">
+                    <small style="color: #8b949e;">Leave empty to include all fields</small>
+                </div>
+                <button type="submit">Add Sink</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let lastTelemetry = null;
+
+        // Initialize
+        async function init() {
+            loadAdapters();
+            loadSinks();
+            connectTelemetryStream();
+            setupSinkForm();
+
+            // Refresh adapters every 2 seconds
+            setInterval(loadAdapters, 2000);
+        }
+
+        // Load adapter list
+        async function loadAdapters() {
+            try {
+                const response = await fetch('/api/adapters');
+                const adapters = await response.json();
+
+                const tbody = document.getElementById('adapterList');
+                if (adapters.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="2" class="no-data">No adapters registered</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = adapters.map(adapter => `
+                    <tr>
+                        <td>${adapter.name}</td>
+                        <td>
+                            ${adapter.active
+                                ? '<span class="status-badge status-active">Active</span>'
+                                : adapter.detected
+                                    ? '<span class="status-badge status-detected">Detected</span>'
+                                    : '<span class="status-badge status-inactive">Inactive</span>'
+                            }
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('Failed to load adapters:', e);
+            }
+        }
+
+        // Connect to telemetry SSE stream
+        function connectTelemetryStream() {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            eventSource = new EventSource('/api/telemetry/stream');
+
+            eventSource.onopen = () => {
+                updateConnectionStatus(true);
+            };
+
+            eventSource.onerror = () => {
+                updateConnectionStatus(false);
+                setTimeout(connectTelemetryStream, 5000);
+            };
+
+            eventSource.onmessage = (event) => {
+                try {
+                    lastTelemetry = JSON.parse(event.data);
+                    updateTelemetryDisplay(lastTelemetry);
+                } catch (e) {
+                    console.error('Failed to parse telemetry:', e);
+                }
+            };
+        }
+
+        // Update connection status indicator
+        function updateConnectionStatus(connected) {
+            const status = document.getElementById('connectionStatus');
+            if (connected) {
+                status.textContent = 'Connected';
+                status.className = 'connection-status connection-connected';
+            } else {
+                status.textContent = 'Disconnected';
+                status.className = 'connection-status connection-disconnected';
+            }
+        }
+
+        // Update telemetry display
+        function updateTelemetryDisplay(data) {
+            const container = document.getElementById('telemetryContainer');
+
+            container.innerHTML = `
+                <div class="gauge-container">
+                    <div class="gauge">
+                        <div class="gauge-label">RPM</div>
+                        <div class="gauge-value">
+                            ${data.rpm ? Math.round(data.rpm) : 'N/A'}
+                        </div>
+                    </div>
+                    <div class="gauge">
+                        <div class="gauge-label">Speed</div>
+                        <div class="gauge-value">
+                            ${data.speed ? Math.round(data.speed * 3.6) : 'N/A'}
+                            <span class="gauge-unit">km/h</span>
+                        </div>
+                    </div>
+                    <div class="gauge">
+                        <div class="gauge-label">Gear</div>
+                        <div class="gauge-value">
+                            ${data.gear !== null && data.gear !== undefined
+                                ? (data.gear === -1 ? 'R' : data.gear === 0 ? 'N' : data.gear)
+                                : 'N/A'
+                            }
+                        </div>
+                    </div>
+                    <div class="gauge">
+                        <div class="gauge-label">Throttle</div>
+                        <div class="gauge-value">
+                            ${data.throttle ? Math.round(data.throttle * 100) : 0}
+                            <span class="gauge-unit">%</span>
+                        </div>
+                    </div>
+                    <div class="gauge">
+                        <div class="gauge-label">Brake</div>
+                        <div class="gauge-value">
+                            ${data.brake ? Math.round(data.brake * 100) : 0}
+                            <span class="gauge-unit">%</span>
+                        </div>
+                    </div>
+                    <div class="gauge">
+                        <div class="gauge-label">Steering</div>
+                        <div class="gauge-value">
+                            ${data.steering ? Math.round(data.steering * 100) : 0}
+                            <span class="gauge-unit">%</span>
+                        </div>
+                    </div>
+                </div>
+
+                ${data.g_force ? `
+                    <h3 style="color: #8b949e; margin-top: 20px; margin-bottom: 10px;">G-Forces</h3>
+                    <div class="g-force-display">
+                        <div class="g-force-axis">
+                            <div class="g-force-label">Lateral (X)</div>
+                            <div class="g-force-value ${data.g_force.x >= 0 ? 'g-positive' : 'g-negative'}">
+                                ${data.g_force.x.toFixed(2)}g
+                            </div>
+                        </div>
+                        <div class="g-force-axis">
+                            <div class="g-force-label">Vertical (Y)</div>
+                            <div class="g-force-value ${data.g_force.y >= 0 ? 'g-positive' : 'g-negative'}">
+                                ${data.g_force.y.toFixed(2)}g
+                            </div>
+                        </div>
+                        <div class="g-force-axis">
+                            <div class="g-force-label">Longitudinal (Z)</div>
+                            <div class="g-force-value ${data.g_force.z >= 0 ? 'g-positive' : 'g-negative'}">
+                                ${data.g_force.z.toFixed(2)}g
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+
+                ${data.current_lap_time ? `
+                    <h3 style="color: #8b949e; margin-top: 20px; margin-bottom: 10px;">Lap Info</h3>
+                    <div class="gauge-container">
+                        <div class="gauge">
+                            <div class="gauge-label">Current Lap</div>
+                            <div class="gauge-value" style="font-size: 1.5rem;">
+                                ${formatTime(data.current_lap_time)}
+                            </div>
+                        </div>
+                        ${data.best_lap_time ? `
+                            <div class="gauge">
+                                <div class="gauge-label">Best Lap</div>
+                                <div class="gauge-value" style="font-size: 1.5rem;">
+                                    ${formatTime(data.best_lap_time)}
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${data.lap_number ? `
+                            <div class="gauge">
+                                <div class="gauge-label">Lap Number</div>
+                                <div class="gauge-value">
+                                    ${data.lap_number}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        // Format time in seconds to MM:SS.mmm
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins}:${secs.toFixed(3).padStart(6, '0')}`;
+        }
+
+        // Load sink list
+        async function loadSinks() {
+            try {
+                const response = await fetch('/api/sinks');
+                const sinks = await response.json();
+
+                const container = document.getElementById('sinkList');
+                if (sinks.length === 0) {
+                    container.innerHTML = '<p class="no-data">No sinks configured</p>';
+                    return;
+                }
+
+                container.innerHTML = sinks.map(sink => `
+                    <div style="background: #0d1117; padding: 12px; border-radius: 4px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>${sink.sink_type.type.toUpperCase()}</strong>:
+                            ${getSinkDescription(sink.sink_type)}
+                            ${sink.field_mask ? `<br><small style="color: #8b949e;">Fields: ${sink.field_mask}</small>` : ''}
+                        </div>
+                        <button class="danger" onclick="deleteSink('${sink.id}')">Delete</button>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Failed to load sinks:', e);
+            }
+        }
+
+        function getSinkDescription(sinkType) {
+            if (sinkType.type === 'http') return sinkType.url;
+            if (sinkType.type === 'udp') return `${sinkType.host}:${sinkType.port}`;
+            if (sinkType.type === 'file') return sinkType.path;
+            return '';
+        }
+
+        // Delete sink
+        async function deleteSink(id) {
+            try {
+                await fetch(`/api/sinks/${id}`, { method: 'DELETE' });
+                loadSinks();
+            } catch (e) {
+                console.error('Failed to delete sink:', e);
+                alert('Failed to delete sink');
+            }
+        }
+
+        // Setup sink form
+        function setupSinkForm() {
+            const typeSelect = document.getElementById('sinkType');
+            typeSelect.addEventListener('change', updateSinkTypeFields);
+            updateSinkTypeFields();
+
+            document.getElementById('addSinkForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const sinkType = document.getElementById('sinkType').value;
+                const fieldMask = document.getElementById('fieldMask').value.trim();
+
+                let sinkConfig = {
+                    id: '',
+                    sink_type: { type: sinkType },
+                    field_mask: fieldMask || null
+                };
+
+                if (sinkType === 'http') {
+                    sinkConfig.sink_type.url = document.getElementById('url').value;
+                } else if (sinkType === 'udp') {
+                    sinkConfig.sink_type.host = document.getElementById('host').value;
+                    sinkConfig.sink_type.port = parseInt(document.getElementById('port').value);
+                } else if (sinkType === 'file') {
+                    sinkConfig.sink_type.path = document.getElementById('path').value;
+                }
+
+                try {
+                    await fetch('/api/sinks', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(sinkConfig)
+                    });
+
+                    document.getElementById('addSinkForm').reset();
+                    loadSinks();
+                } catch (e) {
+                    console.error('Failed to add sink:', e);
+                    alert('Failed to add sink');
+                }
+            });
+        }
+
+        function updateSinkTypeFields() {
+            const sinkType = document.getElementById('sinkType').value;
+            const container = document.getElementById('sinkTypeFields');
+
+            if (sinkType === 'http') {
+                container.innerHTML = `
+                    <div class="form-group">
+                        <label>URL</label>
+                        <input type="url" id="url" placeholder="http://localhost:8080/telemetry" required>
+                    </div>
+                `;
+            } else if (sinkType === 'udp') {
+                container.innerHTML = `
+                    <div class="form-group">
+                        <label>Host</label>
+                        <input type="text" id="host" placeholder="127.0.0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Port</label>
+                        <input type="number" id="port" placeholder="9200" required>
+                    </div>
+                `;
+            } else if (sinkType === 'file') {
+                container.innerHTML = `
+                    <div class="form-group">
+                        <label>File Path</label>
+                        <input type="text" id="path" placeholder="/tmp/telemetry.ndjson" required>
+                    </div>
+                `;
+            }
+        }
+
+        // Start the application
+        init();
+    </script>
+</body>
+</html>
