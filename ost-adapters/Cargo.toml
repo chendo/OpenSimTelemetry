@@ -1,0 +1,19 @@
+[package]
+name = "ost-adapters"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Game-specific telemetry adapters for OpenSimTelemetry"
+
+[dependencies]
+ost-core = { path = "../ost-core" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true }
+iracing = { git = "https://github.com/leoadamek/iracing.rs", features = ["telemetry"] }
