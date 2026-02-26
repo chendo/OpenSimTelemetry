@@ -1338,6 +1338,11 @@
         ringAt(idx) {
             return this._ring[idx % BUFFER_MAX];
         }
+
+        latestTime() {
+            if (this._count === 0) return null;
+            return this._ring[(this._head - 1 + BUFFER_MAX) % BUFFER_MAX].t;
+        }
     }
 
     /* ==================== SSEConnection ==================== */
@@ -2118,7 +2123,10 @@
             const ctx = this.ctx;
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-            const { start, count } = store.getWindowRange(this.timeWindowMs, now);
+            // Freeze time window when data stops flowing (e.g. paused replay)
+            const latestT = store.latestTime();
+            const effectiveNow = (latestT && now - latestT > 2000) ? latestT + 500 : now;
+            const { start, count } = store.getWindowRange(this.timeWindowMs, effectiveNow);
             if (count < 2) { ctx.clearRect(0, 0, w, h); return; }
 
             // Build unified traces array from enabled metrics
@@ -2554,7 +2562,7 @@
                 if (sinkType === 'http') config.sink_type.url = c.querySelector('#sk-url')?.value;
                 else if (sinkType === 'udp') { config.sink_type.host = c.querySelector('#sk-host')?.value; config.sink_type.port = parseInt(c.querySelector('#sk-port')?.value); }
                 else if (sinkType === 'file') config.sink_type.path = c.querySelector('#sk-path')?.value;
-                try { await fetch('/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); this._lastSinkCount = -1; } catch(e) { console.error(e); }
+                try { await fetch('/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); this._lastSinkCount = -1; pollSinks(); requestRedraw(); } catch(e) { console.error(e); }
             });
         }
 
@@ -2577,7 +2585,7 @@
                     }).join('');
                     this.listEl.querySelectorAll('.btn-delete').forEach(btn => {
                         btn.addEventListener('click', async () => {
-                            try { await fetch(`/api/sinks/${btn.dataset.id}`, { method: 'DELETE' }); this._lastSinkCount = -1; } catch(e) { console.error(e); }
+                            try { await fetch(`/api/sinks/${btn.dataset.id}`, { method: 'DELETE' }); this._lastSinkCount = -1; pollSinks(); requestRedraw(); } catch(e) { console.error(e); }
                         });
                     });
                 }
@@ -2842,7 +2850,7 @@
         requestAnimationFrame(renderLoop);
     }
 
-    // Polling: adapters every 2s, sinks every 5s
+    // Polling: adapters every 30s, sinks every 30s (also refreshed on mutation)
     async function pollAdapters() {
         try { store.adapters = await (await fetch('/api/adapters')).json(); updateHeaderAdapters(); } catch {}
     }
@@ -2853,8 +2861,8 @@
     // Start
     sse.connect();
     pollAdapters(); pollSinks();
-    setInterval(pollAdapters, 2000);
-    setInterval(pollSinks, 5000);
+    setInterval(pollAdapters, 30000);
+    setInterval(pollSinks, 30000);
     requestAnimationFrame(renderLoop);
 
     // Replay: drag-drop and init
