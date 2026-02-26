@@ -2,13 +2,8 @@
 //!
 //! Main server application with web UI and REST API
 
-mod api;
-mod manager;
-mod sinks;
-mod state;
-mod web_ui;
-
 use anyhow::Result;
+use ost_server::{api, manager, state};
 use std::net::SocketAddr;
 use tracing::info;
 

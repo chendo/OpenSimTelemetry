@@ -572,3 +572,242 @@ impl TelemetryFrame {
         serde_json::to_string(&map)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::units::*;
+
+    /// Helper to construct a minimal TelemetryFrame for testing
+    fn make_test_frame() -> TelemetryFrame {
+        TelemetryFrame {
+            timestamp: Utc::now(),
+            game: "TestGame".to_string(),
+            position: None,
+            velocity: None,
+            acceleration: None,
+            g_force: None,
+            rotation: None,
+            angular_velocity: None,
+            angular_acceleration: None,
+            speed: Some(MetersPerSecond(30.0)),
+            rpm: Some(Rpm(5000.0)),
+            gear: Some(3),
+            max_gears: Some(6),
+            throttle: Some(Percentage::new(0.75)),
+            brake: Some(Percentage::new(0.0)),
+            clutch: Some(Percentage::new(0.0)),
+            steering: Some(0.1),
+            engine_temp: Some(Celsius(90.0)),
+            fuel_level: Some(Percentage::new(0.8)),
+            fuel_capacity: Some(60.0),
+            wheels: None,
+            current_lap_time: Some(Seconds(45.2)),
+            last_lap_time: Some(Seconds(87.3)),
+            best_lap_time: Some(Seconds(85.1)),
+            sector_times: None,
+            lap_number: Some(5),
+            race_position: Some(3),
+            num_cars: Some(20),
+            session_type: Some(SessionType::Race),
+            session_time_remaining: Some(Seconds(1200.0)),
+            track_temp: Some(Celsius(28.0)),
+            air_temp: Some(Celsius(22.0)),
+            track_name: Some("Test Track".to_string()),
+            car_name: Some("Test Car".to_string()),
+            flag: Some(FlagType::Green),
+            damage: None,
+            extras: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_field_mask_parse_comma_separated() {
+        let mask = FieldMask::parse("speed,rpm,gear");
+        assert!(mask.includes("speed"));
+        assert!(mask.includes("rpm"));
+        assert!(mask.includes("gear"));
+        assert!(!mask.includes("throttle"));
+        assert!(!mask.is_all());
+    }
+
+    #[test]
+    fn test_field_mask_parse_with_whitespace() {
+        let mask = FieldMask::parse(" speed , rpm , gear ");
+        assert!(mask.includes("speed"));
+        assert!(mask.includes("rpm"));
+        assert!(mask.includes("gear"));
+    }
+
+    #[test]
+    fn test_field_mask_parse_case_insensitive() {
+        let mask = FieldMask::parse("Speed,RPM,Gear");
+        assert!(mask.includes("speed"));
+        assert!(mask.includes("rpm"));
+        assert!(mask.includes("gear"));
+    }
+
+    #[test]
+    fn test_field_mask_parse_empty_string() {
+        let mask = FieldMask::parse("");
+        assert!(!mask.is_all());
+        // Empty string should produce no fields (the empty token is filtered out)
+        assert!(!mask.includes("speed"));
+    }
+
+    #[test]
+    fn test_field_mask_all() {
+        let mask = FieldMask::all();
+        assert!(mask.is_all());
+        assert!(mask.includes("speed"));
+        assert!(mask.includes("anything"));
+    }
+
+    #[test]
+    fn test_field_mask_from_str() {
+        let mask: FieldMask = "speed,rpm".parse().unwrap();
+        assert!(mask.includes("speed"));
+        assert!(mask.includes("rpm"));
+        assert!(!mask.includes("gear"));
+    }
+
+    #[test]
+    fn test_field_mask_builder() {
+        let mask = FieldMask::builder()
+            .speed()
+            .rpm()
+            .gear()
+            .build();
+        assert!(mask.includes("speed"));
+        assert!(mask.includes("rpm"));
+        assert!(mask.includes("gear"));
+        assert!(!mask.includes("throttle"));
+    }
+
+    #[test]
+    fn test_to_json_filtered_with_none_returns_full_frame() {
+        let frame = make_test_frame();
+        let json = frame.to_json_filtered(None).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Full frame should contain all populated fields
+        assert!(parsed.get("timestamp").is_some());
+        assert!(parsed.get("game").is_some());
+        assert!(parsed.get("speed").is_some());
+        assert!(parsed.get("rpm").is_some());
+        assert!(parsed.get("gear").is_some());
+        assert!(parsed.get("throttle").is_some());
+        assert!(parsed.get("track_name").is_some());
+        assert!(parsed.get("car_name").is_some());
+    }
+
+    #[test]
+    fn test_to_json_filtered_with_all_mask_returns_full_frame() {
+        let frame = make_test_frame();
+        let mask = FieldMask::all();
+        let json = frame.to_json_filtered(Some(&mask)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert!(parsed.get("speed").is_some());
+        assert!(parsed.get("rpm").is_some());
+        assert!(parsed.get("gear").is_some());
+        assert!(parsed.get("track_name").is_some());
+    }
+
+    #[test]
+    fn test_to_json_filtered_with_mask_returns_only_requested_fields() {
+        let frame = make_test_frame();
+        let mask = FieldMask::parse("speed,rpm");
+        let json = frame.to_json_filtered(Some(&mask)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Always-included fields
+        assert!(parsed.get("timestamp").is_some());
+        assert!(parsed.get("game").is_some());
+
+        // Requested fields
+        assert!(parsed.get("speed").is_some());
+        assert!(parsed.get("rpm").is_some());
+
+        // Fields NOT requested should be absent
+        assert!(parsed.get("gear").is_none());
+        assert!(parsed.get("throttle").is_none());
+        assert!(parsed.get("track_name").is_none());
+        assert!(parsed.get("car_name").is_none());
+        assert!(parsed.get("flag").is_none());
+    }
+
+    #[test]
+    fn test_to_json_filtered_with_mask_for_none_field() {
+        let frame = make_test_frame();
+        // position is None in our test frame
+        let mask = FieldMask::parse("position,speed");
+        let json = frame.to_json_filtered(Some(&mask)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // position is None, so it should not appear even if requested
+        assert!(parsed.get("position").is_none());
+        // speed is Some, so it should appear
+        assert!(parsed.get("speed").is_some());
+    }
+
+    #[test]
+    fn test_telemetry_frame_serialization_roundtrip() {
+        let frame = make_test_frame();
+        let json = serde_json::to_string(&frame).unwrap();
+        let deserialized: TelemetryFrame = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.game, "TestGame");
+        assert_eq!(deserialized.gear, Some(3));
+        assert_eq!(deserialized.max_gears, Some(6));
+        assert_eq!(deserialized.race_position, Some(3));
+        assert_eq!(deserialized.session_type, Some(SessionType::Race));
+        assert_eq!(deserialized.flag, Some(FlagType::Green));
+    }
+
+    #[test]
+    fn test_vector3_new() {
+        let v = Vector3::new(Meters(1.0), Meters(2.0), Meters(3.0));
+        assert_eq!(v.x, Meters(1.0));
+        assert_eq!(v.y, Meters(2.0));
+        assert_eq!(v.z, Meters(3.0));
+    }
+
+    #[test]
+    fn test_session_type_serialization() {
+        let st = SessionType::Race;
+        let json = serde_json::to_string(&st).unwrap();
+        assert_eq!(json, "\"Race\"");
+
+        let deserialized: SessionType = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, SessionType::Race);
+    }
+
+    #[test]
+    fn test_flag_type_serialization() {
+        let flag = FlagType::Yellow;
+        let json = serde_json::to_string(&flag).unwrap();
+        assert_eq!(json, "\"Yellow\"");
+
+        let deserialized: FlagType = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, FlagType::Yellow);
+    }
+
+    #[test]
+    fn test_percentage_clamp() {
+        let p = Percentage::new(1.5);
+        assert_eq!(p.0, 1.0);
+
+        let p = Percentage::new(-0.5);
+        assert_eq!(p.0, 0.0);
+
+        let p = Percentage::new(0.5);
+        assert_eq!(p.0, 0.5);
+    }
+
+    #[test]
+    fn test_percentage_as_percent() {
+        let p = Percentage::new(0.75);
+        assert!((p.as_percent() - 75.0).abs() < f32::EPSILON);
+    }
+}
