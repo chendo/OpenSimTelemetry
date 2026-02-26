@@ -782,6 +782,7 @@
         .field-item:last-child { border-bottom: none; }
         .field-name { color: var(--accent); }
         .field-value { color: var(--text-secondary); }
+        .field-unit { color: var(--text-muted); margin-left: 3px; font-size: 0.65rem; }
 
         /* ==================== Output Sinks Widget ==================== */
         .sink-list {
@@ -1246,6 +1247,23 @@
             if (FIELD_UNIT_MAP[suffix]) return FIELD_UNIT_MAP[suffix];
         }
         return { unit: '', norm: 'autoscale' };
+    }
+
+    // Format a numeric field value for display with unit conversion
+    // Some fields are stored in SI units but displayed in friendlier units
+    const METERS_TO_MM_FIELDS = /suspension_travel|ride_height/;
+    function formatFieldValue(path, value) {
+        if (typeof value !== 'number') return { text: JSON.stringify(value), unit: '' };
+        const info = getFieldUnitInfo(path);
+        const leaf = path.split('.').pop();
+        // Meters → mm for suspension/ride height
+        if (info.unit === 'm' && METERS_TO_MM_FIELDS.test(leaf)) return { text: (value * 1000).toFixed(2), unit: 'mm' };
+        // 0-1 → % for percentage fields
+        if (info.unit === '%' && info.norm === 'pct') return { text: (value * 100).toFixed(1), unit: '%' };
+        // Smart precision: more decimals for small numbers
+        const av = Math.abs(value);
+        const text = av >= 1000 ? value.toFixed(0) : av >= 10 ? value.toFixed(1) : av >= 0.01 ? value.toFixed(3) : value.toFixed(4);
+        return { text, unit: info.unit };
     }
 
     function resolveFieldPathParts(obj, parts) {
@@ -2494,7 +2512,10 @@
                 for (const [key, value] of Object.entries(obj)) {
                     const fk = prefix ? `${prefix}.${key}` : key;
                     if (value && typeof value === 'object' && !Array.isArray(value)) extract(value, fk);
-                    else fields.push({ key: fk, value: typeof value === 'number' ? value.toFixed(4) : JSON.stringify(value) });
+                    else {
+                        const fmt = formatFieldValue(fk, value);
+                        fields.push({ key: fk, text: fmt.text, unit: fmt.unit });
+                    }
                 }
             };
             extract(this.lastFrame, '');
@@ -2511,7 +2532,20 @@
                     const row = existing[i];
                     const nameEl = row.firstChild, valEl = row.lastChild;
                     if (nameEl.textContent !== f.key) nameEl.textContent = f.key;
-                    if (valEl.textContent !== f.value) valEl.textContent = f.value;
+                    const display = f.unit ? f.text + ' ' + f.unit : f.text;
+                    if (valEl._display !== display) {
+                        valEl._display = display;
+                        if (f.unit) {
+                            valEl.innerHTML = '';
+                            valEl.appendChild(document.createTextNode(f.text + ' '));
+                            const u = document.createElement('span');
+                            u.className = 'field-unit';
+                            u.textContent = f.unit;
+                            valEl.appendChild(u);
+                        } else {
+                            valEl.textContent = f.text;
+                        }
+                    }
                 } else {
                     // Create new node
                     const row = document.createElement('div');
@@ -2521,7 +2555,16 @@
                     nameEl.textContent = f.key;
                     const valEl = document.createElement('span');
                     valEl.className = 'field-value';
-                    valEl.textContent = f.value;
+                    if (f.unit) {
+                        valEl.appendChild(document.createTextNode(f.text + ' '));
+                        const u = document.createElement('span');
+                        u.className = 'field-unit';
+                        u.textContent = f.unit;
+                        valEl.appendChild(u);
+                    } else {
+                        valEl.textContent = f.text;
+                    }
+                    valEl._display = f.unit ? f.text + ' ' + f.unit : f.text;
                     row.appendChild(nameEl);
                     row.appendChild(valEl);
                     this.listEl.appendChild(row);
