@@ -4,7 +4,7 @@ use crate::replay::ReplayState;
 use crate::state::{AppState, SinkConfig};
 use crate::web_ui;
 use axum::{
-    extract::{Multipart, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Query, State},
     http::StatusCode,
     response::{
         sse::{Event, KeepAlive, Sse},
@@ -31,7 +31,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/sinks", get(list_sinks).post(create_sink))
         .route("/api/sinks/:id", delete(delete_sink))
         // Replay endpoints
-        .route("/api/replay/upload", post(replay_upload))
+        .route("/api/replay/upload", post(replay_upload)
+            .layer(DefaultBodyLimit::max(512 * 1024 * 1024)))
         .route("/api/replay/info", get(replay_info))
         .route("/api/replay/control", post(replay_control))
         .route("/api/replay", delete(replay_delete))
