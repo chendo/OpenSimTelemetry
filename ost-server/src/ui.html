@@ -876,12 +876,191 @@
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 2px; }
+
+        /* ==================== Replay Mode ==================== */
+        .mode-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        .mode-badge.mode-live { background: var(--status-active); color: #000; }
+        .mode-badge.mode-replay { background: #f59e0b; color: #000; }
+
+        /* Drag-drop overlay */
+        .drop-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 214, 143, 0.08);
+            border: 3px dashed var(--accent);
+            z-index: 500;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none;
+        }
+        .drop-overlay.active { display: flex; }
+        .drop-overlay-content {
+            background: var(--bg-card);
+            border: 1px solid var(--accent);
+            border-radius: 12px;
+            padding: 40px 60px;
+            text-align: center;
+        }
+        .drop-overlay-icon { font-size: 3rem; margin-bottom: 12px; }
+        .drop-overlay-text { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); }
+        .drop-overlay-hint { font-size: 0.8rem; color: var(--text-secondary); margin-top: 6px; }
+
+        /* Upload progress overlay */
+        .upload-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 600;
+            justify-content: center;
+            align-items: center;
+        }
+        .upload-overlay.active { display: flex; }
+        .upload-progress {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 30px 40px;
+            text-align: center;
+        }
+        .upload-spinner {
+            width: 36px; height: 36px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 14px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Replay controls bar */
+        .replay-bar {
+            display: none;
+            height: 48px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 16px;
+            align-items: center;
+            gap: 12px;
+        }
+        .replay-bar.active { display: flex; }
+        .replay-track-info {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 240px;
+        }
+        .replay-track-info span { color: var(--text-secondary); font-weight: 400; }
+
+        .replay-btn {
+            background: var(--bg-inset);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            width: 32px; height: 32px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .replay-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+        .replay-seek {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            background: var(--bg-inset);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+        .replay-seek::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px; height: 12px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .replay-time {
+            font-family: var(--font-mono);
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .replay-speed-group {
+            display: flex;
+            gap: 2px;
+        }
+        .speed-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 2px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 0.65rem;
+            font-weight: 600;
+        }
+        .speed-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+        .speed-btn.active { background: var(--accent); border-color: var(--accent); color: #000; }
+
+        .replay-exit-btn {
+            background: #dc2626;
+            border: none;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            flex-shrink: 0;
+        }
+        .replay-exit-btn:hover { background: #ef4444; }
     </style>
 </head>
 <body>
+    <!-- Drop overlay (shown when dragging .ibt over page) -->
+    <div class="drop-overlay" id="drop-overlay">
+        <div class="drop-overlay-content">
+            <div class="drop-overlay-icon">&#128190;</div>
+            <div class="drop-overlay-text">Drop .ibt file to start replay</div>
+            <div class="drop-overlay-hint">iRacing telemetry files supported</div>
+        </div>
+    </div>
+
+    <!-- Upload progress overlay -->
+    <div class="upload-overlay" id="upload-overlay">
+        <div class="upload-progress">
+            <div class="upload-spinner"></div>
+            <div id="upload-status">Uploading .ibt file...</div>
+        </div>
+    </div>
+
     <header class="header-bar">
         <span class="header-logo">
             <span class="logo-open">OPEN</span><span class="logo-sim">SIM</span><span class="logo-tel">TELEMETRY</span>
+            <span class="mode-badge mode-live" id="mode-badge">LIVE</span>
         </span>
         <div class="header-right">
             <span class="header-conn" id="header-conn">
@@ -893,6 +1072,26 @@
             <button class="header-reset-btn" id="header-reset-layout">Reset Layout</button>
         </div>
     </header>
+
+    <!-- Replay controls bar (hidden unless replay active) -->
+    <div class="replay-bar" id="replay-bar">
+        <div class="replay-track-info">
+            <strong id="replay-track">--</strong>
+            <span> | </span>
+            <span id="replay-car">--</span>
+        </div>
+        <button class="replay-btn" id="replay-play-pause" title="Play/Pause">&#9654;</button>
+        <input type="range" class="replay-seek" id="replay-seek" min="0" max="1000" value="0">
+        <div class="replay-time" id="replay-time">0:00.0 / 0:00.0</div>
+        <div class="replay-speed-group">
+            <button class="speed-btn" data-speed="0.25">0.25x</button>
+            <button class="speed-btn" data-speed="0.5">0.5x</button>
+            <button class="speed-btn active" data-speed="1">1x</button>
+            <button class="speed-btn" data-speed="2">2x</button>
+            <button class="speed-btn" data-speed="4">4x</button>
+        </div>
+        <button class="replay-exit-btn" id="replay-exit">EXIT REPLAY</button>
+    </div>
 
     <div id="dashboard-grid"></div>
 
@@ -2281,6 +2480,181 @@
         }
     }
 
+    /* ==================== ReplayPlayer ==================== */
+    class ReplayPlayer {
+        constructor() {
+            this.active = false;
+            this.info = null;
+            this.seeking = false;
+            this.currentSpeed = 1;
+            this.pollingInterval = null;
+
+            this.badge = document.getElementById('mode-badge');
+            this.bar = document.getElementById('replay-bar');
+            this.trackEl = document.getElementById('replay-track');
+            this.carEl = document.getElementById('replay-car');
+            this.playPauseBtn = document.getElementById('replay-play-pause');
+            this.seekSlider = document.getElementById('replay-seek');
+            this.timeEl = document.getElementById('replay-time');
+            this.exitBtn = document.getElementById('replay-exit');
+
+            this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
+            this.seekSlider.addEventListener('input', (e) => this.onSeekInput(e.target.value));
+            this.seekSlider.addEventListener('change', (e) => this.onSeekChange(e.target.value));
+            this.exitBtn.addEventListener('click', () => this.exit());
+
+            document.querySelectorAll('.speed-btn').forEach(btn => {
+                btn.addEventListener('click', () => this.setSpeed(parseFloat(btn.dataset.speed)));
+            });
+        }
+
+        async upload(file) {
+            if (!file || !file.name.toLowerCase().endsWith('.ibt')) {
+                alert('Please select a valid .ibt file');
+                return;
+            }
+
+            const overlay = document.getElementById('upload-overlay');
+            const status = document.getElementById('upload-status');
+            overlay.classList.add('active');
+            status.textContent = `Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)...`;
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                const resp = await fetch('/api/replay/upload', { method: 'POST', body: formData });
+                if (!resp.ok) throw new Error(await resp.text());
+                const result = await resp.json();
+                this.info = result.info;
+                this.active = true;
+                this.currentSpeed = 1;
+                this.enterReplayMode();
+            } catch (e) {
+                console.error('Upload failed:', e);
+                alert('Failed to upload .ibt file: ' + e.message);
+            } finally {
+                overlay.classList.remove('active');
+            }
+        }
+
+        enterReplayMode() {
+            this.badge.textContent = 'REPLAY';
+            this.badge.className = 'mode-badge mode-replay';
+            this.bar.classList.add('active');
+
+            if (this.info) {
+                this.trackEl.textContent = this.info.track_name || 'Unknown Track';
+                this.carEl.textContent = this.info.car_name || 'Unknown Car';
+                this.seekSlider.max = this.info.total_frames - 1;
+            }
+            this.updateSpeedButtons();
+            this.startInfoPolling();
+        }
+
+        exitReplayMode() {
+            this.badge.textContent = 'LIVE';
+            this.badge.className = 'mode-badge mode-live';
+            this.bar.classList.remove('active');
+            this.stopInfoPolling();
+            this.active = false;
+            this.info = null;
+        }
+
+        async togglePlayPause() {
+            const action = (this.info && this.info.playing) ? 'pause' : 'play';
+            try {
+                await fetch('/api/replay/control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action })
+                });
+                this.playPauseBtn.innerHTML = action === 'play' ? '&#9646;&#9646;' : '&#9654;';
+            } catch (e) { console.error('Play/pause failed:', e); }
+        }
+
+        async setSpeed(speed) {
+            this.currentSpeed = speed;
+            try {
+                await fetch('/api/replay/control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'speed', value: speed })
+                });
+                this.updateSpeedButtons();
+            } catch (e) { console.error('Set speed failed:', e); }
+        }
+
+        updateSpeedButtons() {
+            document.querySelectorAll('.speed-btn').forEach(btn => {
+                btn.classList.toggle('active', parseFloat(btn.dataset.speed) === this.currentSpeed);
+            });
+        }
+
+        onSeekInput(value) {
+            this.seeking = true;
+            if (this.info) {
+                const frame = parseInt(value);
+                const currentTime = (frame / this.info.total_frames) * this.info.duration_secs;
+                this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(this.info.duration_secs)}`;
+            }
+        }
+
+        async onSeekChange(value) {
+            this.seeking = false;
+            try {
+                await fetch('/api/replay/control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'seek', value: parseInt(value) })
+                });
+            } catch (e) { console.error('Seek failed:', e); }
+        }
+
+        async exit() {
+            try { await fetch('/api/replay', { method: 'DELETE' }); }
+            catch (e) { console.error('Exit replay failed:', e); }
+            this.exitReplayMode();
+        }
+
+        startInfoPolling() {
+            this.stopInfoPolling();
+            this.pollingInterval = setInterval(async () => {
+                try {
+                    const resp = await fetch('/api/replay/info');
+                    if (!resp.ok) {
+                        if (resp.status === 404 && this.active) this.exitReplayMode();
+                        return;
+                    }
+                    this.info = await resp.json();
+                    this.updateControls();
+                } catch {}
+            }, 250);
+        }
+
+        stopInfoPolling() {
+            if (this.pollingInterval) { clearInterval(this.pollingInterval); this.pollingInterval = null; }
+        }
+
+        updateControls() {
+            const info = this.info;
+            if (!info) return;
+            this.playPauseBtn.innerHTML = info.playing ? '&#9646;&#9646;' : '&#9654;';
+            if (!this.seeking) this.seekSlider.value = info.current_frame;
+            const currentTime = (info.current_frame / info.total_frames) * info.duration_secs;
+            this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(info.duration_secs)}`;
+            this.currentSpeed = info.playback_speed;
+            this.updateSpeedButtons();
+        }
+
+        fmtTime(secs) {
+            if (!secs || isNaN(secs)) return '0:00.0';
+            const m = Math.floor(secs / 60);
+            const s = Math.floor(secs % 60);
+            const t = Math.floor((secs * 10) % 10);
+            return `${m}:${String(s).padStart(2, '0')}.${t}`;
+        }
+    }
+
     /* ==================== Initialization ==================== */
     const store = new TelemetryStore();
     const grid = new DashboardGrid(document.getElementById('dashboard-grid'));
@@ -2376,6 +2750,47 @@
     setInterval(pollAdapters, 2000);
     setInterval(pollSinks, 5000);
     requestAnimationFrame(renderLoop);
+
+    // Replay: drag-drop and init
+    const replayPlayer = new ReplayPlayer();
+    let dragCounter = 0;
+    const dropOverlay = document.getElementById('drop-overlay');
+
+    document.body.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        if (replayPlayer.active) return;
+        dragCounter++;
+        dropOverlay.classList.add('active');
+    });
+    document.body.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.remove('active'); }
+    });
+    document.body.addEventListener('dragover', (e) => e.preventDefault());
+    document.body.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        dropOverlay.classList.remove('active');
+        if (!replayPlayer.active && e.dataTransfer.files.length > 0) {
+            const file = e.dataTransfer.files[0];
+            if (file.name.toLowerCase().endsWith('.ibt')) replayPlayer.upload(file);
+        }
+    });
+
+    // Check for existing replay on page load
+    (async () => {
+        try {
+            const resp = await fetch('/api/replay/info');
+            if (resp.ok) {
+                const info = await resp.json();
+                replayPlayer.info = info;
+                replayPlayer.active = true;
+                replayPlayer.currentSpeed = info.playback_speed;
+                replayPlayer.enterReplayMode();
+            }
+        } catch {}
+    })();
     </script>
 </body>
 </html>

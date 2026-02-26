@@ -1,8 +1,10 @@
 //! Application state management
 
+use crate::replay::ReplayState;
 use ost_core::{adapter::TelemetryAdapter, model::TelemetryFrame};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
+use tokio_util::sync::CancellationToken;
 
 /// Shared application state
 #[derive(Clone)]
@@ -19,6 +21,12 @@ pub struct AppState {
 
     /// Sinks for forwarding telemetry data
     pub sinks: Arc<RwLock<Vec<SinkConfig>>>,
+
+    /// Active replay state (None when not in replay mode)
+    pub replay: Arc<RwLock<Option<ReplayState>>>,
+
+    /// Cancellation token for the replay playback task
+    pub replay_cancel: Arc<RwLock<Option<CancellationToken>>>,
 }
 
 /// Configuration for an output sink
@@ -47,6 +55,8 @@ impl AppState {
             active_adapter: Arc::new(RwLock::new(None)),
             telemetry_tx,
             sinks: Arc::new(RwLock::new(Vec::new())),
+            replay: Arc::new(RwLock::new(None)),
+            replay_cancel: Arc::new(RwLock::new(None)),
         }
     }
 
