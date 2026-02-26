@@ -459,6 +459,7 @@
             align-items: center;
             justify-content: space-between;
             flex-shrink: 0;
+            position: relative;
         }
 
         .graph-legend {
@@ -512,6 +513,88 @@
             cursor: pointer;
         }
         .graph-time-select:focus { outline: none; border-color: var(--accent); }
+
+        .graph-add-field-btn {
+            border: 1px dashed var(--text-muted) !important;
+            color: var(--text-muted) !important;
+            font-style: italic;
+        }
+        .graph-add-field-btn:hover {
+            border-color: var(--accent) !important;
+            color: var(--accent) !important;
+            background: transparent !important;
+        }
+
+        .custom-legend-remove {
+            margin-left: 3px;
+            opacity: 0;
+            font-size: 0.8rem;
+            line-height: 1;
+            cursor: pointer;
+            transition: opacity 0.1s;
+        }
+        .graph-legend-item:hover .custom-legend-remove { opacity: 0.6; }
+        .custom-legend-remove:hover { opacity: 1 !important; color: var(--status-inactive); }
+
+        .field-picker-popover {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            width: 340px;
+            max-height: 320px;
+            background: var(--bg-card);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 6px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .field-picker-search {
+            background: var(--bg-inset);
+            border: none;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 8px 10px;
+            font-size: 0.75rem;
+            font-family: var(--font-family);
+            width: 100%;
+        }
+        .field-picker-search:focus { outline: none; }
+        .field-picker-search::placeholder { color: var(--text-muted); }
+        .field-picker-list {
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+        }
+        .field-picker-section {
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            padding: 6px 10px 2px;
+            background: var(--bg-inset);
+            position: sticky;
+            top: 0;
+            text-transform: uppercase;
+        }
+        .field-picker-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 10px;
+            font-size: 0.7rem;
+            font-family: var(--font-mono);
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .field-picker-item:hover { background: rgba(255,255,255,0.06); }
+        .field-picker-item.already-added { opacity: 0.35; cursor: default; }
+        .field-picker-item.already-added:hover { background: transparent; }
+        .field-picker-path { color: var(--accent); }
+        .field-picker-unit { color: var(--text-muted); font-size: 0.6rem; }
 
         .graph-canvas-wrap {
             flex: 1;
@@ -838,6 +921,174 @@
     };
     const GRAPH_METRIC_KEYS = Object.keys(GRAPH_METRICS);
 
+    /* ==================== Field Unit Metadata ==================== */
+    // Maps field paths to { unit, norm } for arbitrary field plotting.
+    // Lookup: exact match first, then suffix match (*.field_name).
+    const FIELD_UNIT_MAP = {
+        // Exact paths with special handling
+        'vehicle.speed':          { unit: 'm/s',  norm: 'autoscale' },
+        'vehicle.gear':           { unit: '',     norm: 'autoscale' },
+        'vehicle.max_gears':      { unit: '',     norm: 'autoscale' },
+        // Suffix patterns (matched when exact fails)
+        '*.rpm':                  { unit: 'rpm',  norm: 'autoscale' },
+        '*.max_rpm':              { unit: 'rpm',  norm: 'autoscale' },
+        '*.idle_rpm':             { unit: 'rpm',  norm: 'autoscale' },
+        '*.throttle':             { unit: '%',    norm: 'pct' },
+        '*.brake':                { unit: '%',    norm: 'pct' },
+        '*.clutch':               { unit: '%',    norm: 'pct' },
+        '*.handbrake':            { unit: '%',    norm: 'pct' },
+        '*.steering_angle':       { unit: 'rad',  norm: 'centered' },
+        '*.steering_torque':      { unit: 'Nm',   norm: 'centered' },
+        '*.steering_torque_pct':  { unit: '%',    norm: 'pct' },
+        // Temperatures
+        '*.water_temp':           { unit: '\u00B0C', norm: 'autoscale' },
+        '*.oil_temp':             { unit: '\u00B0C', norm: 'autoscale' },
+        '*.air_temp':             { unit: '\u00B0C', norm: 'autoscale' },
+        '*.track_temp':           { unit: '\u00B0C', norm: 'autoscale' },
+        '*.surface_temp_inner':   { unit: '\u00B0C', norm: 'autoscale' },
+        '*.surface_temp_middle':  { unit: '\u00B0C', norm: 'autoscale' },
+        '*.surface_temp_outer':   { unit: '\u00B0C', norm: 'autoscale' },
+        '*.carcass_temp_inner':   { unit: '\u00B0C', norm: 'autoscale' },
+        '*.carcass_temp_middle':  { unit: '\u00B0C', norm: 'autoscale' },
+        '*.carcass_temp_outer':   { unit: '\u00B0C', norm: 'autoscale' },
+        '*.brake_temp':           { unit: '\u00B0C', norm: 'autoscale' },
+        // Pressure
+        '*.tyre_pressure':        { unit: 'kPa', norm: 'autoscale' },
+        '*.tyre_cold_pressure':   { unit: 'kPa', norm: 'autoscale' },
+        '*.oil_pressure':         { unit: 'kPa', norm: 'autoscale' },
+        '*.fuel_pressure':        { unit: 'kPa', norm: 'autoscale' },
+        '*.brake_line_pressure':  { unit: 'kPa', norm: 'autoscale' },
+        '*.air_pressure':         { unit: 'Pa',  norm: 'autoscale' },
+        '*.manifold_pressure':    { unit: 'bar', norm: 'autoscale' },
+        // Suspension / distance
+        '*.suspension_travel':     { unit: 'm',   norm: 'autoscale' },
+        '*.suspension_travel_avg': { unit: 'm',   norm: 'autoscale' },
+        '*.ride_height':           { unit: 'm',   norm: 'autoscale' },
+        '*.lap_distance':          { unit: 'm',   norm: 'autoscale' },
+        // Velocity
+        '*.shock_velocity':        { unit: 'm/s', norm: 'centered' },
+        '*.shock_velocity_avg':    { unit: 'm/s', norm: 'centered' },
+        '*.wind_speed':            { unit: 'm/s', norm: 'autoscale' },
+        '*.wheel_speed':           { unit: 'rad/s', norm: 'autoscale' },
+        // Forces
+        '*.load':                  { unit: 'N',   norm: 'autoscale' },
+        '*.g_force.x':             { unit: 'G',   norm: 'centered' },
+        '*.g_force.y':             { unit: 'G',   norm: 'centered' },
+        '*.g_force.z':             { unit: 'G',   norm: 'centered' },
+        // Rotation
+        '*.rotation.x':            { unit: 'rad', norm: 'centered' },
+        '*.rotation.y':            { unit: 'rad', norm: 'centered' },
+        '*.rotation.z':            { unit: 'rad', norm: 'centered' },
+        '*.angular_velocity.x':    { unit: 'rad/s', norm: 'centered' },
+        '*.angular_velocity.y':    { unit: 'rad/s', norm: 'centered' },
+        '*.angular_velocity.z':    { unit: 'rad/s', norm: 'centered' },
+        '*.angular_acceleration.x':{ unit: 'rad/s\u00B2', norm: 'centered' },
+        '*.angular_acceleration.y':{ unit: 'rad/s\u00B2', norm: 'centered' },
+        '*.angular_acceleration.z':{ unit: 'rad/s\u00B2', norm: 'centered' },
+        '*.acceleration.x':        { unit: 'm/s\u00B2', norm: 'centered' },
+        '*.acceleration.y':        { unit: 'm/s\u00B2', norm: 'centered' },
+        '*.acceleration.z':        { unit: 'm/s\u00B2', norm: 'centered' },
+        '*.position.x':            { unit: 'm', norm: 'autoscale' },
+        '*.position.y':            { unit: 'm', norm: 'autoscale' },
+        '*.position.z':            { unit: 'm', norm: 'autoscale' },
+        '*.velocity.x':            { unit: 'm/s', norm: 'centered' },
+        '*.velocity.y':            { unit: 'm/s', norm: 'centered' },
+        '*.velocity.z':            { unit: 'm/s', norm: 'centered' },
+        '*.wind_direction':        { unit: 'rad', norm: 'autoscale' },
+        // Percentages
+        '*.tyre_wear':             { unit: '%', norm: 'pct' },
+        '*.oil_level':             { unit: '%', norm: 'pct' },
+        '*.fuel_level_pct':        { unit: '%', norm: 'pct' },
+        '*.lap_distance_pct':      { unit: '%', norm: 'pct' },
+        '*.humidity':              { unit: '%', norm: 'pct' },
+        '*.fog_level':             { unit: '%', norm: 'pct' },
+        '*.precipitation':         { unit: '%', norm: 'pct' },
+        '*.brake_bias':            { unit: '%', norm: 'pct' },
+        '*.front':                 { unit: '%', norm: 'pct' },  // damage
+        '*.rear':                  { unit: '%', norm: 'pct' },
+        '*.left':                  { unit: '%', norm: 'pct' },
+        '*.right':                 { unit: '%', norm: 'pct' },
+        // Fuel / volume
+        '*.fuel_level':            { unit: 'L',   norm: 'autoscale' },
+        '*.fuel_capacity':         { unit: 'L',   norm: 'autoscale' },
+        '*.fuel_use_per_hour':     { unit: 'L/h', norm: 'autoscale' },
+        '*.fuel_to_add':           { unit: 'L',   norm: 'autoscale' },
+        // Electrical
+        '*.voltage':               { unit: 'V',   norm: 'autoscale' },
+        // Time
+        '*.current_lap_time':      { unit: 's',   norm: 'autoscale' },
+        '*.last_lap_time':         { unit: 's',   norm: 'autoscale' },
+        '*.best_lap_time':         { unit: 's',   norm: 'autoscale' },
+        '*.best_n_lap_time':       { unit: 's',   norm: 'autoscale' },
+        '*.session_time':          { unit: 's',   norm: 'autoscale' },
+        '*.session_time_remaining':{ unit: 's',   norm: 'autoscale' },
+        '*.delta_best':            { unit: 's',   norm: 'centered' },
+        '*.delta_session_best':    { unit: 's',   norm: 'centered' },
+        '*.delta_optimal':         { unit: 's',   norm: 'centered' },
+        '*.repair_time_left':      { unit: 's',   norm: 'autoscale' },
+        '*.optional_repair_time_left': { unit: 's', norm: 'autoscale' },
+        // Slip
+        '*.slip_ratio':            { unit: '', norm: 'centered' },
+        '*.slip_angle':            { unit: 'rad', norm: 'centered' },
+        // Density
+        '*.air_density':           { unit: 'kg/m\u00B3', norm: 'autoscale' },
+    };
+
+    function getFieldUnitInfo(path) {
+        if (FIELD_UNIT_MAP[path]) return FIELD_UNIT_MAP[path];
+        const parts = path.split('.');
+        for (let i = 1; i < parts.length; i++) {
+            const suffix = '*.' + parts.slice(i).join('.');
+            if (FIELD_UNIT_MAP[suffix]) return FIELD_UNIT_MAP[suffix];
+        }
+        return { unit: '', norm: 'autoscale' };
+    }
+
+    function resolveFieldPathParts(obj, parts) {
+        let cur = obj;
+        for (let i = 0; i < parts.length; i++) {
+            if (cur == null || typeof cur !== 'object') return null;
+            cur = cur[parts[i]];
+        }
+        return typeof cur === 'number' ? cur : null;
+    }
+
+    const CUSTOM_COLORS = [
+        '#22d3ee', '#f472b6', '#a3e635', '#fb923c', '#818cf8',
+        '#e879f9', '#34d399', '#fbbf24', '#f87171', '#38bdf8',
+        '#c084fc', '#2dd4bf', '#facc15', '#fb7185', '#60a5fa',
+    ];
+    let _nextCustomColorIdx = 0;
+    function nextCustomColor() {
+        return CUSTOM_COLORS[(_nextCustomColorIdx++) % CUSTOM_COLORS.length];
+    }
+
+    const LABEL_ABBREVS = {
+        front_left: 'FL', front_right: 'FR', rear_left: 'RL', rear_right: 'RR',
+        surface_temp: 'Surf Temp', carcass_temp: 'Carc Temp',
+        angular_velocity: 'Ang Vel', angular_acceleration: 'Ang Accel',
+        g_force: 'G-Force', brake_line_pressure: 'Brake Press',
+        suspension_travel: 'Susp Travel', suspension_travel_avg: 'Susp Avg',
+        shock_velocity: 'Shock Vel', shock_velocity_avg: 'Shock Vel Avg',
+        tyre_pressure: 'Tyre Press', tyre_cold_pressure: 'Cold Press',
+        fuel_use_per_hour: 'Fuel Rate', fuel_level_pct: 'Fuel %',
+        lap_distance_pct: 'Lap %', steering_angle: 'Steer',
+        steering_torque: 'Steer Torque', steering_torque_pct: 'Steer %',
+        manifold_pressure: 'Manifold', oil_pressure: 'Oil Press',
+        fuel_pressure: 'Fuel Press', water_temp: 'Water Temp',
+        oil_temp: 'Oil Temp', brake_temp: 'Brake Temp',
+        current_lap_time: 'Cur Lap', last_lap_time: 'Last Lap',
+        best_lap_time: 'Best Lap', delta_best: '\u0394 Best',
+        delta_session_best: '\u0394 Sess Best', delta_optimal: '\u0394 Optimal',
+    };
+
+    function deriveLabel(path) {
+        const parts = path.split('.');
+        return parts.map(p =>
+            LABEL_ABBREVS[p] || p.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+        ).join(' ');
+    }
+
     /* ==================== TelemetryStore ==================== */
     class TelemetryStore {
         constructor() {
@@ -854,7 +1105,7 @@
         pushFrame(frame) {
             this.currentFrame = frame;
             this._dirty = true;
-            const entry = { t: performance.now() };
+            const entry = { t: performance.now(), _frame: frame };
             for (let i = 0; i < GRAPH_METRIC_KEYS.length; i++) {
                 const key = GRAPH_METRIC_KEYS[i];
                 entry[key] = GRAPH_METRICS[key].extract(frame);
@@ -1159,7 +1410,7 @@
             const configs = [];
             for (const [id, w] of this.widgets) {
                 if (w instanceof GraphWidget) {
-                    configs.push({ id: w.id, enabledMetrics: [...w.enabledMetrics], timeWindowMs: w.timeWindowMs });
+                    configs.push(w.getConfig());
                 }
             }
             localStorage.setItem(GRAPHS_KEY, JSON.stringify(configs));
@@ -1416,9 +1667,10 @@
         constructor(id, defaultLayout, defaultEnabled) {
             super(id || 'graph', 'Graph', defaultLayout || { col: 1, row: 7, width: 12, height: 6 });
             this.enabledMetrics = new Set(defaultEnabled || ['speed', 'rpm', 'throttle', 'brake']);
+            this.customMetrics = new Map(); // path -> { path, label, color, unit, norm, parts }
             this.timeWindowMs = 10000;
-            this.maxSeen = {}; // per-metric max absolute value for auto-scaling
-            this.closable = !!id && id !== 'graph'; // default graph is not closable
+            this.maxSeen = {};
+            this.closable = !!id && id !== 'graph';
         }
 
         buildContent(c) {
@@ -1466,6 +1718,8 @@
         rebuildLegend() {
             this.legendEl.innerHTML = '';
             this.legendItems = {};
+
+            // Preset metrics
             for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
                 const item = document.createElement('span');
                 const enabled = this.enabledMetrics.has(key);
@@ -1480,6 +1734,154 @@
                 this.legendEl.appendChild(item);
                 this.legendItems[key] = item;
             }
+
+            // Custom field metrics
+            for (const [path, meta] of this.customMetrics) {
+                const item = document.createElement('span');
+                const enabled = this.enabledMetrics.has(path);
+                item.className = 'graph-legend-item' + (enabled ? ' active' : '');
+                item.innerHTML = `<span class="graph-legend-dot" style="background:${meta.color}"></span>${meta.label}<span class="custom-legend-remove" title="Remove">\u00D7</span>`;
+                item.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('custom-legend-remove')) {
+                        this.customMetrics.delete(path);
+                        this.enabledMetrics.delete(path);
+                        this.rebuildLegend();
+                        if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+                        return;
+                    }
+                    if (this.enabledMetrics.has(path)) this.enabledMetrics.delete(path);
+                    else this.enabledMetrics.add(path);
+                    item.classList.toggle('active', this.enabledMetrics.has(path));
+                    if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+                });
+                this.legendEl.appendChild(item);
+                this.legendItems[path] = item;
+            }
+
+            // "+ Field" button
+            const addBtn = document.createElement('span');
+            addBtn.className = 'graph-legend-item graph-add-field-btn';
+            addBtn.textContent = '+ Field';
+            addBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.openFieldPicker(addBtn);
+            });
+            this.legendEl.appendChild(addBtn);
+        }
+
+        openFieldPicker(anchorEl) {
+            if (this._picker) { this.closeFieldPicker(); return; }
+            const frame = store.currentFrame;
+            if (!frame) return;
+
+            // Collect all numeric fields grouped by top-level section
+            const sections = {};
+            const walk = (obj, prefix) => {
+                for (const [key, value] of Object.entries(obj)) {
+                    if (key === '_frame') continue;
+                    const path = prefix ? `${prefix}.${key}` : key;
+                    if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        walk(value, path);
+                    } else if (typeof value === 'number') {
+                        const section = path.split('.')[0];
+                        if (!sections[section]) sections[section] = [];
+                        sections[section].push(path);
+                    }
+                }
+            };
+            walk(frame, '');
+
+            // Build popover
+            const popover = document.createElement('div');
+            popover.className = 'field-picker-popover';
+
+            const search = document.createElement('input');
+            search.className = 'field-picker-search';
+            search.placeholder = 'Search fields...';
+            search.type = 'text';
+            popover.appendChild(search);
+
+            const list = document.createElement('div');
+            list.className = 'field-picker-list';
+            popover.appendChild(list);
+
+            const alreadyAdded = new Set([...Object.keys(GRAPH_METRICS), ...this.customMetrics.keys()]);
+
+            const renderList = (filter) => {
+                list.innerHTML = '';
+                const lf = filter.toLowerCase();
+                for (const [section, paths] of Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]))) {
+                    const filtered = lf ? paths.filter(p => p.toLowerCase().includes(lf)) : paths;
+                    if (filtered.length === 0) continue;
+
+                    const hdr = document.createElement('div');
+                    hdr.className = 'field-picker-section';
+                    hdr.textContent = section.charAt(0).toUpperCase() + section.slice(1);
+                    list.appendChild(hdr);
+
+                    for (const path of filtered) {
+                        const item = document.createElement('div');
+                        const added = alreadyAdded.has(path);
+                        item.className = 'field-picker-item' + (added ? ' dimmed' : '');
+                        const unitInfo = getFieldUnitInfo(path);
+                        item.innerHTML = `<span class="field-picker-path">${path}</span>${unitInfo.unit ? `<span class="field-picker-unit">${unitInfo.unit}</span>` : ''}`;
+                        if (!added) {
+                            item.addEventListener('click', () => {
+                                this.addCustomField(path);
+                                this.closeFieldPicker();
+                            });
+                        }
+                        list.appendChild(item);
+                    }
+                }
+            };
+            renderList('');
+
+            search.addEventListener('input', () => renderList(search.value));
+
+            // Position near anchor
+            const controls = this.contentArea.querySelector('.graph-controls');
+            controls.appendChild(popover);
+            this._picker = popover;
+
+            // Focus search
+            requestAnimationFrame(() => search.focus());
+
+            // Close on outside click
+            this._pickerClickOutside = (e) => {
+                if (!popover.contains(e.target) && e.target !== anchorEl) {
+                    this.closeFieldPicker();
+                }
+            };
+            setTimeout(() => document.addEventListener('click', this._pickerClickOutside), 0);
+        }
+
+        closeFieldPicker() {
+            if (this._picker) {
+                this._picker.remove();
+                this._picker = null;
+            }
+            if (this._pickerClickOutside) {
+                document.removeEventListener('click', this._pickerClickOutside);
+                this._pickerClickOutside = null;
+            }
+        }
+
+        addCustomField(path) {
+            if (this.customMetrics.has(path)) return;
+            const unitInfo = getFieldUnitInfo(path);
+            const parts = path.split('.');
+            this.customMetrics.set(path, {
+                path,
+                label: deriveLabel(path),
+                color: nextCustomColor(),
+                unit: unitInfo.unit,
+                norm: unitInfo.norm,
+                parts,
+            });
+            this.enabledMetrics.add(path);
+            this.rebuildLegend();
+            if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
         }
 
         update(store, now) {
@@ -1493,77 +1895,132 @@
             const ctx = this.ctx;
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-            const pad = { top: 8, right: 8, bottom: 16, left: 36 };
-            const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
-            ctx.clearRect(0, 0, w, h);
-
             const { start, count } = store.getWindowRange(this.timeWindowMs, now);
-            if (count < 2) return;
+            if (count < 2) { ctx.clearRect(0, 0, w, h); return; }
+
+            // Build unified traces array from enabled metrics
+            const traces = [];
+            for (const key of this.enabledMetrics) {
+                const preset = GRAPH_METRICS[key];
+                if (preset) {
+                    traces.push({ key, color: preset.color, norm: preset.norm, unit: preset.unit || '', getValue: (entry) => entry[key] });
+                } else {
+                    const custom = this.customMetrics.get(key);
+                    if (custom) {
+                        const parts = custom.parts;
+                        traces.push({ key, color: custom.color, norm: custom.norm, unit: custom.unit, getValue: (entry) => entry._frame ? resolveFieldPathParts(entry._frame, parts) : null });
+                    }
+                }
+            }
+            if (traces.length === 0) { ctx.clearRect(0, 0, w, h); return; }
 
             const tMin = store.ringAt(start).t;
             const tMax = store.ringAt(start + count - 1).t;
             const tRange = Math.max(tMax - tMin, 1);
 
-            // Compute max values for enabled metrics in this window
-            for (const key of this.enabledMetrics) {
-                const metric = GRAPH_METRICS[key];
-                if (!metric) continue;
-                if (metric.norm === 'autoscale') {
+            // Compute max values grouped by unit for shared scaling
+            // Traces with same unit share the same max so they're directly comparable
+            const unitMax = {};  // unit → max value in window
+            for (const trace of traces) {
+                if (trace.norm === 'autoscale' || trace.norm === 'centered') {
                     let mx = 0;
-                    for (let i = 0; i < count; i++) { const v = Math.abs(store.ringAt(start + i)[key]); if (v > mx) mx = v; }
-                    this.maxSeen[key] = Math.max(mx, this.maxSeen[key] || 0, 0.001);
-                } else if (metric.norm === 'centered') {
-                    let mx = 0;
-                    for (let i = 0; i < count; i++) { const v = Math.abs(store.ringAt(start + i)[key]); if (v > mx) mx = v; }
-                    this.maxSeen[key] = Math.max(mx, 0.001);
+                    for (let i = 0; i < count; i++) {
+                        const v = trace.getValue(store.ringAt(start + i));
+                        if (v != null) { const av = Math.abs(v); if (av > mx) mx = av; }
+                    }
+                    const ukey = trace.unit || trace.key;
+                    unitMax[ukey] = Math.max(mx, unitMax[ukey] || 0, 0.001);
+                    // For autoscale, keep historical max to avoid jitter
+                    if (trace.norm === 'autoscale') {
+                        this.maxSeen[ukey] = Math.max(unitMax[ukey], this.maxSeen[ukey] || 0);
+                        unitMax[ukey] = this.maxSeen[ukey];
+                    }
                 }
             }
 
-            // Grid lines
+            // Determine Y-axis label mode: single unit or mixed
+            const unitSet = new Set(traces.map(t => t.unit).filter(u => u));
+            const singleUnit = unitSet.size === 1 ? [...unitSet][0] : null;
+            // For single unit with autoscale, we can show real values
+            const singleUnitMax = singleUnit && unitMax[singleUnit] ? unitMax[singleUnit] : null;
+
+            const padLeft = singleUnitMax ? 52 : 36;
+            const pad = { top: 8, right: 8, bottom: 16, left: padLeft };
+            const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
+            ctx.clearRect(0, 0, w, h);
+
+            // Grid lines and Y-axis labels
             ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
             ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
             for (let i = 0; i <= 4; i++) {
                 const y = pad.top + (ph / 4) * i;
                 ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + pw, y); ctx.stroke();
-                ctx.fillText((100 - i * 25) + '%', pad.left - 4, y + 3);
+                if (singleUnitMax) {
+                    const realVal = singleUnitMax * (1 - i / 4);
+                    ctx.fillText(realVal.toFixed(realVal >= 100 ? 0 : 1) + ' ' + singleUnit, pad.left - 4, y + 3);
+                } else {
+                    ctx.fillText((100 - i * 25) + '%', pad.left - 4, y + 3);
+                }
             }
 
-            // Draw each enabled trace
-            for (const key of this.enabledMetrics) {
-                const metric = GRAPH_METRICS[key];
-                if (!metric) continue;
-                ctx.beginPath(); ctx.strokeStyle = metric.color; ctx.lineWidth = 1.5;
+            // Draw each trace
+            for (const trace of traces) {
+                ctx.beginPath(); ctx.strokeStyle = trace.color; ctx.lineWidth = 1.5;
+                const ukey = trace.unit || trace.key;
+                const maxVal = unitMax[ukey] || 1;
+                let drawing = false;
 
                 for (let i = 0; i < count; i++) {
                     const entry = store.ringAt(start + i);
+                    const raw = trace.getValue(entry);
+                    if (raw == null) { drawing = false; continue; }
+
                     const x = pad.left + ((entry.t - tMin) / tRange) * pw;
                     let val;
-                    if (metric.norm === 'pct') {
-                        val = entry[key]; // already 0-1
-                    } else if (metric.norm === 'centered') {
-                        val = 0.5 + entry[key] / ((this.maxSeen[key] || 1) * 2);
+                    if (trace.norm === 'pct') {
+                        val = raw; // already 0-1
+                    } else if (trace.norm === 'centered') {
+                        val = 0.5 + raw / (maxVal * 2);
                     } else { // autoscale
-                        val = entry[key] / (this.maxSeen[key] || 1);
+                        val = raw / maxVal;
                     }
                     val = Math.max(0, Math.min(1, val));
                     const y = pad.top + ph * (1 - val);
-                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                    if (!drawing) { ctx.moveTo(x, y); drawing = true; } else { ctx.lineTo(x, y); }
                 }
                 ctx.stroke();
             }
         }
 
         getConfig() {
-            return { id: this.id, enabledMetrics: [...this.enabledMetrics], timeWindowMs: this.timeWindowMs };
+            const cfg = { id: this.id, enabledMetrics: [...this.enabledMetrics], timeWindowMs: this.timeWindowMs };
+            if (this.customMetrics.size > 0) {
+                cfg.customMetrics = [];
+                for (const [path, meta] of this.customMetrics) {
+                    cfg.customMetrics.push({ path, label: meta.label, color: meta.color, unit: meta.unit, norm: meta.norm });
+                }
+            }
+            return cfg;
         }
 
         applyConfig(cfg) {
             if (cfg.enabledMetrics) this.enabledMetrics = new Set(cfg.enabledMetrics);
             if (cfg.timeWindowMs) this.timeWindowMs = cfg.timeWindowMs;
-            // Update legend toggle states
-            for (const [key, item] of Object.entries(this.legendItems || {})) {
-                item.classList.toggle('active', this.enabledMetrics.has(key));
+            // Restore custom metrics
+            if (cfg.customMetrics) {
+                this.customMetrics.clear();
+                for (const cm of cfg.customMetrics) {
+                    this.customMetrics.set(cm.path, {
+                        path: cm.path,
+                        label: cm.label,
+                        color: cm.color,
+                        unit: cm.unit,
+                        norm: cm.norm,
+                        parts: cm.path.split('.'),
+                    });
+                }
             }
+            this.rebuildLegend();
             // Update time window select
             const sel = this.contentArea?.querySelector('.graph-time-select');
             if (sel) sel.value = String(this.timeWindowMs);
@@ -1858,8 +2315,8 @@
     if (savedGraphs && savedGraphs.length > 0) {
         for (const cfg of savedGraphs) {
             const gw = new GraphWidget(cfg.id, null, cfg.enabledMetrics);
-            if (cfg.timeWindowMs) gw.timeWindowMs = cfg.timeWindowMs;
             gw.init();
+            gw.applyConfig(cfg);
             grid.addWidget(gw);
         }
     } else {
