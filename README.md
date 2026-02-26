@@ -1,18 +1,18 @@
 # 🏎️ OpenSimTelemetry
 
-**Unified telemetry library for sim racing games**
+The goal of this project is to enable easier prototyping and experimentation with telemetry data from simulators, by providing easy access to real-time telemetry via HTTP/UDP. Single Rust binary that runs on Windows, macOS, and Linux, however onl
 
-OpenSimTelemetry provides a single, consistent API for accessing telemetry data from multiple racing simulators. It solves the fragmentation problem where every motion sim platform and telemetry tool must reimplement game-specific parsers.
+## State
+
+This project is in the prototype phase, and only Windows / iRacing is being tested at the moment.
 
 ## Features
 
-- **🎮 Unified Data Model** - Single telemetry format works across all supported games
 - **🔌 Auto-Detection** - Automatically detects running games and starts collecting data
-- **🌐 Web UI** - Beautiful dashboard for monitoring live telemetry
-- **📡 Multiple Outputs** - Stream data via HTTP, UDP, or save to file
+- **🌐 Web UI** - Dashboard for monitoring live telemetry and configuration
+- **📡 Multiple Outputs** - Stream data via HTTP, UDP
 - **🎯 Field Selection** - Choose which fields to transmit to minimize bandwidth
-- **⚡ High Performance** - Zero-copy telemetry at 60+ Hz
-- **🦀 Memory Safe** - Written in Rust for reliability and performance
+- **🦀 Performant** - Written in Rust for reliability and performance
 
 ## Supported Games
 
@@ -26,6 +26,7 @@ OpenSimTelemetry provides a single, consistent API for accessing telemetry data 
 - F1 2024
 - rFactor 2
 - Automobilista 2
+- beamNG.drive
 
 ## Quick Start
 
@@ -372,13 +373,27 @@ This creates release binaries for:
 - macOS (Intel x64 & Apple Silicon ARM64)
 - Linux (x64)
 
-**Manual Cross-Compilation:**
-```bash
-# Install cross tool
-cargo install cross
+**Local Cross-Compilation (macOS to Windows):**
 
-# Build for Windows on macOS/Linux
-cross build --release --target x86_64-pc-windows-gnu
+This project uses [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin) for cross-compiling
+to Windows from macOS. It automatically downloads the Windows SDK on first use.
+Requires Rust installed via [rustup](https://rustup.rs/) (not Homebrew) for target management.
+
+```bash
+# One-time setup
+just setup-cross
+
+# Build Windows binary
+just build-windows
+```
+
+The binary will be at `target/x86_64-pc-windows-msvc/release/ost-server.exe`.
+
+Without `just`:
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo install cargo-xwin
+cargo xwin build --release --target x86_64-pc-windows-msvc
 ```
 
 ### Testing
