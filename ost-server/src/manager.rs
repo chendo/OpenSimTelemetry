@@ -94,6 +94,14 @@ async fn detection_cycle(state: &AppState) -> Result<()> {
 
 /// Read frames from the active adapter and broadcast them
 async fn frame_read_cycle(state: &AppState) -> Result<()> {
+    // Don't send adapter frames while a replay is active
+    {
+        let replay = state.replay.read().await;
+        if replay.is_some() {
+            return Ok(());
+        }
+    }
+
     let active_name = {
         let active = state.active_adapter.read().await;
         active.clone()
