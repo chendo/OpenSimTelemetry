@@ -1169,3 +1169,284 @@ impl TelemetryFrame {
         serde_json::to_string(&map)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper to construct a minimal TelemetryFrame for testing
+    fn make_test_frame() -> TelemetryFrame {
+        TelemetryFrame {
+            timestamp: Utc::now(),
+            game: "TestGame".to_string(),
+            tick: Some(42),
+            motion: Some(MotionData {
+                position: None,
+                velocity: None,
+                acceleration: None,
+                g_force: Some(Vector3::new(GForce(0.3), GForce(1.0), GForce(-0.5))),
+                rotation: None,
+                angular_velocity: None,
+                angular_acceleration: None,
+            }),
+            vehicle: Some(VehicleData {
+                speed: Some(MetersPerSecond(30.0)),
+                rpm: Some(Rpm(5000.0)),
+                max_rpm: None,
+                idle_rpm: None,
+                gear: Some(3),
+                max_gears: Some(6),
+                throttle: Some(Percentage::new(0.75)),
+                brake: Some(Percentage::new(0.0)),
+                clutch: Some(Percentage::new(0.0)),
+                handbrake: None,
+                steering_angle: Some(Radians(0.1)),
+                steering_torque: None,
+                steering_torque_pct: None,
+                on_track: None,
+                in_garage: None,
+                track_surface: None,
+            }),
+            engine: Some(EngineData {
+                water_temp: Some(Celsius(90.0)),
+                oil_temp: None,
+                oil_pressure: None,
+                oil_level: None,
+                fuel_level: None,
+                fuel_level_pct: None,
+                fuel_capacity: None,
+                fuel_pressure: None,
+                fuel_use_per_hour: None,
+                manifold_pressure: None,
+                voltage: None,
+                warnings: None,
+            }),
+            wheels: None,
+            timing: Some(TimingData {
+                current_lap_time: Some(Seconds(45.2)),
+                last_lap_time: Some(Seconds(87.3)),
+                best_lap_time: Some(Seconds(85.1)),
+                best_n_lap_time: None,
+                best_n_lap_num: None,
+                sector_times: None,
+                lap_number: Some(5),
+                laps_completed: None,
+                lap_distance: None,
+                lap_distance_pct: None,
+                race_position: None,
+                class_position: None,
+                num_cars: None,
+                delta_best: None,
+                delta_best_ok: None,
+                delta_session_best: None,
+                delta_session_best_ok: None,
+                delta_optimal: None,
+                delta_optimal_ok: None,
+                estimated_lap_time: None,
+                race_laps: None,
+            }),
+            session: Some(SessionData {
+                session_type: Some(SessionType::Race),
+                session_state: None,
+                session_time: None,
+                session_time_remaining: Some(Seconds(1200.0)),
+                session_time_of_day: None,
+                session_laps: None,
+                session_laps_remaining: None,
+                flags: None,
+                track_name: Some("Test Track".to_string()),
+                track_config: None,
+                track_length: None,
+                track_type: None,
+                car_name: Some("Test Car".to_string()),
+                car_class: None,
+            }),
+            weather: None,
+            pit: None,
+            electronics: None,
+            damage: None,
+            competitors: None,
+            driver: None,
+            extras: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_field_mask_parse_comma_separated() {
+        let mask = FieldMask::parse("vehicle,timing,motion");
+        assert!(mask.includes("vehicle"));
+        assert!(mask.includes("timing"));
+        assert!(mask.includes("motion"));
+        assert!(!mask.includes("weather"));
+        assert!(!mask.is_all());
+    }
+
+    #[test]
+    fn test_field_mask_parse_with_whitespace() {
+        let mask = FieldMask::parse(" vehicle , timing , motion ");
+        assert!(mask.includes("vehicle"));
+        assert!(mask.includes("timing"));
+        assert!(mask.includes("motion"));
+    }
+
+    #[test]
+    fn test_field_mask_parse_case_insensitive() {
+        let mask = FieldMask::parse("Vehicle,TIMING,Motion");
+        assert!(mask.includes("vehicle"));
+        assert!(mask.includes("timing"));
+        assert!(mask.includes("motion"));
+    }
+
+    #[test]
+    fn test_field_mask_parse_empty_string() {
+        let mask = FieldMask::parse("");
+        assert!(!mask.is_all());
+        assert!(!mask.includes("vehicle"));
+    }
+
+    #[test]
+    fn test_field_mask_all() {
+        let mask = FieldMask::all();
+        assert!(mask.is_all());
+        assert!(mask.includes("vehicle"));
+        assert!(mask.includes("anything"));
+    }
+
+    #[test]
+    fn test_field_mask_from_str() {
+        let mask: FieldMask = "vehicle,timing".parse().unwrap();
+        assert!(mask.includes("vehicle"));
+        assert!(mask.includes("timing"));
+        assert!(!mask.includes("engine"));
+    }
+
+    #[test]
+    fn test_field_mask_builder() {
+        let mask = FieldMaskBuilder::default()
+            .vehicle()
+            .timing()
+            .engine()
+            .build();
+        assert!(mask.includes("vehicle"));
+        assert!(mask.includes("timing"));
+        assert!(mask.includes("engine"));
+        assert!(!mask.includes("weather"));
+    }
+
+    #[test]
+    fn test_field_mask_section_includes_subfields() {
+        let mask = FieldMask::parse("vehicle");
+        assert!(mask.includes("vehicle"));
+        assert!(mask.includes("vehicle.speed"));
+        assert!(!mask.includes("timing"));
+    }
+
+    #[test]
+    fn test_to_json_filtered_with_none_returns_full_frame() {
+        let frame = make_test_frame();
+        let json = frame.to_json_filtered(None).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert!(parsed.get("timestamp").is_some());
+        assert!(parsed.get("game").is_some());
+        assert!(parsed.get("vehicle").is_some());
+        assert!(parsed.get("timing").is_some());
+        assert!(parsed.get("session").is_some());
+    }
+
+    #[test]
+    fn test_to_json_filtered_with_all_mask_returns_full_frame() {
+        let frame = make_test_frame();
+        let mask = FieldMask::all();
+        let json = frame.to_json_filtered(Some(&mask)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert!(parsed.get("vehicle").is_some());
+        assert!(parsed.get("timing").is_some());
+        assert!(parsed.get("session").is_some());
+    }
+
+    #[test]
+    fn test_to_json_filtered_with_mask_returns_only_requested_sections() {
+        let frame = make_test_frame();
+        let mask = FieldMask::parse("vehicle,timing");
+        let json = frame.to_json_filtered(Some(&mask)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Always-included fields
+        assert!(parsed.get("timestamp").is_some());
+        assert!(parsed.get("game").is_some());
+
+        // Requested sections
+        assert!(parsed.get("vehicle").is_some());
+        assert!(parsed.get("timing").is_some());
+
+        // Sections NOT requested should be absent
+        assert!(parsed.get("session").is_none());
+        assert!(parsed.get("weather").is_none());
+        assert!(parsed.get("engine").is_none());
+    }
+
+    #[test]
+    fn test_to_json_filtered_with_mask_for_none_section() {
+        let frame = make_test_frame();
+        // weather is None in our test frame
+        let mask = FieldMask::parse("weather,vehicle");
+        let json = frame.to_json_filtered(Some(&mask)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert!(parsed.get("weather").is_none());
+        assert!(parsed.get("vehicle").is_some());
+    }
+
+    #[test]
+    fn test_telemetry_frame_serialization_roundtrip() {
+        let frame = make_test_frame();
+        let json = serde_json::to_string(&frame).unwrap();
+        let deserialized: TelemetryFrame = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.game, "TestGame");
+        let vehicle = deserialized.vehicle.unwrap();
+        assert_eq!(vehicle.gear, Some(3));
+        assert_eq!(vehicle.max_gears, Some(6));
+        let session = deserialized.session.unwrap();
+        assert_eq!(session.session_type, Some(SessionType::Race));
+        assert_eq!(session.track_name, Some("Test Track".to_string()));
+    }
+
+    #[test]
+    fn test_vector3_new() {
+        let v = Vector3::new(Meters(1.0), Meters(2.0), Meters(3.0));
+        assert_eq!(v.x, Meters(1.0));
+        assert_eq!(v.y, Meters(2.0));
+        assert_eq!(v.z, Meters(3.0));
+    }
+
+    #[test]
+    fn test_session_type_serialization() {
+        let st = SessionType::Race;
+        let json = serde_json::to_string(&st).unwrap();
+        assert_eq!(json, "\"Race\"");
+
+        let deserialized: SessionType = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, SessionType::Race);
+    }
+
+    #[test]
+    fn test_percentage_clamp() {
+        let p = Percentage::new(1.5);
+        assert_eq!(p.0, 1.0);
+
+        let p = Percentage::new(-0.5);
+        assert_eq!(p.0, 0.0);
+
+        let p = Percentage::new(0.5);
+        assert_eq!(p.0, 0.5);
+    }
+
+    #[test]
+    fn test_percentage_as_percent() {
+        let p = Percentage::new(0.75);
+        assert!((p.as_percent() - 75.0).abs() < f32::EPSILON);
+    }
+}
