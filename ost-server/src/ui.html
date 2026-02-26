@@ -1104,6 +1104,11 @@
     const RAD2DEG = 180 / Math.PI;
     const BUFFER_MAX = 3600;
 
+    // Global crosshair state: when hovering any graph, all graphs show a vertical cursor at the same timestamp
+    const crosshair = { t: null };
+    let _uiDirty = false;
+    function requestRedraw() { _uiDirty = true; }
+
     /* ==================== Graph Metrics Registry ==================== */
     const GRAPH_METRICS = {
         speed:       { label: 'Speed',      color: '#00d68f', unit: 'km/h',  norm: 'autoscale', extract: f => (f.vehicle?.speed ?? 0) * 3.6 },
@@ -1890,6 +1895,22 @@
             this.ctx = this.canvas.getContext('2d');
             this.legendEl = c.querySelector('.graph-legend');
             this.legendItems = {};
+            this._lastRender = null; // cached time mapping for crosshair
+
+            // Crosshair: compute timestamp from mouse X using cached render params
+            this.canvas.addEventListener('mousemove', (e) => {
+                const r = this._lastRender;
+                if (!r) return;
+                const x = e.offsetX;
+                if (x >= r.padLeft && x <= r.padLeft + r.pw) {
+                    crosshair.t = r.tMin + ((x - r.padLeft) / r.pw) * r.tRange;
+                }
+                requestRedraw();
+            });
+            this.canvas.addEventListener('mouseleave', () => {
+                crosshair.t = null;
+                requestRedraw();
+            });
 
             this.rebuildLegend();
 
@@ -1929,6 +1950,7 @@
                     else this.enabledMetrics.add(key);
                     item.classList.toggle('active', this.enabledMetrics.has(key));
                     if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+                    requestRedraw();
                 });
                 this.legendEl.appendChild(item);
                 this.legendItems[key] = item;
@@ -1946,12 +1968,14 @@
                         this.enabledMetrics.delete(path);
                         this.rebuildLegend();
                         if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+                        requestRedraw();
                         return;
                     }
                     if (this.enabledMetrics.has(path)) this.enabledMetrics.delete(path);
                     else this.enabledMetrics.add(path);
                     item.classList.toggle('active', this.enabledMetrics.has(path));
                     if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+                    requestRedraw();
                 });
                 this.legendEl.appendChild(item);
                 this.legendItems[path] = item;
@@ -2148,6 +2172,9 @@
             const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
             ctx.clearRect(0, 0, w, h);
 
+            // Cache render params for crosshair mouse mapping
+            this._lastRender = { tMin, tRange, padLeft: pad.left, pw };
+
             // Grid lines and Y-axis labels
             ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
             ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
@@ -2162,11 +2189,20 @@
                 }
             }
 
+            // Helper: normalize a raw value to 0-1 for Y position
+            const normalizeVal = (trace, raw) => {
+                const ukey = trace.unit || trace.key;
+                const maxVal = unitMax[ukey] || 1;
+                let val;
+                if (trace.norm === 'pct') val = raw;
+                else if (trace.norm === 'centered') val = 0.5 + raw / (maxVal * 2);
+                else val = raw / maxVal;
+                return Math.max(0, Math.min(1, val));
+            };
+
             // Draw each trace
             for (const trace of traces) {
                 ctx.beginPath(); ctx.strokeStyle = trace.color; ctx.lineWidth = 1.5;
-                const ukey = trace.unit || trace.key;
-                const maxVal = unitMax[ukey] || 1;
                 let drawing = false;
 
                 for (let i = 0; i < count; i++) {
@@ -2175,19 +2211,88 @@
                     if (raw == null) { drawing = false; continue; }
 
                     const x = pad.left + ((entry.t - tMin) / tRange) * pw;
-                    let val;
-                    if (trace.norm === 'pct') {
-                        val = raw; // already 0-1
-                    } else if (trace.norm === 'centered') {
-                        val = 0.5 + raw / (maxVal * 2);
-                    } else { // autoscale
-                        val = raw / maxVal;
-                    }
-                    val = Math.max(0, Math.min(1, val));
-                    const y = pad.top + ph * (1 - val);
+                    const y = pad.top + ph * (1 - normalizeVal(trace, raw));
                     if (!drawing) { ctx.moveTo(x, y); drawing = true; } else { ctx.lineTo(x, y); }
                 }
                 ctx.stroke();
+            }
+
+            // Crosshair: vertical line + value dots + tooltip
+            if (crosshair.t != null) {
+                const cx = pad.left + ((crosshair.t - tMin) / tRange) * pw;
+                if (cx >= pad.left && cx <= pad.left + pw) {
+                    // Vertical line
+                    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 3]);
+                    ctx.beginPath(); ctx.moveTo(cx, pad.top); ctx.lineTo(cx, pad.top + ph); ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Find nearest data entry by binary search
+                    let lo = 0, hi = count - 1;
+                    while (lo < hi) {
+                        const mid = (lo + hi) >>> 1;
+                        if (store.ringAt(start + mid).t < crosshair.t) lo = mid + 1;
+                        else hi = mid;
+                    }
+                    if (lo > 0 && Math.abs(store.ringAt(start + lo - 1).t - crosshair.t) < Math.abs(store.ringAt(start + lo).t - crosshair.t)) lo--;
+                    const entry = store.ringAt(start + lo);
+
+                    // Collect values and draw dots on each trace
+                    const tipItems = [];
+                    for (const trace of traces) {
+                        const raw = trace.getValue(entry);
+                        if (raw == null) continue;
+                        const ny = pad.top + ph * (1 - normalizeVal(trace, raw));
+                        ctx.fillStyle = trace.color;
+                        ctx.beginPath(); ctx.arc(cx, ny, 3.5, 0, Math.PI * 2); ctx.fill();
+                        const label = GRAPH_METRICS[trace.key]?.label || this.customMetrics.get(trace.key)?.label || trace.key;
+                        tipItems.push({ color: trace.color, label, raw, unit: trace.unit });
+                    }
+
+                    // Draw tooltip box
+                    if (tipItems.length > 0) {
+                        ctx.font = '10px sans-serif';
+                        const lineH = 16;
+                        const tipPadX = 8, tipPadY = 6;
+                        // Measure max width
+                        let maxLabelW = 0, maxValW = 0;
+                        for (const item of tipItems) {
+                            maxLabelW = Math.max(maxLabelW, ctx.measureText(item.label).width);
+                            const valStr = (Math.abs(item.raw) >= 100 ? item.raw.toFixed(0) : item.raw.toFixed(1)) + (item.unit ? ' ' + item.unit : '');
+                            maxValW = Math.max(maxValW, ctx.measureText(valStr).width);
+                            item._valStr = valStr;
+                        }
+                        const boxW = 14 + maxLabelW + 12 + maxValW + tipPadX * 2;
+                        const boxH = tipItems.length * lineH + tipPadY * 2;
+                        let boxX = cx + 12;
+                        if (boxX + boxW > w - 4) boxX = cx - boxW - 12;
+                        let boxY = pad.top + 4;
+                        if (boxY + boxH > h - 4) boxY = h - boxH - 4;
+
+                        ctx.fillStyle = 'rgba(22, 27, 42, 0.92)';
+                        ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath(); ctx.roundRect(boxX, boxY, boxW, boxH, 4); ctx.fill(); ctx.stroke();
+
+                        let ty = boxY + tipPadY + 12;
+                        for (const item of tipItems) {
+                            // Color dot
+                            ctx.fillStyle = item.color;
+                            ctx.beginPath(); ctx.arc(boxX + tipPadX + 4, ty - 4, 3, 0, Math.PI * 2); ctx.fill();
+                            // Label
+                            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+                            ctx.textAlign = 'left';
+                            ctx.fillText(item.label, boxX + tipPadX + 14, ty);
+                            // Value
+                            ctx.fillStyle = '#fff';
+                            ctx.textAlign = 'right';
+                            ctx.fillText(item._valStr, boxX + boxW - tipPadX, ty);
+                            ty += lineH;
+                        }
+                        ctx.textAlign = 'left'; // reset
+                    }
+                }
             }
         }
 
@@ -2724,10 +2829,11 @@
     // Reset layout button
     document.getElementById('header-reset-layout').addEventListener('click', () => grid.resetLayout());
 
-    // Render loop (decoupled from SSE)
+    // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
     function renderLoop() {
-        if (store._dirty) {
+        if (store._dirty || _uiDirty) {
             store._dirty = false;
+            _uiDirty = false;
             const now = performance.now();
             for (const w of grid.widgets.values()) {
                 if (w._visible) w.update(store, now);
