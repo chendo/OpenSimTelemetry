@@ -223,12 +223,7 @@ impl IbtSessionInfo {
 }
 
 fn try_extract_yaml_value(line: &str, key: &str) -> Option<String> {
-    if line.starts_with(key) {
-        let val = line[key.len()..].trim();
-        Some(val.to_string())
-    } else {
-        None
-    }
+    line.strip_prefix(key).map(|rest| rest.trim().to_string())
 }
 
 // ============================================================================
@@ -691,12 +686,12 @@ impl IbtFile {
         // =================================================================
         let requested_services = Some(PitServices {
             fuel_to_add: get_f32("dpFuelFill").map(Liters),
-            change_tyre_fl: get_f32("dpLFTireChange").map_or(false, |v| v > 0.0),
-            change_tyre_fr: get_f32("dpRFTireChange").map_or(false, |v| v > 0.0),
-            change_tyre_rl: get_f32("dpLRTireChange").map_or(false, |v| v > 0.0),
-            change_tyre_rr: get_f32("dpRRTireChange").map_or(false, |v| v > 0.0),
-            windshield_tearoff: get_f32("dpWindshieldTearoff").map_or(false, |v| v > 0.0),
-            fast_repair: get_f32("dpFastRepair").map_or(false, |v| v > 0.0),
+            change_tyre_fl: get_f32("dpLFTireChange").is_some_and(|v| v > 0.0),
+            change_tyre_fr: get_f32("dpRFTireChange").is_some_and(|v| v > 0.0),
+            change_tyre_rl: get_f32("dpLRTireChange").is_some_and(|v| v > 0.0),
+            change_tyre_rr: get_f32("dpRRTireChange").is_some_and(|v| v > 0.0),
+            windshield_tearoff: get_f32("dpWindshieldTearoff").is_some_and(|v| v > 0.0),
+            fast_repair: get_f32("dpFastRepair").is_some_and(|v| v > 0.0),
             tyre_pressure_fl: get_f32("dpLFTireColdPress").map(Kilopascals),
             tyre_pressure_fr: get_f32("dpRFTireColdPress").map(Kilopascals),
             tyre_pressure_rl: get_f32("dpLRTireColdPress").map(Kilopascals),

@@ -149,7 +149,7 @@ fn test_demo_adapter_produces_multiple_frames() {
         let frame = adapter
             .read_frame()
             .expect("read_frame() should not error")
-            .expect(&format!("Frame {} should be Some", i));
+            .unwrap_or_else(|| panic!("Frame {} should be Some", i));
         assert_eq!(frame.game, "Demo");
     }
 }
