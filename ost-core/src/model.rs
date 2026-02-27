@@ -1200,7 +1200,7 @@ impl TelemetryFrame {
                     let filtered: HashMap<&String, &serde_json::Value> = self
                         .extras
                         .iter()
-                        .filter(|(k, _)| keys.iter().any(|req| k.as_str() == *req))
+                        .filter(|(k, _)| keys.contains(&k.as_str()))
                         .collect();
                     if !filtered.is_empty() {
                         map.insert("extras".to_string(), serde_json::to_value(&filtered)?);

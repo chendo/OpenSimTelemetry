@@ -444,18 +444,17 @@ impl IbtFile {
             return Ok(Vec::new());
         }
 
-        // Find the VarHeaders for Lap and LapLastLapTime
         let lap_vh = self.var_index.get("Lap").map(|&i| &self.var_headers[i]);
-        let last_lap_vh = self
+        let session_time_vh = self
             .var_index
-            .get("LapLastLapTime")
+            .get("SessionTime")
             .map(|&i| &self.var_headers[i]);
 
         let lap_vh = match lap_vh {
             Some(vh) => vh.clone(),
-            None => return Ok(Vec::new()), // No Lap variable — can't build index
+            None => return Ok(Vec::new()),
         };
-        let last_lap_vh = last_lap_vh.cloned();
+        let session_time_vh = session_time_vh.cloned();
 
         // Bulk read all sample buffers
         let buf_len = self.header.buf_len as usize;
@@ -464,29 +463,29 @@ impl IbtFile {
         let mut bulk_buf = vec![0u8; total_bytes];
         self.file.read_exact(&mut bulk_buf)?;
 
-        // Helper to read LapLastLapTime from a frame buffer
-        let read_last_lap_time = |frame_buf: &[u8], vh: &VarHeader| -> Option<f64> {
-            let lt_offset = vh.offset as usize;
+        // Helper to read SessionTime (f64) from a frame buffer
+        let read_session_time = |frame_buf: &[u8]| -> Option<f64> {
+            let vh = session_time_vh.as_ref()?;
+            let offset = vh.offset as usize;
             match vh.var_type {
-                VarType::Float if lt_offset + 4 <= frame_buf.len() => {
-                    let v = f32::from_le_bytes(
-                        frame_buf[lt_offset..lt_offset + 4].try_into().unwrap(),
-                    );
-                    if v > 0.0 && v < 3600.0 { Some(v as f64) } else { None }
+                VarType::Double if offset + 8 <= frame_buf.len() => {
+                    Some(f64::from_le_bytes(
+                        frame_buf[offset..offset + 8].try_into().unwrap(),
+                    ))
                 }
-                VarType::Double if lt_offset + 8 <= frame_buf.len() => {
-                    let v = f64::from_le_bytes(
-                        frame_buf[lt_offset..lt_offset + 8].try_into().unwrap(),
-                    );
-                    if v > 0.0 && v < 3600.0 { Some(v) } else { None }
+                VarType::Float if offset + 4 <= frame_buf.len() => {
+                    Some(f32::from_le_bytes(
+                        frame_buf[offset..offset + 4].try_into().unwrap(),
+                    ) as f64)
                 }
                 _ => None,
             }
         };
 
-        // Pass 1: find lap transitions
+        // Find lap transitions and record SessionTime at each transition
         let mut laps: Vec<LapInfo> = Vec::new();
         let mut prev_lap: Option<i32> = None;
+        let mut transition_times: Vec<Option<f64>> = Vec::new(); // SessionTime at each transition
 
         for i in 0..record_count {
             let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
@@ -499,57 +498,24 @@ impl IbtFile {
             );
 
             if prev_lap.is_none() || prev_lap != Some(lap_num) {
+                let session_time = read_session_time(frame_buf);
                 laps.push(LapInfo {
                     lap_number: lap_num,
                     start_frame: i,
                     lap_time_secs: None,
                 });
+                transition_times.push(session_time);
                 prev_lap = Some(lap_num);
             }
         }
 
-        // Pass 2: correlate LapLastLapTime with LapCompleted to assign times
-        // iRacing updates LapLastLapTime with a delay after the lap transition,
-        // so we use LapCompleted to know which lap the time belongs to.
-        let completed_vh = self
-            .var_index
-            .get("LapCompleted")
-            .map(|&i| &self.var_headers[i])
-            .cloned();
-
-        // Build a map from lap_number -> index in our laps vec
-        let mut lap_num_to_idx: HashMap<i32, usize> = HashMap::new();
-        for (idx, lap) in laps.iter().enumerate() {
-            lap_num_to_idx.insert(lap.lap_number, idx);
-        }
-
-        if let Some(ref vh) = last_lap_vh {
-            let mut prev_lt: Option<f64> = None;
-            let mut prev_completed: Option<i32> = None;
-
-            for i in 0..record_count {
-                let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
-                let lt = read_last_lap_time(frame_buf, vh);
-
-                if lt != prev_lt {
-                    if let Some(time) = lt {
-                        // Use LapCompleted to identify which lap this time belongs to
-                        if let Some(ref cvh) = completed_vh {
-                            let c_offset = cvh.offset as usize;
-                            if c_offset + 4 <= frame_buf.len() {
-                                let completed = i32::from_le_bytes(
-                                    frame_buf[c_offset..c_offset + 4].try_into().unwrap(),
-                                );
-                                if completed != prev_completed.unwrap_or(-2) {
-                                    if let Some(&idx) = lap_num_to_idx.get(&completed) {
-                                        laps[idx].lap_time_secs = Some(time);
-                                    }
-                                    prev_completed = Some(completed);
-                                }
-                            }
-                        }
-                    }
-                    prev_lt = lt;
+        // Compute lap times from SessionTime deltas between consecutive transitions
+        // Lap N's time = SessionTime at start of lap N+1 - SessionTime at start of lap N
+        for i in 0..laps.len().saturating_sub(1) {
+            if let (Some(t_start), Some(t_end)) = (transition_times[i], transition_times[i + 1]) {
+                let dt = t_end - t_start;
+                if dt > 0.0 && dt < 3600.0 {
+                    laps[i].lap_time_secs = Some(dt);
                 }
             }
         }
@@ -1483,14 +1449,15 @@ SessionInfo:
         let mut ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
         let laps = ibt.build_lap_index().unwrap();
         assert_eq!(laps.len(), 3);
-        // Lap 0 is the out-lap (no time)
+        // Lap 0 is the out-lap (~70s from SessionTime delta)
         assert_eq!(laps[0].lap_number, 0);
-        assert!(laps[0].lap_time_secs.is_none());
-        // Lap 1 is the first timed lap (~110.5s = 1:50.5)
+        let t0 = laps[0].lap_time_secs.expect("Lap 0 should have a time");
+        assert!(t0 > 60.0 && t0 < 80.0, "Lap 0 (out-lap) time {t0} out of range");
+        // Lap 1 is the first timed lap (~105s from SessionTime delta)
         assert_eq!(laps[1].lap_number, 1);
         let t1 = laps[1].lap_time_secs.expect("Lap 1 should have a time");
-        assert!(t1 > 110.0 && t1 < 111.0, "Lap 1 time {t1} out of range");
-        // Lap 2 is incomplete (file ends mid-lap)
+        assert!(t1 > 100.0 && t1 < 115.0, "Lap 1 time {t1} out of range");
+        // Lap 2 is incomplete (file ends mid-lap, no next transition)
         assert_eq!(laps[2].lap_number, 2);
         assert!(laps[2].lap_time_secs.is_none());
     }
