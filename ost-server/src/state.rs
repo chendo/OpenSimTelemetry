@@ -13,7 +13,7 @@ pub struct AppState {
     /// All registered adapters
     pub adapters: Arc<RwLock<Vec<Box<dyn TelemetryAdapter>>>>,
 
-    /// Name of the currently active adapter
+    /// Key of the currently active adapter
     pub active_adapter: Arc<RwLock<Option<String>>>,
 
     /// Broadcast channel for telemetry frames
@@ -29,8 +29,14 @@ pub struct AppState {
     /// Cancellation token for the replay playback task
     pub replay_cancel: Arc<RwLock<Option<CancellationToken>>>,
 
-    /// Adapters that should not auto-start (e.g. "Demo")
+    /// Adapter keys that should not auto-start (e.g. "demo")
     pub disabled_adapters: Arc<RwLock<HashSet<String>>>,
+
+    /// Broadcast channel for status updates (serialized JSON strings)
+    pub status_tx: broadcast::Sender<String>,
+
+    /// Broadcast channel for sink config updates (serialized JSON strings)
+    pub sinks_tx: broadcast::Sender<String>,
 }
 
 /// Configuration for an output sink
@@ -53,9 +59,11 @@ impl AppState {
     pub fn new() -> Self {
         // Create broadcast channel with capacity for 100 frames
         let (telemetry_tx, _) = broadcast::channel(100);
+        let (status_tx, _) = broadcast::channel(16);
+        let (sinks_tx, _) = broadcast::channel(16);
 
         let mut disabled = HashSet::new();
-        disabled.insert("Demo".to_string());
+        disabled.insert("demo".to_string());
 
         Self {
             adapters: Arc::new(RwLock::new(Vec::new())),
@@ -65,6 +73,8 @@ impl AppState {
             replay: Arc::new(RwLock::new(None)),
             replay_cancel: Arc::new(RwLock::new(None)),
             disabled_adapters: Arc::new(RwLock::new(disabled)),
+            status_tx,
+            sinks_tx,
         }
     }
 

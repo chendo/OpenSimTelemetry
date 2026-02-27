@@ -6,6 +6,7 @@
 //! - Reading frames from active adapters
 //! - Broadcasting frames to subscribers
 
+use crate::api::broadcast_adapter_status;
 use crate::state::AppState;
 use anyhow::Result;
 use ost_adapters::{DemoAdapter, IRacingAdapter};
@@ -23,6 +24,7 @@ pub async fn run(state: AppState) {
         .register_adapter(Box::new(IRacingAdapter::new()))
         .await;
     state.register_adapter(Box::new(DemoAdapter::new())).await;
+    broadcast_adapter_status(&state).await;
 
     info!("Adapter manager started");
 
@@ -55,42 +57,57 @@ async fn detection_cycle(state: &AppState) -> Result<()> {
         LAST_CHECK = Some(std::time::Instant::now());
     }
 
-    let mut adapters = state.adapters.write().await;
-    let mut active_adapter = state.active_adapter.write().await;
+    let mut changed = false;
 
-    // If we have an active adapter, check if it's still detected
-    if let Some(ref active_name) = *active_adapter {
-        if let Some(adapter) = adapters.iter_mut().find(|a| a.name() == active_name) {
-            if !adapter.detect() {
-                info!("Game {} no longer detected, stopping adapter", active_name);
-                if let Err(e) = adapter.stop() {
-                    error!("Error stopping adapter {}: {}", active_name, e);
+    {
+        let mut adapters = state.adapters.write().await;
+        let mut active_adapter = state.active_adapter.write().await;
+
+        // If we have an active adapter, check if it's still detected
+        if let Some(ref active_key) = *active_adapter {
+            if let Some(adapter) = adapters.iter_mut().find(|a| a.key() == active_key) {
+                if !adapter.detect() {
+                    info!("Game {} no longer detected, stopping adapter", adapter.name());
+                    if let Err(e) = adapter.stop() {
+                        error!("Error stopping adapter {}: {}", adapter.name(), e);
+                    }
+                    *active_adapter = None;
+                    changed = true;
                 }
-                *active_adapter = None;
+                if changed {
+                    drop(adapters);
+                    drop(active_adapter);
+                    broadcast_adapter_status(state).await;
+                }
+                return Ok(());
             }
-            return Ok(());
+        }
+
+        // No active adapter, look for detected games (skip disabled adapters)
+        let disabled = state.disabled_adapters.read().await;
+        for adapter in adapters.iter_mut() {
+            if disabled.contains(adapter.key()) {
+                continue;
+            }
+            if adapter.detect() && !adapter.is_active() {
+                info!("Game {} detected, starting adapter", adapter.name());
+                match adapter.start() {
+                    Ok(_) => {
+                        *active_adapter = Some(adapter.key().to_string());
+                        info!("Adapter {} started successfully", adapter.name());
+                        changed = true;
+                        break;
+                    }
+                    Err(e) => {
+                        error!("Failed to start adapter {}: {}", adapter.name(), e);
+                    }
+                }
+            }
         }
     }
 
-    // No active adapter, look for detected games (skip disabled adapters)
-    let disabled = state.disabled_adapters.read().await;
-    for adapter in adapters.iter_mut() {
-        if disabled.contains(adapter.name()) {
-            continue;
-        }
-        if adapter.detect() && !adapter.is_active() {
-            info!("Game {} detected, starting adapter", adapter.name());
-            match adapter.start() {
-                Ok(_) => {
-                    *active_adapter = Some(adapter.name().to_string());
-                    info!("Adapter {} started successfully", adapter.name());
-                    break;
-                }
-                Err(e) => {
-                    error!("Failed to start adapter {}: {}", adapter.name(), e);
-                }
-            }
-        }
+    if changed {
+        broadcast_adapter_status(state).await;
     }
 
     Ok(())
@@ -106,19 +123,18 @@ async fn frame_read_cycle(state: &AppState) -> Result<()> {
         }
     }
 
-    let active_name = {
+    let active_key = {
         let active = state.active_adapter.read().await;
         active.clone()
     };
 
-    if active_name.is_none() {
+    let Some(active_key) = active_key else {
         return Ok(());
-    }
+    };
 
-    let active_name = active_name.unwrap();
     let mut adapters = state.adapters.write().await;
 
-    if let Some(adapter) = adapters.iter_mut().find(|a| a.name() == active_name) {
+    if let Some(adapter) = adapters.iter_mut().find(|a| a.key() == active_key) {
         match adapter.read_frame() {
             Ok(Some(frame)) => {
                 // Broadcast to all subscribers
@@ -129,7 +145,7 @@ async fn frame_read_cycle(state: &AppState) -> Result<()> {
                 // No data available, that's fine
             }
             Err(e) => {
-                warn!("Error reading frame from {}: {}", active_name, e);
+                warn!("Error reading frame from {}: {}", active_key, e);
             }
         }
     }

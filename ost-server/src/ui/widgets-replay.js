@@ -66,6 +66,7 @@ class ReplayPlayer {
     async enterReplayMode() {
         this.badge.textContent = 'REPLAY';
         this.badge.className = 'mode-badge mode-replay';
+        this.badge.style.display = '';
         this.bar.classList.add('active');
 
         if (this.info) {
@@ -84,15 +85,16 @@ class ReplayPlayer {
         }
         this.updateSpeedButtons();
         this.updateControlsFromBuf();
+        if (typeof updateStatus === 'function') updateStatus();
     }
 
     exitReplayMode() {
-        this.badge.textContent = 'LIVE';
-        this.badge.className = 'mode-badge mode-live';
+        this.badge.style.display = 'none';
         this.bar.classList.remove('active');
         this.active = false;
         this.info = null;
         this.buf.reset();
+        if (typeof updateStatus === 'function') updateStatus();
     }
 
     togglePlayPause() {
@@ -139,15 +141,15 @@ class ReplayPlayer {
         const frame = parseInt(value);
         this.buf.cursor = frame;
         this.buf._dirty = true;
-        // Sync server position (for exit/cleanup)
+        // Sync server position (for exit/cleanup, non-blocking)
         fetch('/api/replay/control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'seek', value: frame })
         }).catch(() => {});
-        // Ensure cache covers this position
+        // Ensure cache covers this position (non-blocking)
         if (this.buf.needsFetch()) {
-            this.buf.fetchWindow(this._fetchFrames);
+            this.buf.fetchWindowDebounced(this._fetchFrames, 50);
         }
         requestRedraw();
     }

@@ -13,7 +13,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use futures::stream::{Stream, StreamExt as FuturesStreamExt};
+use futures::stream::{self, Stream, StreamExt as FuturesStreamExt};
 use ost_core::model::FieldMask;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -29,7 +29,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/adapters", get(list_adapters))
         .route("/api/adapters/:name/toggle", post(toggle_adapter))
         .route("/api/telemetry/stream", get(telemetry_stream))
+        .route("/api/status/stream", get(status_stream))
         .route("/api/sinks", get(list_sinks).post(create_sink))
+        .route("/api/sinks/stream", get(sinks_stream))
         .route("/api/sinks/:id", delete(delete_sink))
         // Replay endpoints
         .route("/api/replay/upload", post(replay_upload)
@@ -46,6 +48,7 @@ pub fn create_router(state: AppState) -> Router {
 
 #[derive(Serialize)]
 struct AdapterInfo {
+    key: String,
     name: String,
     detected: bool,
     active: bool,
@@ -60,14 +63,15 @@ async fn list_adapters(State(state): State<AppState>) -> Json<Vec<AdapterInfo>> 
     let info: Vec<AdapterInfo> = adapters
         .iter()
         .map(|adapter| AdapterInfo {
+            key: adapter.key().to_string(),
             name: adapter.name().to_string(),
             detected: adapter.detect(),
             active: adapter.is_active()
                 || active_name
                     .as_ref()
-                    .map(|n| n == adapter.name())
+                    .map(|n| n == adapter.key())
                     .unwrap_or(false),
-            enabled: !disabled.contains(adapter.name()),
+            enabled: !disabled.contains(adapter.key()),
         })
         .collect();
 
@@ -76,49 +80,156 @@ async fn list_adapters(State(state): State<AppState>) -> Json<Vec<AdapterInfo>> 
 
 async fn toggle_adapter(
     State(state): State<AppState>,
-    axum::extract::Path(name): axum::extract::Path<String>,
+    axum::extract::Path(key): axum::extract::Path<String>,
 ) -> Result<Json<AdapterInfo>, (StatusCode, String)> {
-    let mut adapters = state.adapters.write().await;
-    let mut active_adapter = state.active_adapter.write().await;
-    let mut disabled = state.disabled_adapters.write().await;
+    let result = {
+        let mut adapters = state.adapters.write().await;
+        let mut active_adapter = state.active_adapter.write().await;
+        let mut disabled = state.disabled_adapters.write().await;
 
-    let adapter = adapters
-        .iter_mut()
-        .find(|a| a.name() == name)
-        .ok_or((StatusCode::NOT_FOUND, format!("Adapter '{}' not found", name)))?;
+        let adapter = adapters
+            .iter_mut()
+            .find(|a| a.key() == key)
+            .ok_or((StatusCode::NOT_FOUND, format!("Adapter '{}' not found", key)))?;
 
-    let is_active = adapter.is_active()
-        || active_adapter.as_ref().map(|n| n == &name).unwrap_or(false);
+        let is_enabled = !disabled.contains(adapter.key());
 
-    if is_active {
-        // Stop the adapter
-        if let Err(e) = adapter.stop() {
-            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to stop adapter: {}", e)));
+        if is_enabled {
+            // Disable: stop if active, add to disabled set
+            let is_active = adapter.is_active()
+                || active_adapter.as_ref().map(|n| n == adapter.key()).unwrap_or(false);
+            if is_active {
+                let _ = adapter.stop();
+                *active_adapter = None;
+            }
+            disabled.insert(key.clone());
+            Ok(Json(AdapterInfo {
+                key: adapter.key().to_string(),
+                name: adapter.name().to_string(),
+                detected: adapter.detect(),
+                active: false,
+                enabled: false,
+            }))
+        } else {
+            // Enable: remove from disabled set, let detection loop handle starting
+            disabled.remove(&key);
+            Ok(Json(AdapterInfo {
+                key: adapter.key().to_string(),
+                name: adapter.name().to_string(),
+                detected: adapter.detect(),
+                active: false,
+                enabled: true,
+            }))
         }
-        *active_adapter = None;
-        disabled.insert(name.clone());
-        Ok(Json(AdapterInfo {
+    };
+    // Broadcast status update after locks are released
+    broadcast_adapter_status(&state).await;
+    result
+}
+
+/// Build the current adapter status JSON and broadcast it to all status SSE subscribers.
+/// Called after any adapter state change (toggle, auto-detect start/stop).
+pub async fn broadcast_adapter_status(state: &AppState) {
+    let adapters = state.adapters.read().await;
+    let active_name = state.active_adapter.read().await;
+    let disabled = state.disabled_adapters.read().await;
+
+    let info: Vec<AdapterInfo> = adapters
+        .iter()
+        .map(|adapter| AdapterInfo {
+            key: adapter.key().to_string(),
             name: adapter.name().to_string(),
             detected: adapter.detect(),
-            active: false,
-            enabled: false,
-        }))
-    } else {
-        // Start the adapter
-        disabled.remove(&name);
-        match adapter.start() {
-            Ok(_) => {
-                *active_adapter = Some(name.clone());
-                Ok(Json(AdapterInfo {
-                    name: adapter.name().to_string(),
-                    detected: adapter.detect(),
-                    active: true,
-                    enabled: true,
-                }))
-            }
-            Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to start adapter: {}", e))),
-        }
+            active: adapter.is_active()
+                || active_name
+                    .as_ref()
+                    .map(|n| n == adapter.key())
+                    .unwrap_or(false),
+            enabled: !disabled.contains(adapter.key()),
+        })
+        .collect();
+
+    if let Ok(json) = serde_json::to_string(&info) {
+        let _ = state.status_tx.send(json);
     }
+}
+
+/// Broadcast the current sink config list to all sink SSE subscribers.
+async fn broadcast_sinks(state: &AppState) {
+    let sinks = state.sinks.read().await;
+    if let Ok(json) = serde_json::to_string(&*sinks) {
+        let _ = state.sinks_tx.send(json);
+    }
+}
+
+/// SSE endpoint that pushes sink config updates in real-time.
+/// Sends the current state immediately on connect, then on every change.
+async fn sinks_stream(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let sinks = state.sinks.read().await;
+    let initial_json = serde_json::to_string(&*sinks).unwrap_or_default();
+    drop(sinks);
+
+    let rx = state.sinks_tx.subscribe();
+    let updates = BroadcastStream::new(rx).filter_map(|result| async move {
+        match result {
+            Ok(json) => Some(Ok(Event::default().data(json))),
+            Err(_) => None,
+        }
+    });
+
+    let initial_event = stream::once(async move {
+        Ok(Event::default().data(initial_json))
+    });
+
+    Sse::new(initial_event.chain(updates)).keep_alive(KeepAlive::default())
+}
+
+/// SSE endpoint that pushes adapter status updates in real-time.
+/// Sends the current state immediately on connect, then on every change.
+async fn status_stream(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    // Build initial status to send immediately
+    let adapters = state.adapters.read().await;
+    let active_name = state.active_adapter.read().await;
+    let disabled = state.disabled_adapters.read().await;
+
+    let initial: Vec<AdapterInfo> = adapters
+        .iter()
+        .map(|adapter| AdapterInfo {
+            key: adapter.key().to_string(),
+            name: adapter.name().to_string(),
+            detected: adapter.detect(),
+            active: adapter.is_active()
+                || active_name
+                    .as_ref()
+                    .map(|n| n == adapter.key())
+                    .unwrap_or(false),
+            enabled: !disabled.contains(adapter.key()),
+        })
+        .collect();
+    drop(adapters);
+    drop(active_name);
+    drop(disabled);
+
+    let initial_json = serde_json::to_string(&initial).unwrap_or_default();
+
+    let rx = state.status_tx.subscribe();
+    let updates = BroadcastStream::new(rx).filter_map(|result| async move {
+        match result {
+            Ok(json) => Some(Ok(Event::default().data(json))),
+            Err(_) => None,
+        }
+    });
+
+    // Prepend the initial state event
+    let initial_event = stream::once(async move {
+        Ok(Event::default().data(initial_json))
+    });
+
+    Sse::new(initial_event.chain(updates)).keep_alive(KeepAlive::default())
 }
 
 // === Telemetry Stream Endpoint ===
@@ -177,15 +288,19 @@ async fn create_sink(
     State(state): State<AppState>,
     Json(request): Json<CreateSinkRequest>,
 ) -> impl IntoResponse {
-    let mut sinks = state.sinks.write().await;
+    let config = {
+        let mut sinks = state.sinks.write().await;
 
-    // Generate ID if not provided
-    let mut config = request.config;
-    if config.id.is_empty() {
-        config.id = format!("sink-{}", sinks.len() + 1);
-    }
+        // Generate ID if not provided
+        let mut config = request.config;
+        if config.id.is_empty() {
+            config.id = format!("sink-{}", sinks.len() + 1);
+        }
 
-    sinks.push(config.clone());
+        sinks.push(config.clone());
+        config
+    };
+    broadcast_sinks(&state).await;
 
     (StatusCode::CREATED, Json(config))
 }
@@ -193,15 +308,17 @@ async fn create_sink(
 async fn delete_sink(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> impl IntoResponse {
-    let mut sinks = state.sinks.write().await;
-
-    if let Some(pos) = sinks.iter().position(|s| s.id == id) {
-        sinks.remove(pos);
-        StatusCode::NO_CONTENT
-    } else {
-        StatusCode::NOT_FOUND
+) -> Result<StatusCode, StatusCode> {
+    {
+        let mut sinks = state.sinks.write().await;
+        if let Some(pos) = sinks.iter().position(|s| s.id == id) {
+            sinks.remove(pos);
+        } else {
+            return Err(StatusCode::NOT_FOUND);
+        }
     }
+    broadcast_sinks(&state).await;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // === Replay Endpoints ===

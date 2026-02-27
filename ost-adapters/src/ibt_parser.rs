@@ -397,6 +397,62 @@ impl IbtFile {
         self.file_size
     }
 
+    /// Read a contiguous range of samples in a single disk operation.
+    /// Much faster than calling `read_sample()` in a loop because it avoids
+    /// per-frame seek overhead.
+    pub fn read_samples_range(
+        &mut self,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<HashMap<String, VarValue>>> {
+        let record_count = self.record_count();
+        if start >= record_count {
+            bail!(
+                "Start index {} out of range (0..{})",
+                start,
+                record_count
+            );
+        }
+        let clamped_count = count.min(record_count - start);
+        if clamped_count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let buf_len = self.header.buf_len as usize;
+        let offset = self.sample_data_offset + (start as u64) * (buf_len as u64);
+        let total_bytes = buf_len * clamped_count;
+
+        // Single seek + single read for the entire range
+        self.file.seek(SeekFrom::Start(offset))?;
+        let mut bulk_buf = vec![0u8; total_bytes];
+        self.file.read_exact(&mut bulk_buf)?;
+
+        // Parse each frame from the in-memory buffer
+        let mut results = Vec::with_capacity(clamped_count);
+        for i in 0..clamped_count {
+            let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
+            let mut sample = HashMap::with_capacity(self.var_headers.len());
+            for vh in &self.var_headers {
+                let var_offset = vh.offset as usize;
+                let count = vh.count as usize;
+                let end = var_offset + count * vh.var_type.element_size();
+                if end > frame_buf.len() {
+                    continue;
+                }
+                let value = if count == 1 {
+                    read_scalar_value(frame_buf, var_offset, vh.var_type)
+                } else {
+                    read_array_value(frame_buf, var_offset, vh.var_type, count)
+                };
+                if let Some(val) = value {
+                    sample.insert(vh.name.clone(), val);
+                }
+            }
+            results.push(sample);
+        }
+        Ok(results)
+    }
+
     /// Read a single sample by index, returning a HashMap of variable name -> VarValue
     pub fn read_sample(&mut self, index: usize) -> Result<HashMap<String, VarValue>> {
         let record_count = self.record_count();

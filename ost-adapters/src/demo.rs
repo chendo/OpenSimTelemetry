@@ -624,6 +624,10 @@ impl Default for DemoAdapter {
 }
 
 impl TelemetryAdapter for DemoAdapter {
+    fn key(&self) -> &str {
+        "demo"
+    }
+
     fn name(&self) -> &str {
         "Demo"
     }

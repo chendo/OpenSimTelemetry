@@ -57,6 +57,7 @@ impl ReplayState {
 
     /// Read a range of frames for batch delivery to the client.
     /// Returns Vec of (frame_index, TelemetryFrame) pairs.
+    /// Uses bulk disk read for performance (single seek instead of per-frame seeks).
     pub fn get_frames_range(
         &mut self,
         start: usize,
@@ -68,13 +69,12 @@ impl ReplayState {
             .min(max_count)
             .min(self.total_frames.saturating_sub(clamped_start));
 
-        let mut frames = Vec::with_capacity(clamped_count);
-        for i in 0..clamped_count {
-            let idx = clamped_start + i;
-            let sample = self.ibt.read_sample(idx)?;
-            let frame = self.ibt.sample_to_frame(&sample);
-            frames.push((idx, frame));
-        }
+        let samples = self.ibt.read_samples_range(clamped_start, clamped_count)?;
+        let frames = samples
+            .iter()
+            .enumerate()
+            .map(|(i, sample)| (clamped_start + i, self.ibt.sample_to_frame(sample)))
+            .collect();
         Ok(frames)
     }
 

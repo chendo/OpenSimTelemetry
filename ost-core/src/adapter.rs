@@ -10,7 +10,10 @@ use anyhow::Result;
 /// - Reading telemetry data from the game
 /// - Converting game-specific data to the unified TelemetryFrame format
 pub trait TelemetryAdapter: Send + Sync {
-    /// Get the name of this adapter (e.g., "Assetto Corsa", "iRacing")
+    /// URL-safe key for this adapter (e.g., "iracing", "demo")
+    fn key(&self) -> &str;
+
+    /// Human-readable display name (e.g., "iRacing", "Demo")
     fn name(&self) -> &str;
 
     /// Check if the game is currently running and accessible

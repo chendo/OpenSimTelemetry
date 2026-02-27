@@ -31,14 +31,17 @@
     <header class="header-bar">
         <span class="header-logo">
             <span class="logo-open">OPEN</span><span class="logo-sim">SIM</span><span class="logo-tel">TELEMETRY</span>
-            <span class="mode-badge mode-live" id="mode-badge">LIVE</span>
+            <span class="mode-badge" id="mode-badge" style="display:none"></span>
         </span>
         <div class="header-right">
             <span class="header-conn" id="header-conn">
                 <span class="status-dot dot-inactive"></span>
-                <span>Connecting</span>
+                <span>Connecting...</span>
             </span>
-            <div class="header-adapters" id="header-adapters"></div>
+            <div class="sources-dropdown" id="sources-dropdown">
+                <button class="header-reset-btn sources-btn" id="sources-btn">Sources</button>
+                <div class="sources-menu" id="sources-menu"></div>
+            </div>
             <button class="header-reset-btn" id="header-load-ibt">Load .ibt</button>
             <input type="file" id="ibt-file-input" accept=".ibt" style="display:none">
             <button class="header-reset-btn" id="header-pause-btn">Pause</button>

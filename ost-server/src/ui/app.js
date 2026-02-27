@@ -6,13 +6,44 @@ const grid = new DashboardGrid(document.getElementById('dashboard-grid'));
 // Global function for GraphWidget to call when config changes
 function dashboardSaveGraphs() { grid.saveGraphConfigs(); }
 
-// SSE connection
+// SSE connection + status line
 const connEl = document.getElementById('header-conn');
+let sseConnected = false;
+let sseEverConnected = false;
+
+function updateStatus() {
+    let text, dotClass;
+    if (!sseConnected) {
+        text = sseEverConnected ? 'Disconnected' : 'Connecting...';
+        dotClass = 'dot-inactive';
+    } else if (replayBuf.count > 0) {
+        text = 'Viewing replay';
+        dotClass = 'dot-active';
+    } else if (streamPaused) {
+        text = 'Paused';
+        dotClass = 'dot-detected';
+    } else {
+        const active = store.adapters.find(a => a.active);
+        if (active) {
+            text = `Receiving from ${active.name}`;
+            dotClass = 'dot-active';
+        } else {
+            text = 'Waiting for data';
+            dotClass = 'dot-detected';
+        }
+    }
+    connEl.innerHTML = `<span class="status-dot ${dotClass}"></span><span>${text}</span>`;
+}
+
+function onSseStatus(connected) {
+    sseConnected = connected;
+    if (connected) sseEverConnected = true;
+    updateStatus();
+}
+
 const sse = new SSEConnection('/api/telemetry/stream',
     (frame) => { if (!streamPaused && replayBuf.count === 0) store.pushFrame(frame); },
-    (connected) => {
-        connEl.innerHTML = `<span class="status-dot ${connected ? 'dot-active' : 'dot-inactive'}"></span><span>${connected ? 'Connected' : 'Disconnected'}</span>`;
-    }
+    onSseStatus
 );
 
 // Create all widgets in a batch to avoid excessive change events
@@ -59,22 +90,43 @@ document.getElementById('header-add-graph').addEventListener('click', () => {
     grid.saveGraphConfigs();
 });
 
-// Header: adapter status dots (clickable toggle for adapters)
-const headerAdapters = document.getElementById('header-adapters');
+// Sources dropdown
+const sourcesBtn = document.getElementById('sources-btn');
+const sourcesMenu = document.getElementById('sources-menu');
+let sourcesOpen = false;
+
+sourcesBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    sourcesOpen = !sourcesOpen;
+    sourcesMenu.classList.toggle('open', sourcesOpen);
+});
+document.addEventListener('click', () => { sourcesOpen = false; sourcesMenu.classList.remove('open'); });
+sourcesMenu.addEventListener('click', (e) => e.stopPropagation());
+
 function updateHeaderAdapters() {
-    headerAdapters.innerHTML = store.adapters.map(a =>
-        `<span class="header-adapter-item header-adapter-toggle" data-adapter="${a.name}" title="Click to ${a.active ? 'stop' : 'start'} ${a.name}"><span class="status-dot ${a.active ? 'dot-active' : a.detected ? 'dot-detected' : 'dot-inactive'}"></span>${a.name}${a.active ? ' &#9632;' : ' &#9654;'}</span>`
-    ).join('');
+    sourcesMenu.innerHTML = store.adapters.map(a => {
+        const dotClass = a.active ? 'dot-active' : a.detected ? 'dot-detected' : 'dot-inactive';
+        const checked = a.enabled ? 'checked' : '';
+        return `<label class="sources-item" data-key="${a.key}">
+            <span class="status-dot ${dotClass}"></span>
+            <span class="sources-name">${a.name}</span>
+            <input type="checkbox" class="sources-toggle" ${checked}>
+            <span class="sources-switch"></span>
+        </label>`;
+    }).join('');
     // Attach toggle handlers
-    headerAdapters.querySelectorAll('.header-adapter-toggle').forEach(el => {
-        el.addEventListener('click', async () => {
-            const name = el.dataset.adapter;
+    sourcesMenu.querySelectorAll('.sources-toggle').forEach(cb => {
+        cb.addEventListener('change', async () => {
+            const key = cb.closest('.sources-item').dataset.key;
             try {
-                await fetch(`/api/adapters/${encodeURIComponent(name)}/toggle`, { method: 'POST' });
-                await pollAdapters();
+                await fetch(`/api/adapters/${key}/toggle`, { method: 'POST' });
+                // Status SSE will push the updated adapter list
             } catch (e) { console.error('Toggle adapter failed:', e); }
         });
     });
+    // Update button to show active count
+    const activeCount = store.adapters.filter(a => a.active).length;
+    sourcesBtn.textContent = activeCount > 0 ? `Sources (${activeCount})` : 'Sources';
 }
 
 // Pause/resume streaming button
@@ -84,6 +136,7 @@ pauseBtn.addEventListener('click', () => {
     pauseBtn.textContent = streamPaused ? 'Resume' : 'Pause';
     pauseBtn.style.borderColor = streamPaused ? 'var(--accent)' : '';
     pauseBtn.style.color = streamPaused ? 'var(--accent)' : '';
+    updateStatus();
 });
 
 // Reset layout button
@@ -130,19 +183,22 @@ function renderLoop() {
     requestAnimationFrame(renderLoop);
 }
 
-// Polling: adapters every 30s, sinks every 30s (also refreshed on mutation)
-async function pollAdapters() {
-    try { store.adapters = await (await fetch('/api/adapters')).json(); updateHeaderAdapters(); } catch {}
-}
-async function pollSinks() {
-    try { store.sinks = await (await fetch('/api/sinks')).json(); } catch {}
-}
+// Status SSE: receive adapter updates in real-time (replaces polling)
+const statusSse = new SSEConnection('/api/status/stream',
+    (adapters) => { store.adapters = adapters; updateHeaderAdapters(); updateStatus(); },
+    onSseStatus
+);
+
+// Sinks SSE: receive sink config updates in real-time
+const sinksSse = new SSEConnection('/api/sinks/stream',
+    (sinks) => { store.sinks = sinks; store._sinksVersion = (store._sinksVersion || 0) + 1; requestRedraw(); },
+    onSseStatus
+);
 
 // Start
 sse.connect();
-pollAdapters(); pollSinks();
-setInterval(pollAdapters, 30000);
-setInterval(pollSinks, 30000);
+statusSse.connect();
+sinksSse.connect();
 requestAnimationFrame(renderLoop);
 
 // Replay: drag-drop and init

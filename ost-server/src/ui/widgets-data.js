@@ -196,7 +196,7 @@ class OutputSinksWidget extends Widget {
             if (sinkType === 'http') config.sink_type.url = c.querySelector('#sk-url')?.value;
             else if (sinkType === 'udp') { config.sink_type.host = c.querySelector('#sk-host')?.value; config.sink_type.port = parseInt(c.querySelector('#sk-port')?.value); }
             else if (sinkType === 'file') config.sink_type.path = c.querySelector('#sk-path')?.value;
-            try { await fetch('/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); this._lastSinkCount = -1; pollSinks(); requestRedraw(); } catch(e) { console.error(e); }
+            try { await fetch('/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); } catch(e) { console.error(e); }
         });
     }
 
@@ -208,8 +208,9 @@ class OutputSinksWidget extends Widget {
     }
 
     update(store) {
-        if (store.sinks.length !== this._lastSinkCount) {
-            this._lastSinkCount = store.sinks.length;
+        const ver = store._sinksVersion || 0;
+        if (ver !== this._lastSinksVersion) {
+            this._lastSinksVersion = ver;
             if (store.sinks.length === 0) {
                 this.listEl.innerHTML = '<div class="no-data">No sinks configured</div>';
             } else {
@@ -219,7 +220,7 @@ class OutputSinksWidget extends Widget {
                 }).join('');
                 this.listEl.querySelectorAll('.btn-delete').forEach(btn => {
                     btn.addEventListener('click', async () => {
-                        try { await fetch(`/api/sinks/${btn.dataset.id}`, { method: 'DELETE' }); this._lastSinkCount = -1; pollSinks(); requestRedraw(); } catch(e) { console.error(e); }
+                        try { await fetch(`/api/sinks/${btn.dataset.id}`, { method: 'DELETE' }); } catch(e) { console.error(e); }
                     });
                 });
             }

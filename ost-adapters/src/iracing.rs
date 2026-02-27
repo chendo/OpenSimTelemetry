@@ -815,6 +815,10 @@ mod windows_impl {
     }
 
     impl TelemetryAdapter for IRacingAdapter {
+        fn key(&self) -> &str {
+            "iracing"
+        }
+
         fn name(&self) -> &str {
             "iRacing"
         }
@@ -901,8 +905,12 @@ impl IRacingAdapter {
 
 #[cfg(not(target_os = "windows"))]
 impl ost_core::adapter::TelemetryAdapter for IRacingAdapter {
+    fn key(&self) -> &str {
+        "iracing"
+    }
+
     fn name(&self) -> &str {
-        "iRacing (Windows only)"
+        "iRacing"
     }
 
     fn detect(&self) -> bool {

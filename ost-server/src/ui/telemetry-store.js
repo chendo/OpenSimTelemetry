@@ -193,18 +193,16 @@ class SSEConnection {
         this.onFrame = onFrame;
         this.onStatusChange = onStatusChange;
         this.es = null;
-        this.delay = 2000;
     }
 
     connect() {
         if (this.es) this.es.close();
         this.es = new EventSource(this.url);
-        this.es.onopen = () => { this.onStatusChange(true); this.delay = 2000; };
+        this.es.onopen = () => { this.onStatusChange(true); };
         this.es.onerror = () => {
             this.onStatusChange(false);
             this.es.close();
-            setTimeout(() => this.connect(), this.delay);
-            this.delay = Math.min(this.delay * 1.5, 10000);
+            setTimeout(() => this.connect(), 5000);
         };
         this.es.onmessage = (e) => {
             try { this.onFrame(JSON.parse(e.data)); }
