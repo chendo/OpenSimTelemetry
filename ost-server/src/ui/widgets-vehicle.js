@@ -1,6 +1,6 @@
 /* ==================== VehicleWidget ==================== */
 class VehicleWidget extends Widget {
-    constructor() { super('vehicle', 'Vehicle', { col: 1, row: 1, width: 4, height: 6 }); }
+    constructor() { super('vehicle', 'Vehicle', { col: 1, row: 1, width: 4, height: 8 }); }
 
     buildContent(c) {
         c.innerHTML = `
@@ -70,7 +70,7 @@ class VehicleWidget extends Widget {
 /* ==================== GForceWidget ==================== */
 class GForceWidget extends Widget {
     constructor() {
-        super('gforce', 'G-Force', { col: 5, row: 1, width: 4, height: 6 });
+        super('gforce', 'G-Force', { col: 5, row: 1, width: 4, height: 8 });
         this.trailMax = 40;
         this._trail = new Array(this.trailMax);
         this._trailHead = 0;
@@ -192,7 +192,7 @@ function tireTemperatureColor(tempC) {
 
 class WheelsWidget extends Widget {
     constructor() {
-        super('wheels', 'Wheels', { col: 1, row: 13, width: 4, height: 8 });
+        super('wheels', 'Wheels', { col: 9, row: 1, width: 4, height: 8 });
         this.suspRange = { min: Infinity, max: -Infinity };
         this.shockMax = 1; // track absolute max for symmetric scaling
     }

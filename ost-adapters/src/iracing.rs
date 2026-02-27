@@ -805,10 +805,13 @@ mod windows_impl {
             Value::BOOL(b) => serde_json::json!(*b),
             Value::INT(i) => serde_json::json!(*i),
             Value::BITS(u) => serde_json::json!(*u),
-            Value::FLOAT(f) => serde_json::json!(*f),
-            Value::DOUBLE(d) => serde_json::json!(*d),
+            Value::FLOAT(f) => serde_json::json!((*f * 10000.0).round() / 10000.0),
+            Value::DOUBLE(d) => serde_json::json!((*d * 10000.0).round() / 10000.0),
             Value::IntVec(v) => serde_json::json!(v),
-            Value::FloatVec(v) => serde_json::json!(v),
+            Value::FloatVec(v) => {
+                let rounded: Vec<f32> = v.iter().map(|x| (x * 10000.0).round() / 10000.0).collect();
+                serde_json::json!(rounded)
+            }
             Value::BoolVec(v) => serde_json::json!(v),
             Value::UNKNOWN(_) => serde_json::Value::Null,
         }

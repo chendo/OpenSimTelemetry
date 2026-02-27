@@ -1,6 +1,6 @@
 /* ==================== LapTimingWidget ==================== */
 class LapTimingWidget extends Widget {
-    constructor() { super('laptiming', 'Lap Timing', { col: 5, row: 13, width: 4, height: 5 }); }
+    constructor() { super('laptiming', 'Lap Timing', { col: 1, row: 15, width: 4, height: 5 }); }
 
     buildContent(c) {
         c.innerHTML = `
@@ -29,7 +29,7 @@ class LapTimingWidget extends Widget {
 
 /* ==================== SessionWidget ==================== */
 class SessionWidget extends Widget {
-    constructor() { super('session', 'Session', { col: 9, row: 13, width: 4, height: 5 }); }
+    constructor() { super('session', 'Session', { col: 5, row: 15, width: 4, height: 5 }); }
 
     buildContent(c) {
         c.innerHTML = `
@@ -78,7 +78,7 @@ class SessionWidget extends Widget {
 
 /* ==================== AllFieldsWidget ==================== */
 class AllFieldsWidget extends Widget {
-    constructor() { super('allfields', 'Metrics', { col: 1, row: 18, width: 12, height: 6 }); }
+    constructor() { super('allfields', 'Metrics', { col: 9, row: 15, width: 4, height: 5 }); }
 
     buildContent(c) {
         c.innerHTML = `
@@ -218,7 +218,7 @@ class AllFieldsWidget extends Widget {
 
 /* ==================== OutputSinksWidget ==================== */
 class OutputSinksWidget extends Widget {
-    constructor() { super('sinks', 'Output Sinks', { col: 1, row: 24, width: 12, height: 5 }); this._lastSinkCount = -1; }
+    constructor() { super('sinks', 'Output Sinks', { col: 1, row: 20, width: 12, height: 5 }); this._lastSinkCount = -1; }
 
     buildContent(c) {
         c.innerHTML = `

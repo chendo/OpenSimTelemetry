@@ -496,6 +496,113 @@ impl IbtFile {
         Ok(result)
     }
 
+    /// Variable names that are already mapped to structured TelemetryFrame fields.
+    /// Everything NOT in this list (and not CarIdx*) goes into extras.
+    /// Must stay in sync with MAPPED_VARS in iracing.rs.
+    const MAPPED_VARS: &[&str] = &[
+        // Motion
+        "VelocityX", "VelocityY", "VelocityZ",
+        "LatAccel", "LongAccel", "VertAccel",
+        "Pitch", "Yaw", "Roll",
+        "PitchRate", "YawRate", "RollRate",
+        "Speed",
+        // Vehicle
+        "RPM", "Gear", "Throttle", "Brake", "Clutch",
+        "SteeringWheelAngle", "SteeringWheelTorque", "SteeringWheelPctTorque",
+        "IsOnTrack", "IsInGarage", "PlayerTrackSurface",
+        // Engine
+        "WaterTemp", "OilTemp", "OilPress", "OilLevel",
+        "FuelLevel", "FuelLevelPct", "FuelPress", "FuelUsePerHour",
+        "Voltage", "ManifoldPress", "EngineWarnings",
+        // Wheels - LF
+        "LFshockDefl", "LFshockDeflST", "LFshockVel", "LFshockVelST", "LFrideHeight",
+        "LFairPressure", "LFcoldPressure",
+        "LFtempCL", "LFtempCC", "LFtempCR",
+        "LFtempL", "LFtempM", "LFtempR",
+        "LFwear", "LFspeed", "LFbrakeLinePress",
+        // Wheels - RF
+        "RFshockDefl", "RFshockDeflST", "RFshockVel", "RFshockVelST", "RFrideHeight",
+        "RFairPressure", "RFcoldPressure",
+        "RFtempCL", "RFtempCC", "RFtempCR",
+        "RFtempL", "RFtempM", "RFtempR",
+        "RFwear", "RFspeed", "RFbrakeLinePress",
+        // Wheels - LR
+        "LRshockDefl", "LRshockDeflST", "LRshockVel", "LRshockVelST", "LRrideHeight",
+        "LRairPressure", "LRcoldPressure",
+        "LRtempCL", "LRtempCC", "LRtempCR",
+        "LRtempL", "LRtempM", "LRtempR",
+        "LRwear", "LRspeed", "LRbrakeLinePress",
+        // Wheels - RR
+        "RRshockDefl", "RRshockDeflST", "RRshockVel", "RRshockVelST", "RRrideHeight",
+        "RRairPressure", "RRcoldPressure",
+        "RRtempCL", "RRtempCC", "RRtempCR",
+        "RRtempL", "RRtempM", "RRtempR",
+        "RRwear", "RRspeed", "RRbrakeLinePress",
+        // Timing
+        "LapCurrentLapTime", "LapLastLapTime", "LapBestLapTime",
+        "LapBestNLapTime", "LapBestNLapLap",
+        "Lap", "LapCompleted", "LapDist", "LapDistPct",
+        "PlayerCarPosition", "PlayerCarClassPosition",
+        "LapDeltaToBestLap", "LapDeltaToBestLap_OK",
+        "LapDeltaToSessionBestLap", "LapDeltaToSessionBestLap_OK",
+        "LapDeltaToOptimalLap", "LapDeltaToOptimalLap_OK",
+        "RaceLaps",
+        // Session
+        "SessionState", "SessionTime", "SessionTimeRemain", "SessionTimeOfDay",
+        "SessionLapsRemainEx", "SessionFlags", "SessionNum",
+        // Weather
+        "AirTemp", "TrackTempCrew", "AirPressure", "AirDensity",
+        "RelativeHumidity", "WindVel", "WindDir",
+        "FogLevel", "Precipitation", "TrackWetness",
+        "Skies", "WeatherDeclaredWet",
+        // Pit
+        "OnPitRoad", "PitstopActive", "PlayerCarPitSvStatus",
+        "PitRepairLeft", "PitOptRepairLeft",
+        "FastRepairAvailable", "FastRepairUsed",
+        "dpFuelFill", "dpFuelAddKg",
+        "dpLFTireChange", "dpRFTireChange", "dpLRTireChange", "dpRRTireChange",
+        "dpLFTireColdPress", "dpRFTireColdPress", "dpLRTireColdPress", "dpRRTireColdPress",
+        "dpWindshieldTearoff", "dpFastRepair",
+        // Electronics
+        "dcABS", "dcTractionControl", "dcTractionControl2",
+        "dcBrakeBias", "dcAntiRollFront", "dcAntiRollRear",
+        "DRS_Status", "dcThrottleShape",
+        "PushToPass",
+        // Per-car arrays
+        "CarIdxLap", "CarIdxLapCompleted", "CarIdxLapDistPct",
+        "CarIdxPosition", "CarIdxClassPosition",
+        "CarIdxOnPitRoad", "CarIdxTrackSurface",
+        "CarIdxBestLapTime", "CarIdxLastLapTime", "CarIdxEstTime",
+        "CarIdxGear", "CarIdxRPM", "CarIdxSteer",
+        // Tick
+        "SessionTick",
+    ];
+
+    /// Convert a VarValue to a serde_json::Value for extras.
+    fn var_value_to_json(value: &VarValue) -> serde_json::Value {
+        match value {
+            VarValue::Char(c) => serde_json::json!(*c),
+            VarValue::Bool(b) => serde_json::json!(*b),
+            VarValue::Int(i) => serde_json::json!(*i),
+            VarValue::BitField(u) => serde_json::json!(*u),
+            VarValue::Float(f) => serde_json::json!((*f * 10000.0).round() / 10000.0),
+            VarValue::Double(d) => serde_json::json!((*d * 10000.0).round() / 10000.0),
+            VarValue::CharArray(v) => {
+                let s = String::from_utf8_lossy(v).trim_end_matches('\0').to_string();
+                serde_json::json!(s)
+            }
+            VarValue::IntArray(v) => serde_json::json!(v),
+            VarValue::FloatArray(v) => {
+                let rounded: Vec<f32> = v.iter().map(|x| (x * 10000.0).round() / 10000.0).collect();
+                serde_json::json!(rounded)
+            }
+            VarValue::DoubleArray(v) => {
+                let rounded: Vec<f64> = v.iter().map(|x| (x * 10000.0).round() / 10000.0).collect();
+                serde_json::json!(rounded)
+            }
+        }
+    }
+
     /// Convert a raw sample HashMap to a TelemetryFrame.
     /// Mirrors the conversion logic from IRacingAdapter::convert_sample(),
     /// producing the nested sub-struct model.
@@ -783,15 +890,22 @@ impl IbtFile {
         });
 
         // =================================================================
-        // Extras: notable unmapped vars with iracing/ prefix
+        // Extras: every unmapped variable with iracing/ prefix
         // =================================================================
         let mut extras = HashMap::new();
+        let mapped_set: std::collections::HashSet<&str> =
+            Self::MAPPED_VARS.iter().copied().collect();
 
-        if let Some(session_time) = get_f64("SessionTime") {
-            extras.insert(
-                "iracing/SessionTime".to_string(),
-                serde_json::json!(session_time),
-            );
+        for (name, value) in sample {
+            if mapped_set.contains(name.as_str()) {
+                continue;
+            }
+            // Skip CarIdx arrays (large per-car arrays, already in competitors)
+            if name.starts_with("CarIdx") {
+                continue;
+            }
+            let key = format!("iracing/{}", name);
+            extras.insert(key, Self::var_value_to_json(value));
         }
 
         TelemetryFrame {

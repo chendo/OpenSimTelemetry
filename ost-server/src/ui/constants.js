@@ -2,7 +2,7 @@
 const LAYOUT_KEY = 'ost-dashboard-layout';
 const LAYOUT_VERSION_KEY = 'ost-dashboard-version';
 const GRAPHS_KEY = 'ost-dashboard-graphs';
-const LAYOUT_VERSION = '6'; // Bumped for expanded Wheels widget
+const LAYOUT_VERSION = '7'; // Rearrange default layout: Vehicle/GForce/Wheels top row
 const RAD2DEG = 180 / Math.PI;
 const BUFFER_MAX = 3600;
 

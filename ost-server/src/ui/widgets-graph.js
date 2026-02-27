@@ -126,16 +126,6 @@ class GraphWidget extends Widget {
             this.legendEl.appendChild(item);
         }
 
-        // Presets dropdown
-        const presetsWrap = document.createElement('span');
-        presetsWrap.className = 'graph-legend-item graph-preset-btn';
-        presetsWrap.textContent = 'Presets \u25BE';
-        presetsWrap.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this._togglePresetsMenu(presetsWrap);
-        });
-        this.legendEl.appendChild(presetsWrap);
-
         // "+ Metric" button
         const addBtn = document.createElement('span');
         addBtn.className = 'graph-legend-item graph-add-field-btn';
@@ -145,6 +135,16 @@ class GraphWidget extends Widget {
             this.openFieldPicker(addBtn);
         });
         this.legendEl.appendChild(addBtn);
+
+        // Presets dropdown (after + Metric)
+        const presetsWrap = document.createElement('span');
+        presetsWrap.className = 'graph-legend-item graph-preset-btn';
+        presetsWrap.textContent = 'Presets \u25BE';
+        presetsWrap.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._togglePresetsMenu(presetsWrap);
+        });
+        this.legendEl.appendChild(presetsWrap);
     }
 
     _togglePresetsMenu(anchor) {

@@ -81,7 +81,7 @@ if (savedGraphs && savedGraphs.length > 0) {
         grid.addWidget(gw);
     }
 } else {
-    const defaultGraph = new GraphWidget('graph', { col: 1, row: 7, width: 12, height: 6 }, ['speed', 'rpm', 'throttle', 'brake']);
+    const defaultGraph = new GraphWidget('graph', { col: 1, row: 9, width: 12, height: 6 }, ['speed', 'rpm', 'throttle', 'brake']);
     defaultGraph.init();
     grid.addWidget(defaultGraph);
 }
