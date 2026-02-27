@@ -15,6 +15,11 @@
       "Bash(git push:*)",
       "Bash(git tag:*)",
       "Bash(curl:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(diff:*)",
+      "Bash(grep:*)",
+      "Bash(sed:*)",
       "Bash(gh:*)",
       "WebFetch(domain:raw.githubusercontent.com)"
     ]
