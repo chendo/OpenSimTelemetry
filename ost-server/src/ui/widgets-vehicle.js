@@ -190,50 +190,83 @@ function tireTemperatureColor(tempC) {
 
 class WheelsWidget extends Widget {
     constructor() {
-        super('wheels', 'Wheels', { col: 1, row: 13, width: 4, height: 7 });
-        this.ranges = { min: Infinity, max: -Infinity };
+        super('wheels', 'Wheels', { col: 1, row: 13, width: 4, height: 8 });
+        this.suspRange = { min: Infinity, max: -Infinity };
+        this.shockMax = 1; // track absolute max for symmetric scaling
     }
 
     buildContent(c) {
         const corners = ['fl', 'fr', 'rl', 'rr'];
         const labels = { fl: 'FL', fr: 'FR', rl: 'RL', rr: 'RR' };
         const positions = { fl: 'grid-column:1;grid-row:1', fr: 'grid-column:3;grid-row:1', rl: 'grid-column:1;grid-row:2', rr: 'grid-column:3;grid-row:2' };
+        // Left wheels: outer-middle-inner (O nearest edge, I nearest car)
+        // Right wheels: inner-middle-outer (I nearest car, O nearest edge)
+        const isLeft = { fl: true, fr: false, rl: true, rr: false };
 
         c.innerHTML = `
             <div class="wheel-layout">
-                ${corners.map(w => `
+                ${corners.map(w => {
+                    const left = isLeft[w];
+                    // Temp segments ordered so inner is always toward the car silhouette
+                    const seg1 = left ? 'to' : 'ti';
+                    const seg3 = left ? 'ti' : 'to';
+                    const lbl1 = left ? 'O' : 'I';
+                    const lbl3 = left ? 'I' : 'O';
+                    return `
                 <div class="wheel-corner" style="${positions[w]}">
                     <span class="wheel-label">${labels[w]}</span>
-                    <div class="wheel-susp-row">
-                        <div class="wheel-bar-track"><div class="wheel-bar-fill" id="w-${w}-bar"></div></div>
-                        <span class="wheel-val" id="w-${w}-susp">--</span>
+                    <div class="wheel-bars-row">
+                        <div class="wheel-bar-group">
+                            <div class="wheel-bar-track"><div class="wheel-bar-fill" id="w-${w}-sbar"></div></div>
+                            <span class="wheel-val" id="w-${w}-susp">--</span>
+                        </div>
+                        <div class="wheel-bar-group">
+                            <div class="wheel-bar-track wheel-shock-track"><div class="wheel-bar-center"></div><div class="wheel-shock-fill" id="w-${w}-shbar"></div></div>
+                            <span class="wheel-val" id="w-${w}-shock">--</span>
+                        </div>
                     </div>
                     <div class="wheel-temp-row">
-                        <div class="wheel-temp-strip">
-                            <div class="wheel-temp-seg" id="w-${w}-ti"></div>
-                            <div class="wheel-temp-seg" id="w-${w}-tm"></div>
-                            <div class="wheel-temp-seg" id="w-${w}-to"></div>
+                        <div class="wheel-temp-cell">
+                            <div class="wheel-temp-seg" id="w-${w}-${seg1}"></div>
+                            <span class="wheel-temp-val" id="w-${w}-${seg1}v">--</span>
+                            <span class="wheel-temp-lbl">${lbl1}</span>
                         </div>
-                        <span class="wheel-val" id="w-${w}-temp">--</span>
+                        <div class="wheel-temp-cell">
+                            <div class="wheel-temp-seg" id="w-${w}-tm"></div>
+                            <span class="wheel-temp-val" id="w-${w}-tmv">--</span>
+                            <span class="wheel-temp-lbl">M</span>
+                        </div>
+                        <div class="wheel-temp-cell">
+                            <div class="wheel-temp-seg" id="w-${w}-${seg3}"></div>
+                            <span class="wheel-temp-val" id="w-${w}-${seg3}v">--</span>
+                            <span class="wheel-temp-lbl">${lbl3}</span>
+                        </div>
                     </div>
-                    <div class="wheel-shock-row">
-                        <span class="wheel-shock-label">SHK</span>
-                        <span class="wheel-val" id="w-${w}-shock">--</span>
+                    <div class="wheel-wear-row">
+                        <span class="wheel-wear-label">WEAR</span>
+                        <div class="wheel-wear-track"><div class="wheel-wear-fill" id="w-${w}-wear"></div></div>
+                        <span class="wheel-val" id="w-${w}-wearv">--</span>
                     </div>
-                </div>`).join('')}
+                </div>`;
+                }).join('')}
                 <div class="wheel-car-shape"></div>
             </div>`;
 
         this.wEls = {};
         for (const w of corners) {
             this.wEls[w] = {
-                bar: c.querySelector(`#w-${w}-bar`),
+                sbar: c.querySelector(`#w-${w}-sbar`),
                 susp: c.querySelector(`#w-${w}-susp`),
+                shbar: c.querySelector(`#w-${w}-shbar`),
+                shock: c.querySelector(`#w-${w}-shock`),
                 ti: c.querySelector(`#w-${w}-ti`),
                 tm: c.querySelector(`#w-${w}-tm`),
                 to: c.querySelector(`#w-${w}-to`),
-                temp: c.querySelector(`#w-${w}-temp`),
-                shock: c.querySelector(`#w-${w}-shock`),
+                tiv: c.querySelector(`#w-${w}-tiv`),
+                tmv: c.querySelector(`#w-${w}-tmv`),
+                tov: c.querySelector(`#w-${w}-tov`),
+                wear: c.querySelector(`#w-${w}-wear`),
+                wearv: c.querySelector(`#w-${w}-wearv`),
             };
         }
     }
@@ -242,43 +275,66 @@ class WheelsWidget extends Widget {
         const f = store.currentFrame; if (!f?.wheels) return;
         const map = { fl: f.wheels.front_left, fr: f.wheels.front_right, rl: f.wheels.rear_left, rr: f.wheels.rear_right };
 
+        // Update dynamic ranges
         for (const wd of Object.values(map)) {
             if (wd?.suspension_travel != null) {
                 const mm = wd.suspension_travel * 1000;
-                if (mm < this.ranges.min) this.ranges.min = mm;
-                if (mm > this.ranges.max) this.ranges.max = mm;
+                if (mm < this.suspRange.min) this.suspRange.min = mm;
+                if (mm > this.suspRange.max) this.suspRange.max = mm;
+            }
+            if (wd?.shock_velocity != null) {
+                const abs = Math.abs(wd.shock_velocity * 1000);
+                if (abs > this.shockMax) this.shockMax = abs;
             }
         }
 
-        const range = this.ranges.max - this.ranges.min;
-        const pMin = this.ranges.min - range * 0.1;
-        const pMax = this.ranges.max + range * 0.1;
+        const sRange = this.suspRange.max - this.suspRange.min;
+        const sMin = this.suspRange.min - sRange * 0.1;
+        const sMax = this.suspRange.max + sRange * 0.1;
 
         for (const [key, wd] of Object.entries(map)) {
             const els = this.wEls[key];
 
-            // Suspension travel
+            // Suspension travel bar
             if (wd?.suspension_travel != null) {
                 const mm = wd.suspension_travel * 1000;
-                let pct = pMax > pMin ? ((mm - pMin) / (pMax - pMin)) * 100 : 50;
+                let pct = sMax > sMin ? ((mm - sMin) / (sMax - sMin)) * 100 : 50;
                 pct = Math.max(0, Math.min(100, pct));
-                els.bar.style.height = pct + '%';
-                els.susp.textContent = mm.toFixed(1) + ' mm';
+                els.sbar.style.height = pct + '%';
+                els.susp.textContent = mm.toFixed(1);
             }
 
-            // Tire surface temps
-            const ti = wd?.surface_temp_inner, tm = wd?.surface_temp_middle, to = wd?.surface_temp_outer;
-            if (ti != null && tm != null && to != null) {
-                els.ti.style.background = tireTemperatureColor(ti);
-                els.tm.style.background = tireTemperatureColor(tm);
-                els.to.style.background = tireTemperatureColor(to);
-                els.temp.textContent = Math.round(tm) + '\u00B0C';
-            }
-
-            // Shock velocity
+            // Shock velocity centered bar
             if (wd?.shock_velocity != null) {
                 const mmps = wd.shock_velocity * 1000;
-                els.shock.textContent = mmps.toFixed(0) + ' mm/s';
+                const halfPct = Math.min(Math.abs(mmps) / this.shockMax, 1) * 50;
+                if (mmps >= 0) {
+                    els.shbar.style.bottom = '50%';
+                    els.shbar.style.top = '';
+                    els.shbar.style.height = halfPct + '%';
+                    els.shbar.style.background = '#fb923c';
+                } else {
+                    els.shbar.style.top = '50%';
+                    els.shbar.style.bottom = '';
+                    els.shbar.style.height = halfPct + '%';
+                    els.shbar.style.background = '#38bdf8';
+                }
+                els.shock.textContent = mmps.toFixed(0);
+            }
+
+            // Tire surface temps — show value per segment
+            const ti = wd?.surface_temp_inner, tm = wd?.surface_temp_middle, to = wd?.surface_temp_outer;
+            if (ti != null) { els.ti.style.background = tireTemperatureColor(ti); els.tiv.textContent = Math.round(ti) + '\u00B0'; }
+            if (tm != null) { els.tm.style.background = tireTemperatureColor(tm); els.tmv.textContent = Math.round(tm) + '\u00B0'; }
+            if (to != null) { els.to.style.background = tireTemperatureColor(to); els.tov.textContent = Math.round(to) + '\u00B0'; }
+
+            // Tire wear (0 = new, 1 = worn)
+            if (wd?.tyre_wear != null) {
+                const pct = Math.max(0, Math.min(1, wd.tyre_wear)) * 100;
+                const remaining = 100 - pct;
+                els.wear.style.width = remaining + '%';
+                els.wear.style.background = pct < 30 ? '#22c55e' : pct < 60 ? '#eab308' : '#ef4444';
+                els.wearv.textContent = remaining.toFixed(0) + '%';
             }
         }
     }

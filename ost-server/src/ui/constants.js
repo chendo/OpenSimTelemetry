@@ -2,7 +2,7 @@
 const LAYOUT_KEY = 'ost-dashboard-layout';
 const LAYOUT_VERSION_KEY = 'ost-dashboard-version';
 const GRAPHS_KEY = 'ost-dashboard-graphs';
-const LAYOUT_VERSION = '5'; // Bumped for Wheels widget rename
+const LAYOUT_VERSION = '6'; // Bumped for expanded Wheels widget
 const RAD2DEG = 180 / Math.PI;
 const BUFFER_MAX = 3600;
 
@@ -208,6 +208,32 @@ const LABEL_ABBREVS = {
     best_lap_time: 'Best Lap', delta_best: '\u0394 Best',
     delta_session_best: '\u0394 Sess Best', delta_optimal: '\u0394 Optimal',
 };
+
+/* ==================== Field Filter Matching ==================== */
+// Supports three modes:
+//   - /pattern/flags  → regex (case-insensitive by default)
+//   - contains *      → wildcard (* matches any non-dot chars within a path segment)
+//   - otherwise       → case-insensitive substring match
+function matchFieldFilter(path, filter) {
+    if (!filter) return true;
+    if (filter.startsWith('/')) {
+        try {
+            const end = filter.lastIndexOf('/');
+            const pattern = end > 0 ? filter.slice(1, end) : filter.slice(1);
+            if (!pattern) return true;
+            const flags = end > 0 && end !== 0 ? filter.slice(end + 1) : 'i';
+            return new RegExp(pattern, flags || 'i').test(path);
+        } catch { return false; }
+    }
+    if (filter.includes('*')) {
+        try {
+            const parts = filter.split('*');
+            const escaped = parts.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+            return new RegExp(escaped.join('[^.]*'), 'i').test(path);
+        } catch { return false; }
+    }
+    return path.toLowerCase().includes(filter.toLowerCase());
+}
 
 function deriveLabel(path) {
     const parts = path.split('.');

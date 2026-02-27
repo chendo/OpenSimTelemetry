@@ -149,7 +149,7 @@ class GraphWidget extends Widget {
 
         const search = document.createElement('input');
         search.className = 'field-picker-search';
-        search.placeholder = 'Search metrics...';
+        search.placeholder = 'Search... (* wildcard, /regex/)';
         search.type = 'text';
         popover.appendChild(search);
 
@@ -159,13 +159,15 @@ class GraphWidget extends Widget {
 
         const alreadyAdded = new Set([...this.enabledMetrics]);
 
+        const isPatternFilter = (f) => f.includes('*') || f.startsWith('/');
+
         const renderList = (filter) => {
             list.innerHTML = '';
-            const lf = filter.toLowerCase();
+            const hasPattern = filter && isPatternFilter(filter);
 
             // Preset metrics section (show un-enabled presets)
             const presetEntries = Object.entries(GRAPH_METRICS).filter(([key]) => !alreadyAdded.has(key));
-            const filteredPresets = lf ? presetEntries.filter(([key, m]) => key.toLowerCase().includes(lf) || m.label.toLowerCase().includes(lf)) : presetEntries;
+            const filteredPresets = filter ? presetEntries.filter(([key, m]) => matchFieldFilter(key, filter) || matchFieldFilter(m.label, filter)) : presetEntries;
             if (filteredPresets.length > 0) {
                 const hdr = document.createElement('div');
                 hdr.className = 'field-picker-section';
@@ -183,9 +185,10 @@ class GraphWidget extends Widget {
                 }
             }
 
-            // Raw field sections
+            // Raw field sections — collect all addable matches for "Add all" button
+            const addablePaths = [];
             for (const [section, paths] of Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]))) {
-                const filtered = lf ? paths.filter(p => p.toLowerCase().includes(lf)) : paths;
+                const filtered = filter ? paths.filter(p => matchFieldFilter(p, filter)) : paths;
                 if (filtered.length === 0) continue;
 
                 const hdr = document.createElement('div');
@@ -197,13 +200,13 @@ class GraphWidget extends Widget {
                     const item = document.createElement('div');
                     const added = alreadyAdded.has(path);
                     item.className = 'field-picker-item' + (added ? ' dimmed' : '');
-                    // Resolve current value for display
                     const parts = path.split('.');
                     const rawVal = resolveFieldPathParts(frame, parts);
                     const fmt = rawVal != null ? formatFieldValue(path, rawVal) : null;
                     const valHtml = fmt ? `<span class="field-picker-value">${fmt.text}${fmt.unit ? ' <span class="field-picker-unit">' + fmt.unit + '</span>' : ''}</span>` : '';
                     item.innerHTML = `<span class="field-picker-path">${path}</span>${valHtml}`;
                     if (!added) {
+                        addablePaths.push(path);
                         item.addEventListener('click', () => {
                             this.addCustomField(path);
                             this.closeFieldPicker();
@@ -211,6 +214,18 @@ class GraphWidget extends Widget {
                     }
                     list.appendChild(item);
                 }
+            }
+
+            // "Add all" button when using wildcard/regex with multiple matches
+            if (hasPattern && addablePaths.length > 1) {
+                const btn = document.createElement('div');
+                btn.className = 'field-picker-add-all';
+                btn.textContent = `+ Add all ${addablePaths.length} matches`;
+                btn.addEventListener('click', () => {
+                    for (const p of addablePaths) this.addCustomField(p);
+                    this.closeFieldPicker();
+                });
+                list.insertBefore(btn, list.firstChild);
             }
         };
         renderList('');

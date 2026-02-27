@@ -83,7 +83,7 @@ class AllFieldsWidget extends Widget {
     buildContent(c) {
         c.innerHTML = `
             <div class="fields-toolbar">
-                <input type="text" class="fields-filter" id="af-filter" placeholder="Filter metrics...">
+                <input type="text" class="fields-filter" id="af-filter" placeholder="Filter... (* wildcard, /regex/)">
                 <button class="fields-toggle-btn active" id="af-hide-nulls" title="Hide null values">Hide Nulls</button>
                 <button class="fields-toggle-btn" id="af-show-range" title="Show min/max range">Range</button>
             </div>
@@ -143,7 +143,7 @@ class AllFieldsWidget extends Widget {
 
     renderFields() {
         if (!this.lastFrame) return;
-        const filter = this.filterInput.value.toLowerCase();
+        const filter = this.filterInput.value;
 
         // Extract all leaf values grouped by top-level section
         const sections = {};
@@ -154,7 +154,7 @@ class AllFieldsWidget extends Widget {
                     extract(value, fk);
                 } else {
                     if (this._hideNulls && (value === null || value === undefined)) continue;
-                    if (filter && !fk.toLowerCase().includes(filter)) continue;
+                    if (filter && !matchFieldFilter(fk, filter)) continue;
                     const section = fk.split('.')[0];
                     if (!sections[section]) sections[section] = [];
                     const fmt = formatFieldValue(fk, value);
