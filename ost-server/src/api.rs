@@ -667,9 +667,24 @@ async fn start_playback_task(state: AppState) {
     tokio::spawn(async move {
         tracing::info!("Playback task started");
 
+        let mut interval = {
+            let rs = replay.read().await;
+            let (tick_rate, playback_speed) = match &*rs {
+                Some(rs) => (rs.tick_rate(), rs.playback_speed()),
+                None => return,
+            };
+            let period_us = (1_000_000.0 / (tick_rate as f64 * playback_speed)).max(1000.0);
+            tokio::time::interval(Duration::from_micros(period_us as u64))
+        };
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // First tick completes immediately
+        interval.tick().await;
+        let mut last_send = tokio::time::Instant::now();
+
         loop {
-            if cancel_token.is_cancelled() {
-                break;
+            tokio::select! {
+                _ = cancel_token.cancelled() => break,
+                _ = interval.tick() => {},
             }
 
             let (should_advance, tick_rate, playback_speed) = {
@@ -681,16 +696,40 @@ async fn start_playback_task(state: AppState) {
             };
 
             if !should_advance {
-                tokio::select! {
-                    _ = cancel_token.cancelled() => break,
-                    _ = tokio::time::sleep(Duration::from_millis(50)) => continue,
-                }
+                // Reset so we don't burst frames on resume
+                last_send = tokio::time::Instant::now();
+                continue;
             }
+
+            // Recalculate interval if speed changed
+            let new_period_us =
+                (1_000_000.0 / (tick_rate as f64 * playback_speed)).max(1000.0) as u64;
+            let current_period = interval.period();
+            if current_period != Duration::from_micros(new_period_us) {
+                interval =
+                    tokio::time::interval(Duration::from_micros(new_period_us));
+                interval
+                    .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                interval.tick().await;
+                last_send = tokio::time::Instant::now();
+            }
+
+            // Calculate how many frames are due based on elapsed wall time
+            let now = tokio::time::Instant::now();
+            let elapsed = (now - last_send).as_secs_f64();
+            let frames_due =
+                (elapsed * tick_rate as f64 * playback_speed).round().max(1.0) as usize;
+            last_send = now;
 
             let frame = {
                 let mut rs = replay.write().await;
                 match rs.as_mut() {
                     Some(rs) => {
+                        // Skip frames if behind schedule
+                        if frames_due > 1 {
+                            let target = rs.current_frame() + frames_due - 1;
+                            rs.seek(target);
+                        }
                         let idx = rs.current_frame();
                         match rs.get_frame(idx) {
                             Ok(frame) => {
@@ -710,12 +749,6 @@ async fn start_playback_task(state: AppState) {
 
             if let Some(frame) = frame {
                 let _ = tx.send(frame);
-            }
-
-            let interval_ms = (1000.0 / (tick_rate as f64 * playback_speed)).max(1.0);
-            tokio::select! {
-                _ = cancel_token.cancelled() => break,
-                _ = tokio::time::sleep(Duration::from_micros((interval_ms * 1000.0) as u64)) => {},
             }
         }
 
