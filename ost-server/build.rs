@@ -30,9 +30,11 @@ fn main() {
         .join("\n");
 
     let html = fs::read_to_string(ui_dir.join("index.html")).unwrap();
-    let result = html
-        .replace("/* __STYLES__ */", &css)
-        .replace("/* __SCRIPTS__ */", &js);
+    let result = format!(
+        "<!-- GENERATED FILE — DO NOT EDIT. Edit files in src/ui/ instead. -->\n{}",
+        html.replace("/* __STYLES__ */", &css)
+            .replace("/* __SCRIPTS__ */", &js),
+    );
 
     // Only write if content changed (avoids unnecessary recompilation)
     let current = fs::read_to_string(output).unwrap_or_default();
