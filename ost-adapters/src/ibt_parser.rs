@@ -508,23 +508,45 @@ impl IbtFile {
             }
         }
 
-        // Pass 2: scan for LapLastLapTime changes and assign to completed laps
+        // Pass 2: correlate LapLastLapTime with LapCompleted to assign times
+        // iRacing updates LapLastLapTime with a delay after the lap transition,
+        // so we use LapCompleted to know which lap the time belongs to.
+        let completed_vh = self
+            .var_index
+            .get("LapCompleted")
+            .map(|&i| &self.var_headers[i])
+            .cloned();
+
+        // Build a map from lap_number -> index in our laps vec
+        let mut lap_num_to_idx: HashMap<i32, usize> = HashMap::new();
+        for (idx, lap) in laps.iter().enumerate() {
+            lap_num_to_idx.insert(lap.lap_number, idx);
+        }
+
         if let Some(ref vh) = last_lap_vh {
             let mut prev_lt: Option<f64> = None;
-            // Track which lap index we're assigning times to (0 = first lap)
-            let mut assign_idx: usize = 0;
+            let mut prev_completed: Option<i32> = None;
 
             for i in 0..record_count {
                 let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
                 let lt = read_last_lap_time(frame_buf, vh);
 
-                // When LapLastLapTime changes to a new positive value,
-                // it's the time for the most recently completed lap
                 if lt != prev_lt {
                     if let Some(time) = lt {
-                        if assign_idx < laps.len() {
-                            laps[assign_idx].lap_time_secs = Some(time);
-                            assign_idx += 1;
+                        // Use LapCompleted to identify which lap this time belongs to
+                        if let Some(ref cvh) = completed_vh {
+                            let c_offset = cvh.offset as usize;
+                            if c_offset + 4 <= frame_buf.len() {
+                                let completed = i32::from_le_bytes(
+                                    frame_buf[c_offset..c_offset + 4].try_into().unwrap(),
+                                );
+                                if completed != prev_completed.unwrap_or(-2) {
+                                    if let Some(&idx) = lap_num_to_idx.get(&completed) {
+                                        laps[idx].lap_time_secs = Some(time);
+                                    }
+                                    prev_completed = Some(completed);
+                                }
+                            }
                         }
                     }
                     prev_lt = lt;
@@ -1453,6 +1475,24 @@ SessionInfo:
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_ibt_lap_index() {
+        if !has_fixture() { return; }
+        let mut ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
+        let laps = ibt.build_lap_index().unwrap();
+        assert_eq!(laps.len(), 3);
+        // Lap 0 is the out-lap (no time)
+        assert_eq!(laps[0].lap_number, 0);
+        assert!(laps[0].lap_time_secs.is_none());
+        // Lap 1 is the first timed lap (~110.5s = 1:50.5)
+        assert_eq!(laps[1].lap_number, 1);
+        let t1 = laps[1].lap_time_secs.expect("Lap 1 should have a time");
+        assert!(t1 > 110.0 && t1 < 111.0, "Lap 1 time {t1} out of range");
+        // Lap 2 is incomplete (file ends mid-lap)
+        assert_eq!(laps[2].lap_number, 2);
+        assert!(laps[2].lap_time_secs.is_none());
     }
 
     #[test]

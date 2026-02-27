@@ -94,7 +94,22 @@ class AllFieldsWidget extends Widget {
         this._showRange = false;
         this._minMax = {}; // path -> { min, max }
 
+        this._createGraphPaths = [];
         this.filterInput.addEventListener('input', () => this.renderFields());
+
+        // Event delegation for create-graph button (survives innerHTML replacement)
+        this.listEl.addEventListener('click', (e) => {
+            if (e.target.closest('#af-create-graph') && this._createGraphPaths.length > 0) {
+                const id = 'graph-' + Date.now();
+                const gw = new GraphWidget(id, { col: 1, row: 100, width: 12, height: 6 }, []);
+                gw.init();
+                for (const path of this._createGraphPaths) gw.addCustomField(path);
+                gw.setTitle(this.filterInput.value);
+                grid.addWidget(gw);
+                grid.saveLayout();
+                grid.saveGraphConfigs();
+            }
+        });
 
         const nullsBtn = c.querySelector('#af-hide-nulls');
         nullsBtn.addEventListener('click', () => {
@@ -195,22 +210,7 @@ class AllFieldsWidget extends Widget {
             }
         }
         this.listEl.innerHTML = html;
-
-        // Attach create-graph handler
-        const createBtn = this.listEl.querySelector('#af-create-graph');
-        if (createBtn) {
-            createBtn.addEventListener('click', () => {
-                const id = 'graph-' + Date.now();
-                const gw = new GraphWidget(id, { col: 1, row: 100, width: 12, height: 6 }, []);
-                gw.init();
-                for (const path of allMatchedPaths) gw.addCustomField(path);
-                // Name the graph after the filter
-                gw.setTitle(filter);
-                grid.addWidget(gw);
-                grid.saveLayout();
-                grid.saveGraphConfigs();
-            });
-        }
+        this._createGraphPaths = allMatchedPaths;
     }
 
     resetMinMax() { this._minMax = {}; }

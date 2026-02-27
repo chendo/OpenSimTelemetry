@@ -79,7 +79,7 @@ class ReplayPlayer {
             this.buf.totalFrames = this.info.total_frames;
             this.buf.tickRate = this.info.tick_rate;
             this.buf._chunkSize = this.info.tick_rate * 5;
-            this.buf._maxCacheFrames = this.info.tick_rate * 120;
+            this.buf._maxCacheFrames = this.info.tick_rate * 180;
             this.buf.cursor = this.info.current_frame || 0;
             this.buf.playing = this.info.playing !== false;
             this.buf.playbackSpeed = this.currentSpeed;

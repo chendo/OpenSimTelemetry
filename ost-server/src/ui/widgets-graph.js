@@ -447,12 +447,14 @@ class GraphWidget extends Widget {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
         // Abstract data source: replay buffer (centered) or live ring buffer (trailing)
-        let dataCount, getEntry, centerTime;
+        let dataCount, getEntry, centerTime, windowFrom = 0, isReplay = false;
         if (replayBuf && replayBuf.count > 0) {
             const win = replayBuf.getWindowEntries(this.timeWindowMs);
             dataCount = win.count;
-            getEntry = (i) => win.entries[win.startIdx + i];
+            windowFrom = win.windowFrom;
+            getEntry = (i) => win.getEntry(win.windowFrom + i);
             centerTime = win.centerTime;
+            isReplay = true;
         } else {
             const latestT = store.latestTime();
             const effectiveNow = (latestT && now - latestT > 2000) ? latestT + 500 : now;
@@ -497,9 +499,21 @@ class GraphWidget extends Widget {
         }
         if (traces.length === 0 && boolTraces.length === 0) { ctx.clearRect(0, 0, w, h); return; }
 
-        const tMin = getEntry(0).t;
-        const tMax = getEntry(dataCount - 1).t;
+        // Compute time range — for replay, derive from frame indices (entries may be null)
+        let tMin, tMax;
+        if (isReplay && replayBuf) {
+            tMin = replayBuf.simTimeMs(windowFrom);
+            tMax = replayBuf.simTimeMs(windowFrom + dataCount - 1);
+        } else {
+            tMin = getEntry(0).t;
+            tMax = getEntry(dataCount - 1).t;
+        }
         const tRange = Math.max(tMax - tMin, 1);
+
+        // Helper: get entry time (works even when entry is null in replay)
+        const entryTime = isReplay
+            ? (i) => replayBuf.simTimeMs(windowFrom + i)
+            : (i) => getEntry(i).t;
 
         // Compute max values grouped by raw unit for shared scaling
         const unitMax = {};
@@ -507,7 +521,9 @@ class GraphWidget extends Widget {
             if (trace.norm === 'autoscale' || trace.norm === 'centered') {
                 let mx = 0;
                 for (let i = 0; i < dataCount; i++) {
-                    const v = trace.getValue(getEntry(i));
+                    const entry = getEntry(i);
+                    if (!entry) continue;
+                    const v = trace.getValue(entry);
                     if (v != null) { const av = Math.abs(v); if (av > mx) mx = av; }
                 }
                 const ukey = trace.unit || trace.key;
@@ -603,15 +619,59 @@ class GraphWidget extends Widget {
             return Math.max(0, Math.min(1, val));
         };
 
+        // Draw loading indicator (diagonal hatching) for unloaded regions
+        if (isReplay) {
+            const drawHatch = (x0, x1) => {
+                if (x1 - x0 < 1) return;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(x0, pad.top, x1 - x0, ph);
+                ctx.clip();
+                ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+                ctx.lineWidth = 1;
+                const spacing = 8;
+                for (let lx = x0 - ph; lx < x1 + ph; lx += spacing) {
+                    ctx.beginPath();
+                    ctx.moveTo(lx, pad.top + ph);
+                    ctx.lineTo(lx + ph, pad.top);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            };
+            // Check at chunk boundaries for efficiency
+            const chunkSize = replayBuf._chunkSize || 300;
+            let gapStartX = null;
+            for (let i = 0; i < dataCount; i += chunkSize) {
+                const entry = getEntry(i);
+                const x = pad.left + ((entryTime(i) - tMin) / tRange) * pw;
+                if (!entry) {
+                    if (gapStartX == null) gapStartX = x;
+                } else {
+                    if (gapStartX != null) { drawHatch(gapStartX, x); gapStartX = null; }
+                }
+            }
+            // Check last entry
+            if (dataCount > 0) {
+                const lastEntry = getEntry(dataCount - 1);
+                if (!lastEntry && gapStartX == null) {
+                    // Last chunk is unloaded but wasn't caught by step
+                    const lastChunkStart = dataCount - (dataCount % chunkSize || chunkSize);
+                    gapStartX = pad.left + ((entryTime(lastChunkStart) - tMin) / tRange) * pw;
+                }
+            }
+            if (gapStartX != null) drawHatch(gapStartX, pad.left + pw);
+        }
+
         // Draw each trace
         for (const trace of traces) {
             ctx.beginPath(); ctx.strokeStyle = trace.color; ctx.lineWidth = 1.5;
             let drawing = false;
             for (let i = 0; i < dataCount; i++) {
                 const entry = getEntry(i);
+                if (!entry) { drawing = false; continue; }
                 const raw = trace.getValue(entry);
                 if (raw == null) { drawing = false; continue; }
-                const x = pad.left + ((entry.t - tMin) / tRange) * pw;
+                const x = pad.left + ((entryTime(i) - tMin) / tRange) * pw;
                 const y = pad.top + ph * (1 - normalizeVal(trace, raw));
                 if (!drawing) { ctx.moveTo(x, y); drawing = true; } else { ctx.lineTo(x, y); }
             }
@@ -634,8 +694,9 @@ class GraphWidget extends Widget {
             let spanStart = null;
             for (let i = 0; i < dataCount; i++) {
                 const entry = getEntry(i);
+                if (!entry) { if (spanStart != null) { const x = pad.left + ((entryTime(i) - tMin) / tRange) * pw; ctx.fillRect(spanStart, barY, Math.max(x - spanStart, 1), boolBarH); spanStart = null; } continue; }
                 const val = bt.getValue(entry);
-                const x = pad.left + ((entry.t - tMin) / tRange) * pw;
+                const x = pad.left + ((entryTime(i) - tMin) / tRange) * pw;
                 if (val === true) {
                     if (spanStart == null) spanStart = x;
                 } else {
@@ -647,7 +708,7 @@ class GraphWidget extends Widget {
             }
             // Close final span
             if (spanStart != null) {
-                const lastX = pad.left + ((getEntry(dataCount - 1).t - tMin) / tRange) * pw;
+                const lastX = pad.left + ((entryTime(dataCount - 1) - tMin) / tRange) * pw;
                 ctx.fillRect(spanStart, barY, Math.max(lastX - spanStart, 1), boolBarH);
             }
             ctx.globalAlpha = 1.0;
@@ -664,33 +725,34 @@ class GraphWidget extends Widget {
                 ctx.beginPath(); ctx.moveTo(cx, crosshairTop); ctx.lineTo(cx, pad.top + ph); ctx.stroke();
                 ctx.setLineDash([]);
 
-                // Find nearest data entry by binary search
+                // Find nearest data entry by binary search (using entryTime)
                 let lo = 0, hi = dataCount - 1;
                 while (lo < hi) {
                     const mid = (lo + hi) >>> 1;
-                    if (getEntry(mid).t < crosshair.t) lo = mid + 1;
+                    if (entryTime(mid) < crosshair.t) lo = mid + 1;
                     else hi = mid;
                 }
-                if (lo > 0 && Math.abs(getEntry(lo - 1).t - crosshair.t) < Math.abs(getEntry(lo).t - crosshair.t)) lo--;
+                if (lo > 0 && Math.abs(entryTime(lo - 1) - crosshair.t) < Math.abs(entryTime(lo) - crosshair.t)) lo--;
                 const entry = getEntry(lo);
 
                 // Collect values and draw dots on each trace (tooltip uses display units)
                 const tipItems = [];
-                for (const trace of traces) {
-                    const raw = trace.getValue(entry);
-                    if (raw == null) continue;
-                    const ny = pad.top + ph * (1 - normalizeVal(trace, raw));
-                    ctx.fillStyle = trace.color;
-                    ctx.beginPath(); ctx.arc(cx, ny, 3.5, 0, Math.PI * 2); ctx.fill();
-                    const label = GRAPH_METRICS[trace.key]?.label || this.customMetrics.get(trace.key)?.label || trace.key;
-                    const displayVal = raw * trace.dM;
-                    tipItems.push({ color: trace.color, label, displayVal, dU: trace.dU });
-                }
-                // Boolean trace values for tooltip
-                for (const bt of boolTraces) {
-                    const val = bt.getValue(entry);
-                    if (val == null) continue;
-                    tipItems.push({ color: bt.color, label: bt.label, displayVal: null, dU: '', _valStr: val ? 'ON' : 'OFF' });
+                if (entry) {
+                    for (const trace of traces) {
+                        const raw = trace.getValue(entry);
+                        if (raw == null) continue;
+                        const ny = pad.top + ph * (1 - normalizeVal(trace, raw));
+                        ctx.fillStyle = trace.color;
+                        ctx.beginPath(); ctx.arc(cx, ny, 3.5, 0, Math.PI * 2); ctx.fill();
+                        const label = GRAPH_METRICS[trace.key]?.label || this.customMetrics.get(trace.key)?.label || trace.key;
+                        const displayVal = raw * trace.dM;
+                        tipItems.push({ color: trace.color, label, displayVal, dU: trace.dU });
+                    }
+                    for (const bt of boolTraces) {
+                        const val = bt.getValue(entry);
+                        if (val == null) continue;
+                        tipItems.push({ color: bt.color, label: bt.label, displayVal: null, dU: '', _valStr: val ? 'ON' : 'OFF' });
+                    }
                 }
 
                 if (tipItems.length > 0) {

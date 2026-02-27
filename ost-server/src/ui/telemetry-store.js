@@ -103,8 +103,8 @@ class ReplayBuffer {
         this.cursor = 0;         // Current frame index (absolute)
         this.playing = false;
         this.playbackSpeed = 1;
-        this._chunkSize = 300;       // frames per chunk (tickRate * 5, set in enterReplayMode)
-        this._maxCacheFrames = 7200; // max cached frames (tickRate * 120, set in enterReplayMode)
+        this._chunkSize = 300;        // frames per chunk (tickRate * 5, set in enterReplayMode)
+        this._maxCacheFrames = 10800; // max cached frames (tickRate * 180, set in enterReplayMode)
         this._fetchingChunks = new Set(); // in-flight chunk indices
         this._fetchDebounce = null;
         this._dirty = false;
@@ -123,7 +123,7 @@ class ReplayBuffer {
     // Get processed entry by absolute frame index
     getEntry(frameIndex) {
         if (!this.has(frameIndex)) return null;
-        return this.entries[frameIndex - this.startFrame];
+        return this.entries[frameIndex - this.startFrame] || null;
     }
 
     // Get current frame entry
@@ -268,16 +268,20 @@ class ReplayBuffer {
         // During active scrubbing, skip prefetches to minimize blocking
         if (this.scrubbing) return;
 
-        // Fire-and-forget: adjacent chunks
-        if (cursorChunk > 0) this._fetchChunk(cursorChunk - 1, fields, signal);
         const maxChunk = this._chunkIndex(this.totalFrames - 1);
-        if (cursorChunk < maxChunk) this._fetchChunk(cursorChunk + 1, fields, signal);
-        // During playback, prefetch further ahead
-        if (this.playing) {
-            for (let i = 2; i <= 4; i++) {
-                const ahead = cursorChunk + i;
-                if (ahead <= maxChunk) this._fetchChunk(ahead, fields, signal);
-            }
+        // Prefetch behind: cover half the largest graph time window (60s) = 30s behind
+        const behindFrames = this.tickRate * 30;
+        const behindChunks = Math.ceil(behindFrames / this._chunkSize);
+        for (let i = 1; i <= behindChunks; i++) {
+            const behind = cursorChunk - i;
+            if (behind >= 0) this._fetchChunk(behind, fields, signal);
+        }
+        // Prefetch ahead: 60s beyond the visible window edge
+        const aheadFrames = this.tickRate * 60;
+        const aheadChunks = Math.ceil(aheadFrames / this._chunkSize);
+        for (let i = 1; i <= aheadChunks; i++) {
+            const ahead = cursorChunk + i;
+            if (ahead <= maxChunk) this._fetchChunk(ahead, fields, signal);
         }
     }
 
@@ -295,21 +299,25 @@ class ReplayBuffer {
     }
 
     // Get entries for a centered time window around cursor.
-    // Returns { entries, startIdx, count, centerTime } for rendering.
+    // Returns { entries, startIdx, count, centerTime, windowFrom, windowTo } for rendering.
+    // Entries outside the loaded range are null (graph renders loading indicator).
     getWindowEntries(windowMs) {
-        if (this.count === 0) return { entries: [], startIdx: 0, count: 0, centerTime: 0 };
+        const centerTime = this.simTimeMs(this.cursor);
+        if (this.totalFrames === 0) return { entries: [], startIdx: 0, count: 0, centerTime, windowFrom: 0, windowTo: 0 };
         const halfFrames = Math.floor((windowMs / 1000) * this.tickRate / 2);
-        const from = Math.max(this.startFrame, this.cursor - halfFrames);
-        const to = Math.min(this.startFrame + this.count - 1, this.cursor + halfFrames);
-        // Cursor is outside cached range — no renderable data
-        if (from > to) return { entries: this.entries, startIdx: 0, count: 0, centerTime: this.simTimeMs(this.cursor) };
-        const localFrom = from - this.startFrame;
-        const localTo = to - this.startFrame;
+        const windowFrom = Math.max(0, this.cursor - halfFrames);
+        const windowTo = Math.min(this.totalFrames - 1, this.cursor + halfFrames);
+        const windowCount = windowTo - windowFrom + 1;
+        if (windowCount <= 0) return { entries: [], startIdx: 0, count: 0, centerTime, windowFrom, windowTo };
         return {
             entries: this.entries,
-            startIdx: localFrom,
-            count: localTo - localFrom + 1,
-            centerTime: this.simTimeMs(this.cursor),
+            startIdx: 0,  // not used — callers use getEntry(windowFrom + i)
+            count: windowCount,
+            centerTime,
+            windowFrom,
+            windowTo,
+            getEntry: (absFrame) => this.getEntry(absFrame), // may return null for unloaded
+            simTimeMs: (f) => this.simTimeMs(f),
         };
     }
 
