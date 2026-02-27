@@ -35,16 +35,52 @@ function updateStatus() {
     connEl.innerHTML = `<span class="status-dot ${dotClass}"></span><span>${text}</span>`;
 }
 
+// Telemetry throughput tracking
+const throughputEl = document.getElementById('header-throughput');
+let _frameTimestamps = [];  // recent SSE frame arrival times
+let _expectedTickRate = 60; // default; updated from frame data
+let _throughputInterval = null;
+
+function updateThroughput() {
+    const now = performance.now();
+    // Keep only last 2 seconds of timestamps
+    _frameTimestamps = _frameTimestamps.filter(t => now - t < 2000);
+    if (_frameTimestamps.length < 2) {
+        throughputEl.textContent = '';
+        return;
+    }
+    // During replay, expected rate = tickRate * playbackSpeed; otherwise use live tick rate
+    const expectedRate = replayBuf.count > 0
+        ? (replayBuf.tickRate || 60) * (replayBuf.playbackSpeed || 1)
+        : _expectedTickRate;
+    const elapsed = (now - _frameTimestamps[0]) / 1000;
+    const fps = (_frameTimestamps.length - 1) / elapsed;
+    const pct = Math.round((fps / expectedRate) * 100);
+    throughputEl.textContent = `${pct}%`;
+    throughputEl.className = 'header-throughput' + (pct < 98 ? ' throughput-warn' : '');
+}
+
 // Single unified SSE connection (avoids exhausting HTTP/1.1 connection slots)
 let sseSource = null;
 function connectSSE() {
     if (sseSource) sseSource.close();
     const es = new EventSource('/api/stream');
     sseSource = es;
-    es.onopen = () => { sseConnected = true; sseEverConnected = true; updateStatus(); };
-    es.onerror = () => { sseConnected = false; updateStatus(); es.close(); setTimeout(connectSSE, 5000); };
+    es.onopen = () => {
+        sseConnected = true; sseEverConnected = true; updateStatus();
+        if (!_throughputInterval) _throughputInterval = setInterval(updateThroughput, 500);
+    };
+    es.onerror = () => {
+        sseConnected = false; updateStatus(); es.close();
+        _frameTimestamps = [];
+        updateThroughput();
+        setTimeout(connectSSE, 5000);
+    };
     es.addEventListener('frame', (e) => {
-        try { if (!streamPaused) store.pushFrame(JSON.parse(e.data)); }
+        try {
+            if (!streamPaused) store.pushFrame(JSON.parse(e.data));
+            _frameTimestamps.push(performance.now());
+        }
         catch (err) { console.error('Parse error:', err); }
     });
     es.addEventListener('status', (e) => {

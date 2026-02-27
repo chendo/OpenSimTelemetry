@@ -142,6 +142,15 @@ body {
     color: var(--text-secondary);
 }
 
+.header-throughput {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    min-width: 32px;
+}
+.header-throughput.throughput-warn { color: #eab308; }
+
 .header-reset-btn {
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.18);
