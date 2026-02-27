@@ -78,7 +78,7 @@ class SessionWidget extends Widget {
 
 /* ==================== AllFieldsWidget ==================== */
 class AllFieldsWidget extends Widget {
-    constructor() { super('allfields', 'All Metrics', { col: 1, row: 18, width: 12, height: 6 }); }
+    constructor() { super('allfields', 'Metrics', { col: 1, row: 18, width: 12, height: 6 }); }
 
     buildContent(c) {
         c.innerHTML = `
@@ -147,6 +147,8 @@ class AllFieldsWidget extends Widget {
 
         // Extract all leaf values grouped by top-level section
         const sections = {};
+        let totalMatches = 0;
+        const allMatchedPaths = [];
         const extract = (obj, prefix) => {
             for (const [key, value] of Object.entries(obj)) {
                 const fk = prefix ? `${prefix}.${key}` : key;
@@ -159,6 +161,8 @@ class AllFieldsWidget extends Widget {
                     if (!sections[section]) sections[section] = [];
                     const fmt = formatFieldValue(fk, value);
                     sections[section].push({ key: fk, value, text: fmt.text, unit: fmt.unit });
+                    if (typeof value === 'number') allMatchedPaths.push(fk);
+                    totalMatches++;
                 }
             }
         };
@@ -167,6 +171,12 @@ class AllFieldsWidget extends Widget {
         // Render sections
         const sortedSections = Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]));
         let html = '';
+
+        // Show "Create Graph" button when filter is active and <15 numeric matches
+        if (filter && allMatchedPaths.length > 0 && allMatchedPaths.length <= 15) {
+            html += `<div class="fields-create-graph" id="af-create-graph">Create Graph from ${allMatchedPaths.length} metric${allMatchedPaths.length > 1 ? 's' : ''}</div>`;
+        }
+
         for (const [section, fields] of sortedSections) {
             fields.sort((a, b) => a.key.localeCompare(b.key));
             html += `<div class="field-section-header">${section.charAt(0).toUpperCase() + section.slice(1)}</div>`;
@@ -185,6 +195,22 @@ class AllFieldsWidget extends Widget {
             }
         }
         this.listEl.innerHTML = html;
+
+        // Attach create-graph handler
+        const createBtn = this.listEl.querySelector('#af-create-graph');
+        if (createBtn) {
+            createBtn.addEventListener('click', () => {
+                const id = 'graph-' + Date.now();
+                const gw = new GraphWidget(id, { col: 1, row: 100, width: 12, height: 6 }, []);
+                gw.init();
+                for (const path of allMatchedPaths) gw.addCustomField(path);
+                // Name the graph after the filter
+                gw.setTitle(filter);
+                grid.addWidget(gw);
+                grid.saveLayout();
+                grid.saveGraphConfigs();
+            });
+        }
     }
 
     resetMinMax() { this._minMax = {}; }

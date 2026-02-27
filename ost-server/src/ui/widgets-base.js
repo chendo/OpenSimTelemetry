@@ -23,10 +23,10 @@ class Widget {
         this.titleBar = document.createElement('div');
         this.titleBar.className = 'widget-title';
 
-        const titleText = document.createElement('span');
-        titleText.className = 'widget-title-text';
-        titleText.textContent = title;
-        this.titleBar.appendChild(titleText);
+        this.titleText = document.createElement('span');
+        this.titleText.className = 'widget-title-text';
+        this.titleText.textContent = title;
+        this.titleBar.appendChild(this.titleText);
 
         this.contentArea = document.createElement('div');
         this.contentArea.className = 'widget-content';
@@ -38,7 +38,35 @@ class Widget {
     init() {
         this.buildContent(this.contentArea);
         widgetVisibilityObserver.observe(this.element);
+        if (this.titleEditable) this._initEditableTitle();
         return this;
+    }
+
+    setTitle(name) {
+        this.title = name;
+        this.titleText.textContent = name;
+    }
+
+    _initEditableTitle() {
+        this.titleText.classList.add('editable');
+        this.titleText.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            const input = document.createElement('input');
+            input.className = 'widget-title-input';
+            input.value = this.title;
+            input.type = 'text';
+            const commit = () => {
+                const val = input.value.trim();
+                if (val) this.setTitle(val);
+                input.replaceWith(this.titleText);
+                if (this.onTitleChange) this.onTitleChange(this.title);
+            };
+            input.addEventListener('blur', commit);
+            input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') input.blur(); if (ev.key === 'Escape') { input.value = this.title; input.blur(); } });
+            this.titleText.replaceWith(input);
+            input.focus();
+            input.select();
+        });
     }
 
     buildContent(container) {}

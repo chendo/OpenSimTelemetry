@@ -7,6 +7,8 @@ class GraphWidget extends Widget {
         this.timeWindowMs = 10000;
         this.maxSeen = {};
         this.closable = !!id && id !== 'graph';
+        this.titleEditable = true;
+        this.onTitleChange = () => { if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs(); };
     }
 
     buildContent(c) {
@@ -110,6 +112,30 @@ class GraphWidget extends Widget {
             this.legendItems[path] = item;
         }
 
+        // Metric suggestions (siblings/cousins of current custom metrics)
+        const suggestions = this._computeSuggestions();
+        for (const sug of suggestions) {
+            const item = document.createElement('span');
+            item.className = 'graph-legend-item graph-suggestion';
+            item.innerHTML = `<span class="graph-suggestion-plus">+</span>${sug.label}`;
+            item.title = sug.path;
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.addCustomField(sug.path);
+            });
+            this.legendEl.appendChild(item);
+        }
+
+        // Presets dropdown
+        const presetsWrap = document.createElement('span');
+        presetsWrap.className = 'graph-legend-item graph-preset-btn';
+        presetsWrap.textContent = 'Presets \u25BE';
+        presetsWrap.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._togglePresetsMenu(presetsWrap);
+        });
+        this.legendEl.appendChild(presetsWrap);
+
         // "+ Metric" button
         const addBtn = document.createElement('span');
         addBtn.className = 'graph-legend-item graph-add-field-btn';
@@ -119,6 +145,123 @@ class GraphWidget extends Widget {
             this.openFieldPicker(addBtn);
         });
         this.legendEl.appendChild(addBtn);
+    }
+
+    _togglePresetsMenu(anchor) {
+        if (this._presetMenu) { this._presetMenu.remove(); this._presetMenu = null; return; }
+        const menu = document.createElement('div');
+        menu.className = 'graph-preset-menu';
+        for (const preset of GRAPH_PRESETS) {
+            const item = document.createElement('div');
+            item.className = 'graph-preset-item';
+            item.textContent = preset.name;
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._applyPreset(preset);
+                menu.remove(); this._presetMenu = null;
+            });
+            menu.appendChild(item);
+        }
+        const controls = this.contentArea.querySelector('.graph-controls');
+        controls.appendChild(menu);
+        this._presetMenu = menu;
+        const closeMenu = (e) => {
+            if (!menu.contains(e.target) && e.target !== anchor) {
+                menu.remove(); this._presetMenu = null;
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeMenu), 0);
+    }
+
+    _applyPreset(preset) {
+        // Clear existing metrics
+        this.enabledMetrics.clear();
+        this.customMetrics.clear();
+        this.maxSeen = {};
+        // Set graph name
+        this.setTitle(preset.name);
+        // Resolve each pattern
+        const frame = store.currentFrame;
+        const allPaths = frame ? this._collectAllPaths(frame) : [];
+        for (const pattern of preset.metrics) {
+            if (GRAPH_METRICS[pattern]) {
+                this.enabledMetrics.add(pattern);
+            } else if (pattern.includes('*')) {
+                for (const p of allPaths) {
+                    if (matchFieldFilter(p, pattern)) this.addCustomField(p);
+                }
+            } else {
+                this.addCustomField(pattern);
+            }
+        }
+        this.rebuildLegend();
+        if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+        requestRedraw();
+    }
+
+    _collectAllPaths(frame) {
+        const paths = [];
+        const walk = (obj, prefix) => {
+            for (const [key, value] of Object.entries(obj)) {
+                if (key === '_frame') continue;
+                const path = prefix ? `${prefix}.${key}` : key;
+                if (value && typeof value === 'object' && !Array.isArray(value)) walk(value, path);
+                else if (typeof value === 'number') paths.push(path);
+            }
+        };
+        walk(frame, '');
+        return paths;
+    }
+
+    _computeSuggestions() {
+        const frame = store.currentFrame;
+        if (!frame) return [];
+        const suggestions = [];
+        const seen = new Set(this.enabledMetrics);
+
+        for (const path of this.enabledMetrics) {
+            if (GRAPH_METRICS[path]) continue; // skip presets
+            const parts = path.split('.');
+            if (parts.length < 2) continue;
+
+            // Siblings: same parent, different leaf
+            const parentParts = parts.slice(0, -1);
+            const parentObj = this._resolve(frame, parentParts);
+            if (parentObj && typeof parentObj === 'object') {
+                for (const [k, v] of Object.entries(parentObj)) {
+                    if (typeof v === 'number') {
+                        const sibPath = [...parentParts, k].join('.');
+                        if (!seen.has(sibPath)) { suggestions.push({ path: sibPath, label: deriveLabel(sibPath) }); seen.add(sibPath); }
+                    }
+                }
+            }
+
+            // Cousins: same grandparent + same leaf, different intermediate segment
+            if (parts.length >= 3) {
+                const gpParts = parts.slice(0, -2);
+                const leaf = parts[parts.length - 1];
+                const gpObj = this._resolve(frame, gpParts);
+                if (gpObj && typeof gpObj === 'object') {
+                    for (const [k, v] of Object.entries(gpObj)) {
+                        if (v && typeof v === 'object' && leaf in v && typeof v[leaf] === 'number') {
+                            const cousinPath = [...gpParts, k, leaf].join('.');
+                            if (!seen.has(cousinPath)) { suggestions.push({ path: cousinPath, label: deriveLabel(cousinPath) }); seen.add(cousinPath); }
+                        }
+                    }
+                }
+            }
+        }
+        return suggestions.slice(0, 6);
+    }
+
+    _resolve(obj, parts) {
+        let cur = obj;
+        for (const p of parts) {
+            if (cur == null || typeof cur !== 'object') return null;
+            cur = cur[p];
+        }
+        return cur;
     }
 
     openFieldPicker(anchorEl) {
@@ -539,6 +682,7 @@ class GraphWidget extends Widget {
 
     getConfig() {
         const cfg = { id: this.id, enabledMetrics: [...this.enabledMetrics], timeWindowMs: this.timeWindowMs };
+        if (this.title !== 'Graph') cfg.graphName = this.title;
         if (this.customMetrics.size > 0) {
             cfg.customMetrics = [];
             for (const [path, meta] of this.customMetrics) {
@@ -551,6 +695,7 @@ class GraphWidget extends Widget {
     applyConfig(cfg) {
         if (cfg.enabledMetrics) this.enabledMetrics = new Set(cfg.enabledMetrics);
         if (cfg.timeWindowMs) this.timeWindowMs = cfg.timeWindowMs;
+        if (cfg.graphName) this.setTitle(cfg.graphName);
         // Restore custom metrics
         if (cfg.customMetrics) {
             this.customMetrics.clear();

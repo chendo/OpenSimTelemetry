@@ -28,6 +28,18 @@ const GRAPH_METRICS = {
 };
 const GRAPH_METRIC_KEYS = Object.keys(GRAPH_METRICS);
 
+/* ==================== Graph Presets ==================== */
+const GRAPH_PRESETS = [
+    { name: 'Pedals & Speed', metrics: ['speed', 'throttle', 'brake', 'steering'] },
+    { name: 'G-Forces', metrics: ['lat_g', 'long_g', 'vert_g'] },
+    { name: 'Wheel Suspension', metrics: ['wheels.*.suspension_travel', 'wheels.*.shock_velocity', 'wheels.*.ride_height'] },
+    { name: 'Tire Temps', metrics: ['wheels.*.surface_temp_*'] },
+    { name: 'Tire Wear', metrics: ['wheels.*.tyre_wear'] },
+    { name: 'Tire Pressure', metrics: ['wheels.*.tyre_pressure', 'wheels.*.tyre_cold_pressure'] },
+    { name: 'Brake Temps', metrics: ['wheels.*.brake_temp'] },
+    { name: 'Engine', metrics: ['rpm', 'wheels.*.wheel_speed'] },
+];
+
 /* ==================== Field Unit Metadata ==================== */
 // Maps field paths to { unit, norm } for arbitrary field plotting.
 // Lookup: exact match first, then suffix match (*.field_name).

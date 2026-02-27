@@ -31,7 +31,7 @@ class VehicleWidget extends Widget {
                     <div class="vehicle-bar-item">
                         <span class="vehicle-bar-label">STR</span>
                         <div class="vehicle-bar-track"><div class="vehicle-bar-fill bar-steer" id="v-str-bar"></div></div>
-                        <span class="vehicle-bar-pct" id="v-str-pct">0%</span>
+                        <span class="vehicle-bar-pct" id="v-str-pct">0\u00B0</span>
                     </div>
                 </div>
             </div>`;
@@ -57,11 +57,13 @@ class VehicleWidget extends Widget {
         this.els.brkBar.style.width = brk + '%';
         this.els.brkPct.textContent = Math.round(brk) + '%';
 
-        const steer = v?.steering_angle ?? 0;
-        const absPct = Math.abs(steer) * 50;
+        const steerRad = v?.steering_angle ?? 0;
+        const steerDeg = steerRad * RAD2DEG;
+        // Bar: normalize to ~±900° range (2.5 full turns), capped at 50% each side
+        const absPct = Math.min(Math.abs(steerDeg) / 900 * 50, 50);
         this.els.strBar.style.width = absPct + '%';
-        this.els.strBar.style.left = steer >= 0 ? '50%' : (50 - absPct) + '%';
-        this.els.strPct.textContent = Math.round(steer * 100) + '%';
+        this.els.strBar.style.left = steerDeg >= 0 ? '50%' : (50 - absPct) + '%';
+        this.els.strPct.textContent = Math.round(steerDeg) + '\u00B0';
     }
 }
 

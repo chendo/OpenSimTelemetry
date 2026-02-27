@@ -219,6 +219,23 @@ body {
 }
 
 .widget-title-text { flex: 1; }
+.widget-title-text.editable { cursor: text; }
+.widget-title-text.editable:hover { color: var(--text-primary); }
+
+.widget-title-input {
+    flex: 1;
+    background: var(--bg-inset);
+    border: 1px solid var(--accent);
+    color: var(--text-primary);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: var(--font-family);
+    outline: none;
+}
 
 .widget-close-btn {
     width: 18px;
@@ -486,6 +503,59 @@ body {
     border-color: var(--accent) !important;
     color: var(--accent) !important;
     background: transparent !important;
+}
+
+.graph-suggestion {
+    border: 1px dashed rgba(255,255,255,0.08) !important;
+    color: var(--text-muted) !important;
+    opacity: 0.6;
+    font-style: italic;
+}
+.graph-suggestion:hover {
+    opacity: 1;
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+}
+.graph-suggestion-plus {
+    color: var(--accent);
+    font-weight: 700;
+    font-style: normal;
+    margin-right: 2px;
+}
+
+.graph-preset-btn {
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    color: var(--text-secondary) !important;
+    font-style: normal;
+}
+.graph-preset-btn:hover {
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+    background: rgba(255,255,255,0.04) !important;
+}
+
+.graph-preset-menu {
+    position: absolute;
+    bottom: 100%;
+    margin-bottom: 4px;
+    background: var(--bg-card);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    z-index: 200;
+    min-width: 160px;
+    overflow: hidden;
+}
+.graph-preset-item {
+    padding: 6px 12px;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.graph-preset-item:hover {
+    background: rgba(255,255,255,0.08);
+    color: var(--text-primary);
 }
 
 .custom-legend-remove {
@@ -910,6 +980,20 @@ body {
     margin-right: 8px;
 }
 
+.fields-create-graph {
+    padding: 6px 10px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--accent);
+    cursor: pointer;
+    background: rgba(0, 214, 143, 0.08);
+    border-bottom: 1px solid var(--border-color);
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.fields-create-graph:hover { background: rgba(0, 214, 143, 0.15); }
+
 /* ==================== Output Sinks Widget ==================== */
 .sink-list {
     display: flex;
@@ -1078,6 +1162,9 @@ body {
     padding: 0 16px;
     align-items: center;
     gap: 12px;
+    position: sticky;
+    top: var(--header-height);
+    z-index: 99;
 }
 .replay-bar.active { display: flex; }
 .replay-track-info {
