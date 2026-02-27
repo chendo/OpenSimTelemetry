@@ -34,6 +34,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/replay/upload", post(replay_upload)
             .layer(DefaultBodyLimit::max(512 * 1024 * 1024)))
         .route("/api/replay/info", get(replay_info))
+        .route("/api/replay/frames", get(replay_frames))
         .route("/api/replay/control", post(replay_control))
         .route("/api/replay", delete(replay_delete))
         .layer(CorsLayer::permissive())
@@ -230,6 +231,43 @@ async fn replay_info(
         Some(rs) => Ok(Json(serde_json::to_value(rs.info()).unwrap())),
         None => Err((StatusCode::NOT_FOUND, "No active replay".to_string())),
     }
+}
+
+#[derive(Deserialize)]
+struct ReplayFramesQuery {
+    start: usize,
+    count: usize,
+}
+
+async fn replay_frames(
+    State(state): State<AppState>,
+    Query(params): Query<ReplayFramesQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mut replay = state.replay.write().await;
+    let rs = replay
+        .as_mut()
+        .ok_or((StatusCode::NOT_FOUND, "No active replay".to_string()))?;
+
+    let frames = rs
+        .get_frames_range(params.start, params.count)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read frames: {}", e),
+            )
+        })?;
+
+    let json_frames: Vec<serde_json::Value> = frames
+        .into_iter()
+        .map(|(idx, frame)| {
+            serde_json::json!({
+                "i": idx,
+                "f": frame
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!(json_frames)))
 }
 
 #[derive(Deserialize)]

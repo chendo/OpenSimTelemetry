@@ -1365,6 +1365,142 @@
         }
     }
 
+    /* ==================== ReplayBuffer ==================== */
+    // Client-side cache for replay frames, enabling instant scrubbing and centered graph windows.
+    class ReplayBuffer {
+        constructor() {
+            this.entries = [];       // Processed entries (same format as ring: t, speed, rpm, ..., _frame)
+            this.startFrame = 0;     // Frame index of first entry in cache
+            this.count = 0;          // Number of loaded entries
+            this.totalFrames = 0;    // Total frames in replay
+            this.tickRate = 60;      // From replay info
+            this.cursor = 0;         // Current frame index (absolute)
+            this.playing = false;
+            this.playbackSpeed = 1;
+            this._fetching = false;
+            this._fetchDebounce = null;
+            this._dirty = false;
+            this._lastPlayTick = null;
+        }
+
+        // Sim-time in ms for a frame index
+        simTimeMs(frameIndex) { return (frameIndex / this.tickRate) * 1000; }
+
+        // Check if a frame index is in the cache
+        has(frameIndex) { return frameIndex >= this.startFrame && frameIndex < this.startFrame + this.count; }
+
+        // Get processed entry by absolute frame index
+        getEntry(frameIndex) {
+            if (!this.has(frameIndex)) return null;
+            return this.entries[frameIndex - this.startFrame];
+        }
+
+        // Get current frame entry
+        currentEntry() { return this.getEntry(this.cursor); }
+
+        // Get current TelemetryFrame (for store.currentFrame compatibility)
+        currentFrame() {
+            const e = this.currentEntry();
+            return e ? e._frame : null;
+        }
+
+        // Process a raw TelemetryFrame into a ring-compatible entry
+        _processFrame(frame, frameIndex) {
+            const entry = { t: this.simTimeMs(frameIndex), _frame: frame };
+            for (let i = 0; i < GRAPH_METRIC_KEYS.length; i++) {
+                const key = GRAPH_METRIC_KEYS[i];
+                entry[key] = GRAPH_METRICS[key].extract(frame);
+            }
+            return entry;
+        }
+
+        // Load fetched frames into the cache
+        loadFrames(serverFrames) {
+            if (serverFrames.length === 0) return;
+            this.startFrame = serverFrames[0].i;
+            this.entries = serverFrames.map(sf => this._processFrame(sf.f, sf.i));
+            this.count = this.entries.length;
+            this._dirty = true;
+        }
+
+        // Fetch a window of frames centered on the cursor
+        async fetchWindow(windowFrames) {
+            if (this._fetching) return;
+            const half = Math.floor(windowFrames / 2);
+            const start = Math.max(0, this.cursor - half);
+            const count = Math.min(windowFrames, this.totalFrames - start);
+            this._fetching = true;
+            try {
+                const resp = await fetch(`/api/replay/frames?start=${start}&count=${count}`);
+                if (!resp.ok) throw new Error(await resp.text());
+                const frames = await resp.json();
+                this.loadFrames(frames);
+            } catch (e) {
+                console.error('Failed to fetch replay frames:', e);
+            } finally {
+                this._fetching = false;
+            }
+        }
+
+        // Debounced fetch for rapid scrubbing
+        fetchWindowDebounced(windowFrames, delayMs = 200) {
+            clearTimeout(this._fetchDebounce);
+            this._fetchDebounce = setTimeout(() => this.fetchWindow(windowFrames), delayMs);
+        }
+
+        // Check if cursor is near cache boundary and needs re-fetch
+        needsFetch(marginFrames = 300) {
+            if (this.count === 0) return true;
+            if (this.cursor < this.startFrame + marginFrames) return true;
+            if (this.cursor > this.startFrame + this.count - marginFrames) return true;
+            return false;
+        }
+
+        // Get entries for a centered time window around cursor.
+        // Returns { entries, startIdx, count, centerTime } for rendering.
+        getWindowEntries(windowMs) {
+            if (this.count === 0) return { entries: [], startIdx: 0, count: 0, centerTime: 0 };
+            const halfFrames = Math.floor((windowMs / 1000) * this.tickRate / 2);
+            const from = Math.max(this.startFrame, this.cursor - halfFrames);
+            const to = Math.min(this.startFrame + this.count - 1, this.cursor + halfFrames);
+            const localFrom = from - this.startFrame;
+            const localTo = to - this.startFrame;
+            return {
+                entries: this.entries,
+                startIdx: localFrom,
+                count: localTo - localFrom + 1,
+                centerTime: this.simTimeMs(this.cursor),
+            };
+        }
+
+        // Advance cursor during playback (called from requestAnimationFrame)
+        advancePlayback(now) {
+            if (!this.playing) { this._lastPlayTick = null; return; }
+            if (this._lastPlayTick == null) { this._lastPlayTick = now; return; }
+            const elapsed = (now - this._lastPlayTick) / 1000; // seconds
+            this._lastPlayTick = now;
+            const framesToAdvance = elapsed * this.tickRate * this.playbackSpeed;
+            this.cursor = Math.min(
+                Math.round(this.cursor + framesToAdvance),
+                this.totalFrames - 1
+            );
+            if (this.cursor >= this.totalFrames - 1) {
+                this.playing = false;
+            }
+            this._dirty = true;
+        }
+
+        reset() {
+            this.entries = [];
+            this.startFrame = 0;
+            this.count = 0;
+            this.cursor = 0;
+            this.playing = false;
+            this._lastPlayTick = null;
+            this._dirty = false;
+        }
+    }
+
     /* ==================== SSEConnection ==================== */
     class SSEConnection {
         constructor(url, onFrame, onStatusChange) {
@@ -2132,7 +2268,7 @@
             if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
         }
 
-        update(store, now) {
+        update(store, now, replayBuf) {
             const canvas = this.canvas;
             const dpr = window.devicePixelRatio || 1;
             const wrap = canvas.parentElement;
@@ -2143,11 +2279,22 @@
             const ctx = this.ctx;
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-            // Freeze time window when data stops flowing (e.g. paused replay)
-            const latestT = store.latestTime();
-            const effectiveNow = (latestT && now - latestT > 2000) ? latestT + 500 : now;
-            const { start, count } = store.getWindowRange(this.timeWindowMs, effectiveNow);
-            if (count < 2) { ctx.clearRect(0, 0, w, h); return; }
+            // Abstract data source: replay buffer (centered) or live ring buffer (trailing)
+            let dataCount, getEntry, centerTime;
+            if (replayBuf && replayBuf.count > 0) {
+                const win = replayBuf.getWindowEntries(this.timeWindowMs);
+                dataCount = win.count;
+                getEntry = (i) => win.entries[win.startIdx + i];
+                centerTime = win.centerTime;
+            } else {
+                const latestT = store.latestTime();
+                const effectiveNow = (latestT && now - latestT > 2000) ? latestT + 500 : now;
+                const range = store.getWindowRange(this.timeWindowMs, effectiveNow);
+                dataCount = range.count;
+                getEntry = (i) => store.ringAt(range.start + i);
+                centerTime = null;
+            }
+            if (dataCount < 2) { ctx.clearRect(0, 0, w, h); return; }
 
             // Build unified traces array from enabled metrics, with display conversion
             const traces = [];
@@ -2171,8 +2318,8 @@
             }
             if (traces.length === 0) { ctx.clearRect(0, 0, w, h); return; }
 
-            const tMin = store.ringAt(start).t;
-            const tMax = store.ringAt(start + count - 1).t;
+            const tMin = getEntry(0).t;
+            const tMax = getEntry(dataCount - 1).t;
             const tRange = Math.max(tMax - tMin, 1);
 
             // Compute max values grouped by raw unit for shared scaling
@@ -2180,8 +2327,8 @@
             for (const trace of traces) {
                 if (trace.norm === 'autoscale' || trace.norm === 'centered') {
                     let mx = 0;
-                    for (let i = 0; i < count; i++) {
-                        const v = trace.getValue(store.ringAt(start + i));
+                    for (let i = 0; i < dataCount; i++) {
+                        const v = trace.getValue(getEntry(i));
                         if (v != null) { const av = Math.abs(v); if (av > mx) mx = av; }
                     }
                     const ukey = trace.unit || trace.key;
@@ -2279,8 +2426,8 @@
             for (const trace of traces) {
                 ctx.beginPath(); ctx.strokeStyle = trace.color; ctx.lineWidth = 1.5;
                 let drawing = false;
-                for (let i = 0; i < count; i++) {
-                    const entry = store.ringAt(start + i);
+                for (let i = 0; i < dataCount; i++) {
+                    const entry = getEntry(i);
                     const raw = trace.getValue(entry);
                     if (raw == null) { drawing = false; continue; }
                     const x = pad.left + ((entry.t - tMin) / tRange) * pw;
@@ -2301,14 +2448,14 @@
                     ctx.setLineDash([]);
 
                     // Find nearest data entry by binary search
-                    let lo = 0, hi = count - 1;
+                    let lo = 0, hi = dataCount - 1;
                     while (lo < hi) {
                         const mid = (lo + hi) >>> 1;
-                        if (store.ringAt(start + mid).t < crosshair.t) lo = mid + 1;
+                        if (getEntry(mid).t < crosshair.t) lo = mid + 1;
                         else hi = mid;
                     }
-                    if (lo > 0 && Math.abs(store.ringAt(start + lo - 1).t - crosshair.t) < Math.abs(store.ringAt(start + lo).t - crosshair.t)) lo--;
-                    const entry = store.ringAt(start + lo);
+                    if (lo > 0 && Math.abs(getEntry(lo - 1).t - crosshair.t) < Math.abs(getEntry(lo).t - crosshair.t)) lo--;
+                    const entry = getEntry(lo);
 
                     // Collect values and draw dots on each trace (tooltip uses display units)
                     const tipItems = [];
@@ -2360,6 +2507,16 @@
                         }
                         ctx.textAlign = 'left';
                     }
+                }
+            }
+
+            // Replay cursor: vertical line at the current playback position
+            if (centerTime != null) {
+                const cx = pad.left + ((centerTime - tMin) / tRange) * pw;
+                if (cx >= pad.left && cx <= pad.left + pw) {
+                    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.moveTo(cx, pad.top); ctx.lineTo(cx, pad.top + ph); ctx.stroke();
                 }
             }
         }
@@ -2680,12 +2837,14 @@
 
     /* ==================== ReplayPlayer ==================== */
     class ReplayPlayer {
-        constructor() {
+        constructor(replayBuf) {
             this.active = false;
             this.info = null;
             this.seeking = false;
             this.currentSpeed = 1;
-            this.pollingInterval = null;
+            this.buf = replayBuf;
+            // Cache the max graph window for fetch sizing (2x for prefetch margin)
+            this._fetchFrames = 7200;
 
             this.badge = document.getElementById('mode-badge');
             this.bar = document.getElementById('replay-bar');
@@ -2726,6 +2885,12 @@
                 this.info = result.info;
                 this.active = true;
                 this.currentSpeed = 1;
+                // Pause server-side playback — client handles playback now
+                fetch('/api/replay/control', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'pause' })
+                }).catch(() => {});
                 this.enterReplayMode();
             } catch (e) {
                 console.error('Upload failed:', e);
@@ -2735,7 +2900,7 @@
             }
         }
 
-        enterReplayMode() {
+        async enterReplayMode() {
             this.badge.textContent = 'REPLAY';
             this.badge.className = 'mode-badge mode-replay';
             this.bar.classList.add('active');
@@ -2744,42 +2909,40 @@
                 this.trackEl.textContent = this.info.track_name || 'Unknown Track';
                 this.carEl.textContent = this.info.car_name || 'Unknown Car';
                 this.seekSlider.max = this.info.total_frames - 1;
+                this.seekSlider.value = 0;
+                // Initialize replay buffer
+                this.buf.totalFrames = this.info.total_frames;
+                this.buf.tickRate = this.info.tick_rate;
+                this.buf.cursor = 0;
+                this.buf.playing = true;
+                this.buf.playbackSpeed = this.currentSpeed;
+                // Fetch initial window of frames
+                await this.buf.fetchWindow(this._fetchFrames);
             }
             this.updateSpeedButtons();
-            this.startInfoPolling();
+            this.updateControlsFromBuf();
         }
 
         exitReplayMode() {
             this.badge.textContent = 'LIVE';
             this.badge.className = 'mode-badge mode-live';
             this.bar.classList.remove('active');
-            this.stopInfoPolling();
             this.active = false;
             this.info = null;
+            this.buf.reset();
         }
 
-        async togglePlayPause() {
-            const action = (this.info && this.info.playing) ? 'pause' : 'play';
-            try {
-                await fetch('/api/replay/control', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action })
-                });
-                this.playPauseBtn.innerHTML = action === 'play' ? '&#9646;&#9646;' : '&#9654;';
-            } catch (e) { console.error('Play/pause failed:', e); }
+        togglePlayPause() {
+            this.buf.playing = !this.buf.playing;
+            if (!this.buf.playing) this.buf._lastPlayTick = null;
+            this.playPauseBtn.innerHTML = this.buf.playing ? '&#9646;&#9646;' : '&#9654;';
+            requestRedraw();
         }
 
-        async setSpeed(speed) {
+        setSpeed(speed) {
             this.currentSpeed = speed;
-            try {
-                await fetch('/api/replay/control', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'speed', value: speed })
-                });
-                this.updateSpeedButtons();
-            } catch (e) { console.error('Set speed failed:', e); }
+            this.buf.playbackSpeed = speed;
+            this.updateSpeedButtons();
         }
 
         updateSpeedButtons() {
@@ -2790,22 +2953,40 @@
 
         onSeekInput(value) {
             this.seeking = true;
+            const frame = parseInt(value);
+            this.buf.cursor = frame;
+            this.buf.playing = false;
+            this.buf._lastPlayTick = null;
+            this.buf._dirty = true;
+            // Update time display immediately
             if (this.info) {
-                const frame = parseInt(value);
                 const currentTime = (frame / this.info.total_frames) * this.info.duration_secs;
                 this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(this.info.duration_secs)}`;
             }
+            // If outside cache, debounce fetch
+            if (this.buf.needsFetch()) {
+                this.buf.fetchWindowDebounced(this._fetchFrames);
+            }
+            this.playPauseBtn.innerHTML = '&#9654;';
+            requestRedraw();
         }
 
-        async onSeekChange(value) {
+        onSeekChange(value) {
             this.seeking = false;
-            try {
-                await fetch('/api/replay/control', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'seek', value: parseInt(value) })
-                });
-            } catch (e) { console.error('Seek failed:', e); }
+            const frame = parseInt(value);
+            this.buf.cursor = frame;
+            this.buf._dirty = true;
+            // Sync server position (for exit/cleanup)
+            fetch('/api/replay/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'seek', value: frame })
+            }).catch(() => {});
+            // Ensure cache covers this position
+            if (this.buf.needsFetch()) {
+                this.buf.fetchWindow(this._fetchFrames);
+            }
+            requestRedraw();
         }
 
         async exit() {
@@ -2814,34 +2995,13 @@
             this.exitReplayMode();
         }
 
-        startInfoPolling() {
-            this.stopInfoPolling();
-            this.pollingInterval = setInterval(async () => {
-                try {
-                    const resp = await fetch('/api/replay/info');
-                    if (!resp.ok) {
-                        if (resp.status === 404 && this.active) this.exitReplayMode();
-                        return;
-                    }
-                    this.info = await resp.json();
-                    this.updateControls();
-                } catch {}
-            }, 250);
-        }
-
-        stopInfoPolling() {
-            if (this.pollingInterval) { clearInterval(this.pollingInterval); this.pollingInterval = null; }
-        }
-
-        updateControls() {
-            const info = this.info;
-            if (!info) return;
-            this.playPauseBtn.innerHTML = info.playing ? '&#9646;&#9646;' : '&#9654;';
-            if (!this.seeking) this.seekSlider.value = info.current_frame;
-            const currentTime = (info.current_frame / info.total_frames) * info.duration_secs;
-            this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(info.duration_secs)}`;
-            this.currentSpeed = info.playback_speed;
-            this.updateSpeedButtons();
+        // Called each render frame to update slider and time display from buffer state
+        updateControlsFromBuf() {
+            if (!this.info) return;
+            this.playPauseBtn.innerHTML = this.buf.playing ? '&#9646;&#9646;' : '&#9654;';
+            if (!this.seeking) this.seekSlider.value = this.buf.cursor;
+            const currentTime = (this.buf.cursor / this.info.total_frames) * this.info.duration_secs;
+            this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(this.info.duration_secs)}`;
         }
 
         fmtTime(secs) {
@@ -2855,6 +3015,7 @@
 
     /* ==================== Initialization ==================== */
     const store = new TelemetryStore();
+    const replayBuf = new ReplayBuffer();
     const grid = new DashboardGrid(document.getElementById('dashboard-grid'));
 
     // Global function for GraphWidget to call when config changes
@@ -2863,7 +3024,7 @@
     // SSE connection
     const connEl = document.getElementById('header-conn');
     const sse = new SSEConnection('/api/telemetry/stream',
-        (frame) => { if (!streamPaused) store.pushFrame(frame); },
+        (frame) => { if (!streamPaused && replayBuf.count === 0) store.pushFrame(frame); },
         (connected) => {
             connEl.innerHTML = `<span class="status-dot ${connected ? 'dot-active' : 'dot-inactive'}"></span><span>${connected ? 'Connected' : 'Disconnected'}</span>`;
         }
@@ -2933,12 +3094,31 @@
 
     // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
     function renderLoop() {
-        if (store._dirty || _uiDirty) {
+        const now = performance.now();
+        const activeReplay = replayBuf.count > 0 ? replayBuf : null;
+
+        // Advance client-side replay playback
+        if (activeReplay) {
+            replayBuf.advancePlayback(now);
+            // Pre-fetch when cursor nears cache boundary
+            if (replayBuf.playing && replayBuf.needsFetch()) {
+                replayBuf.fetchWindowDebounced(7200, 100);
+            }
+            // Update store.currentFrame so dashboard widgets get values
+            const curEntry = replayBuf.currentEntry();
+            if (curEntry) store.currentFrame = curEntry._frame;
+            // Update replay controls (slider, time)
+            if (typeof replayPlayer !== 'undefined' && replayPlayer.active) {
+                replayPlayer.updateControlsFromBuf();
+            }
+        }
+
+        if (store._dirty || _uiDirty || (activeReplay && replayBuf._dirty)) {
             store._dirty = false;
             _uiDirty = false;
-            const now = performance.now();
+            if (activeReplay) replayBuf._dirty = false;
             for (const w of grid.widgets.values()) {
-                if (w._visible) w.update(store, now);
+                if (w._visible) w.update(store, now, activeReplay);
             }
         }
         requestAnimationFrame(renderLoop);
@@ -2960,7 +3140,7 @@
     requestAnimationFrame(renderLoop);
 
     // Replay: drag-drop and init
-    const replayPlayer = new ReplayPlayer();
+    const replayPlayer = new ReplayPlayer(replayBuf);
     let dragCounter = 0;
     const dropOverlay = document.getElementById('drop-overlay');
 

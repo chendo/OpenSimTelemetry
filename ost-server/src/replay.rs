@@ -55,6 +55,33 @@ impl ReplayState {
         Ok(self.ibt.sample_to_frame(&sample))
     }
 
+    /// Read a range of frames for batch delivery to the client.
+    /// Returns Vec of (frame_index, TelemetryFrame) pairs.
+    pub fn get_frames_range(
+        &mut self,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<(usize, TelemetryFrame)>> {
+        let max_count = 7200; // Cap at 2 minutes at 60fps
+        let clamped_start = start.min(self.total_frames.saturating_sub(1));
+        let clamped_count = count
+            .min(max_count)
+            .min(self.total_frames.saturating_sub(clamped_start));
+
+        let mut frames = Vec::with_capacity(clamped_count);
+        for i in 0..clamped_count {
+            let idx = clamped_start + i;
+            let sample = self.ibt.read_sample(idx)?;
+            let frame = self.ibt.sample_to_frame(&sample);
+            frames.push((idx, frame));
+        }
+        Ok(frames)
+    }
+
+    pub fn total_frames(&self) -> usize {
+        self.total_frames
+    }
+
     pub fn info(&self) -> ReplayInfo {
         ReplayInfo {
             total_frames: self.total_frames,
