@@ -172,25 +172,69 @@ class GForceWidget extends Widget {
     }
 }
 
-/* ==================== SuspensionWidget ==================== */
-class SuspensionWidget extends Widget {
+/* ==================== WheelsWidget ==================== */
+function _lerpColor(a, b, t) {
+    const pa = [parseInt(a.slice(1,3),16), parseInt(a.slice(3,5),16), parseInt(a.slice(5,7),16)];
+    const pb = [parseInt(b.slice(1,3),16), parseInt(b.slice(3,5),16), parseInt(b.slice(5,7),16)];
+    return `rgb(${Math.round(pa[0]+(pb[0]-pa[0])*t)},${Math.round(pa[1]+(pb[1]-pa[1])*t)},${Math.round(pa[2]+(pb[2]-pa[2])*t)})`;
+}
+
+function tireTemperatureColor(tempC) {
+    if (tempC <= 60) return '#3b82f6';
+    if (tempC <= 75) return _lerpColor('#3b82f6', '#22c55e', (tempC - 60) / 15);
+    if (tempC <= 105) return '#22c55e';
+    if (tempC <= 120) return _lerpColor('#22c55e', '#eab308', (tempC - 105) / 15);
+    if (tempC <= 135) return _lerpColor('#eab308', '#ef4444', (tempC - 120) / 15);
+    return '#ef4444';
+}
+
+class WheelsWidget extends Widget {
     constructor() {
-        super('suspension', 'Suspension', { col: 1, row: 13, width: 4, height: 5 });
+        super('wheels', 'Wheels', { col: 1, row: 13, width: 4, height: 7 });
         this.ranges = { min: Infinity, max: -Infinity };
     }
 
     buildContent(c) {
+        const corners = ['fl', 'fr', 'rl', 'rr'];
+        const labels = { fl: 'FL', fr: 'FR', rl: 'RL', rr: 'RR' };
+        const positions = { fl: 'grid-column:1;grid-row:1', fr: 'grid-column:3;grid-row:1', rl: 'grid-column:1;grid-row:2', rr: 'grid-column:3;grid-row:2' };
+
         c.innerHTML = `
-            <div class="susp-layout">
-                <div class="susp-wheel" style="grid-column:1;grid-row:1"><span class="susp-label">FL</span><div class="susp-bar-track"><div class="susp-bar-fill" id="s-fl"></div></div><span class="susp-val" id="s-fl-v">--</span></div>
-                <div class="susp-car-shape"></div>
-                <div class="susp-wheel" style="grid-column:3;grid-row:1"><span class="susp-label">FR</span><div class="susp-bar-track"><div class="susp-bar-fill" id="s-fr"></div></div><span class="susp-val" id="s-fr-v">--</span></div>
-                <div class="susp-wheel" style="grid-column:1;grid-row:2"><span class="susp-label">RL</span><div class="susp-bar-track"><div class="susp-bar-fill" id="s-rl"></div></div><span class="susp-val" id="s-rl-v">--</span></div>
-                <div class="susp-wheel" style="grid-column:3;grid-row:2"><span class="susp-label">RR</span><div class="susp-bar-track"><div class="susp-bar-fill" id="s-rr"></div></div><span class="susp-val" id="s-rr-v">--</span></div>
+            <div class="wheel-layout">
+                ${corners.map(w => `
+                <div class="wheel-corner" style="${positions[w]}">
+                    <span class="wheel-label">${labels[w]}</span>
+                    <div class="wheel-susp-row">
+                        <div class="wheel-bar-track"><div class="wheel-bar-fill" id="w-${w}-bar"></div></div>
+                        <span class="wheel-val" id="w-${w}-susp">--</span>
+                    </div>
+                    <div class="wheel-temp-row">
+                        <div class="wheel-temp-strip">
+                            <div class="wheel-temp-seg" id="w-${w}-ti"></div>
+                            <div class="wheel-temp-seg" id="w-${w}-tm"></div>
+                            <div class="wheel-temp-seg" id="w-${w}-to"></div>
+                        </div>
+                        <span class="wheel-val" id="w-${w}-temp">--</span>
+                    </div>
+                    <div class="wheel-shock-row">
+                        <span class="wheel-shock-label">SHK</span>
+                        <span class="wheel-val" id="w-${w}-shock">--</span>
+                    </div>
+                </div>`).join('')}
+                <div class="wheel-car-shape"></div>
             </div>`;
+
         this.wEls = {};
-        for (const w of ['fl','fr','rl','rr']) {
-            this.wEls[w] = { bar: c.querySelector(`#s-${w}`), val: c.querySelector(`#s-${w}-v`) };
+        for (const w of corners) {
+            this.wEls[w] = {
+                bar: c.querySelector(`#w-${w}-bar`),
+                susp: c.querySelector(`#w-${w}-susp`),
+                ti: c.querySelector(`#w-${w}-ti`),
+                tm: c.querySelector(`#w-${w}-tm`),
+                to: c.querySelector(`#w-${w}-to`),
+                temp: c.querySelector(`#w-${w}-temp`),
+                shock: c.querySelector(`#w-${w}-shock`),
+            };
         }
     }
 
@@ -211,12 +255,30 @@ class SuspensionWidget extends Widget {
         const pMax = this.ranges.max + range * 0.1;
 
         for (const [key, wd] of Object.entries(map)) {
+            const els = this.wEls[key];
+
+            // Suspension travel
             if (wd?.suspension_travel != null) {
                 const mm = wd.suspension_travel * 1000;
                 let pct = pMax > pMin ? ((mm - pMin) / (pMax - pMin)) * 100 : 50;
                 pct = Math.max(0, Math.min(100, pct));
-                this.wEls[key].bar.style.height = pct + '%';
-                this.wEls[key].val.textContent = mm.toFixed(1) + 'mm';
+                els.bar.style.height = pct + '%';
+                els.susp.textContent = mm.toFixed(1) + ' mm';
+            }
+
+            // Tire surface temps
+            const ti = wd?.surface_temp_inner, tm = wd?.surface_temp_middle, to = wd?.surface_temp_outer;
+            if (ti != null && tm != null && to != null) {
+                els.ti.style.background = tireTemperatureColor(ti);
+                els.tm.style.background = tireTemperatureColor(tm);
+                els.to.style.background = tireTemperatureColor(to);
+                els.temp.textContent = Math.round(tm) + '\u00B0C';
+            }
+
+            // Shock velocity
+            if (wd?.shock_velocity != null) {
+                const mmps = wd.shock_velocity * 1000;
+                els.shock.textContent = mmps.toFixed(0) + ' mm/s';
             }
         }
     }

@@ -312,6 +312,7 @@ class GraphWidget extends Widget {
                     let dU = custom.unit, dM = 1;
                     if (custom.norm === 'pct') { dU = '%'; dM = 100; }
                     else if (custom.unit === 'm' && METERS_TO_MM_FIELDS.test(leaf)) { dU = 'mm'; dM = 1000; }
+                    else if (custom.unit === 'm/s' && MPS_TO_MMPS_FIELDS.test(leaf)) { dU = 'mm/s'; dM = 1000; }
                     traces.push({ key, color: custom.color, norm: custom.norm, unit: custom.unit, dU, dM, getValue: (entry) => entry._frame ? resolveFieldPathParts(entry._frame, parts) : null });
                 }
             }

@@ -2,7 +2,7 @@
 const LAYOUT_KEY = 'ost-dashboard-layout';
 const LAYOUT_VERSION_KEY = 'ost-dashboard-version';
 const GRAPHS_KEY = 'ost-dashboard-graphs';
-const LAYOUT_VERSION = '4'; // Bumped for GridStack migration (0-based coords)
+const LAYOUT_VERSION = '5'; // Bumped for Wheels widget rename
 const RAD2DEG = 180 / Math.PI;
 const BUFFER_MAX = 3600;
 
@@ -154,12 +154,15 @@ function getFieldUnitInfo(path) {
 // Format a numeric field value for display with unit conversion
 // Some fields are stored in SI units but displayed in friendlier units
 const METERS_TO_MM_FIELDS = /suspension_travel|ride_height/;
+const MPS_TO_MMPS_FIELDS = /shock_velocity/;
 function formatFieldValue(path, value) {
     if (typeof value !== 'number') return { text: JSON.stringify(value), unit: '' };
     const info = getFieldUnitInfo(path);
     const leaf = path.split('.').pop();
     // Meters → mm for suspension/ride height
     if (info.unit === 'm' && METERS_TO_MM_FIELDS.test(leaf)) return { text: (value * 1000).toFixed(2), unit: 'mm' };
+    // m/s → mm/s for shock velocity
+    if (info.unit === 'm/s' && MPS_TO_MMPS_FIELDS.test(leaf)) return { text: (value * 1000).toFixed(1), unit: 'mm/s' };
     // 0-1 → % for percentage fields
     if (info.unit === '%' && info.norm === 'pct') return { text: (value * 100).toFixed(1), unit: '%' };
     // Smart precision: more decimals for small numbers
