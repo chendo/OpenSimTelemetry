@@ -1197,10 +1197,15 @@ impl TelemetryFrame {
                     map.insert("extras".to_string(), serde_json::to_value(&self.extras)?);
                 }
                 Some(keys) => {
+                    // child_keys are lowercased (FieldMask normalises to lowercase),
+                    // so compare case-insensitively against the original extras keys.
                     let filtered: HashMap<&String, &serde_json::Value> = self
                         .extras
                         .iter()
-                        .filter(|(k, _)| keys.contains(&k.as_str()))
+                        .filter(|(k, _)| {
+                            let lower = k.to_lowercase();
+                            keys.iter().any(|req| *req == lower)
+                        })
                         .collect();
                     if !filtered.is_empty() {
                         map.insert("extras".to_string(), serde_json::to_value(&filtered)?);
@@ -1491,5 +1496,31 @@ mod tests {
     fn test_percentage_as_percent() {
         let p = Percentage::new(0.75);
         assert!((p.as_percent() - 75.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_extras_field_mask_case_insensitive() {
+        // Extras keys from iRacing have mixed case like "iRacing/brakeABSactive".
+        // The field mask lowercases everything, so filtering must compare
+        // case-insensitively.
+        let mut frame = make_test_frame();
+        frame.extras.insert(
+            "iRacing/brakeABSactive".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        frame.extras.insert(
+            "iRacing/dcBrakeBias".to_string(),
+            serde_json::json!(56.5),
+        );
+
+        // Request only one extras key with mixed-case path
+        let mask = FieldMask::parse("extras.iRacing/brakeABSactive");
+        let json = frame.to_json_filtered(Some(&mask)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        let extras = parsed.get("extras").expect("extras section should be present");
+        assert_eq!(extras.get("iRacing/brakeABSactive"), Some(&serde_json::Value::Bool(true)));
+        // The other extras key should NOT be included
+        assert!(extras.get("iRacing/dcBrakeBias").is_none());
     }
 }

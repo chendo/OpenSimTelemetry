@@ -256,10 +256,26 @@ function matchFieldFilter(path, filter) {
     return path.toLowerCase().includes(filter.toLowerCase());
 }
 
+const TOP_LEVEL_SECTIONS = new Set([
+    'vehicle', 'motion', 'engine', 'wheels', 'timing', 'session',
+    'weather', 'pit', 'electronics', 'damage', 'extras',
+]);
+
 function deriveLabel(path) {
-    const parts = path.split('.');
+    let parts = path.split('.');
+    // Strip top-level section prefix and adapter namespace (e.g. "iRacing/")
+    if (TOP_LEVEL_SECTIONS.has(parts[0])) parts = parts.slice(1);
+    parts = parts.map(p => p.includes('/') ? p.split('/').pop() : p);
+
+    const splitWord = (w) =>
+        w.replace(/([a-z])([A-Z])/g, '$1 $2')
+         .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+         .split(' ')
+         .map(s => s.charAt(0).toUpperCase() + s.slice(1))
+         .join(' ');
+
     return parts.map(p =>
-        LABEL_ABBREVS[p] || p.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+        LABEL_ABBREVS[p] || p.split('_').map(splitWord).join(' ')
     ).join(' ');
 }
 

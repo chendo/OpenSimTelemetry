@@ -98,6 +98,7 @@ class GraphWidget extends Widget {
             const item = document.createElement('span');
             item.className = 'graph-legend-item active';
             item.innerHTML = `<span class="graph-legend-dot" style="background:${meta.color}"></span>${meta.label}<span class="custom-legend-remove" title="Remove">\u00D7</span>`;
+            item.title = path;
             item.addEventListener('click', (e) => {
                 if (e.target.classList.contains('custom-legend-remove')) {
                     this.customMetrics.delete(path);
