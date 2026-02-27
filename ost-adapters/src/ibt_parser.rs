@@ -9,11 +9,11 @@ use ost_core::{model::*, units::*};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
 #[cfg(windows)]
 use std::os::windows::fs::FileExt;
+use std::path::Path;
 
 // ============================================================================
 // Binary format types
@@ -468,16 +468,12 @@ impl IbtFile {
             let vh = session_time_vh.as_ref()?;
             let offset = vh.offset as usize;
             match vh.var_type {
-                VarType::Double if offset + 8 <= frame_buf.len() => {
-                    Some(f64::from_le_bytes(
-                        frame_buf[offset..offset + 8].try_into().unwrap(),
-                    ))
-                }
-                VarType::Float if offset + 4 <= frame_buf.len() => {
-                    Some(f32::from_le_bytes(
-                        frame_buf[offset..offset + 4].try_into().unwrap(),
-                    ) as f64)
-                }
+                VarType::Double if offset + 8 <= frame_buf.len() => Some(f64::from_le_bytes(
+                    frame_buf[offset..offset + 8].try_into().unwrap(),
+                )),
+                VarType::Float if offset + 4 <= frame_buf.len() => Some(f32::from_le_bytes(
+                    frame_buf[offset..offset + 4].try_into().unwrap(),
+                ) as f64),
                 _ => None,
             }
         };
@@ -493,9 +489,8 @@ impl IbtFile {
             if lap_offset + 4 > frame_buf.len() {
                 continue;
             }
-            let lap_num = i32::from_le_bytes(
-                frame_buf[lap_offset..lap_offset + 4].try_into().unwrap(),
-            );
+            let lap_num =
+                i32::from_le_bytes(frame_buf[lap_offset..lap_offset + 4].try_into().unwrap());
 
             if prev_lap.is_none() || prev_lap != Some(lap_num) {
                 let session_time = read_session_time(frame_buf);
@@ -533,11 +528,7 @@ impl IbtFile {
     ) -> Result<Vec<HashMap<String, VarValue>>> {
         let record_count = self.record_count();
         if start >= record_count {
-            bail!(
-                "Start index {} out of range (0..{})",
-                start,
-                record_count
-            );
+            bail!("Start index {} out of range (0..{})", start, record_count);
         }
         let clamped_count = count.min(record_count - start);
         if clamped_count == 0 {
@@ -582,11 +573,7 @@ impl IbtFile {
     pub fn read_sample(&self, index: usize) -> Result<HashMap<String, VarValue>> {
         let record_count = self.record_count();
         if index >= record_count {
-            bail!(
-                "Sample index {} out of range (0..{})",
-                index,
-                record_count
-            );
+            bail!("Sample index {} out of range (0..{})", index, record_count);
         }
 
         let buf_len = self.header.buf_len as u64;
@@ -625,79 +612,195 @@ impl IbtFile {
     /// Must stay in sync with MAPPED_VARS in iracing.rs.
     const MAPPED_VARS: &[&str] = &[
         // Motion
-        "VelocityX", "VelocityY", "VelocityZ",
-        "LatAccel", "LongAccel", "VertAccel",
-        "Pitch", "Yaw", "Roll",
-        "PitchRate", "YawRate", "RollRate",
+        "VelocityX",
+        "VelocityY",
+        "VelocityZ",
+        "LatAccel",
+        "LongAccel",
+        "VertAccel",
+        "Pitch",
+        "Yaw",
+        "Roll",
+        "PitchRate",
+        "YawRate",
+        "RollRate",
         "Speed",
         // Vehicle
-        "RPM", "Gear", "Throttle", "Brake", "Clutch",
-        "SteeringWheelAngle", "SteeringWheelTorque", "SteeringWheelPctTorque",
-        "IsOnTrack", "IsInGarage", "PlayerTrackSurface",
+        "RPM",
+        "Gear",
+        "Throttle",
+        "Brake",
+        "Clutch",
+        "SteeringWheelAngle",
+        "SteeringWheelTorque",
+        "SteeringWheelPctTorque",
+        "IsOnTrack",
+        "IsInGarage",
+        "PlayerTrackSurface",
         // Engine
-        "WaterTemp", "OilTemp", "OilPress", "OilLevel",
-        "FuelLevel", "FuelLevelPct", "FuelPress", "FuelUsePerHour",
-        "Voltage", "ManifoldPress", "EngineWarnings",
+        "WaterTemp",
+        "OilTemp",
+        "OilPress",
+        "OilLevel",
+        "FuelLevel",
+        "FuelLevelPct",
+        "FuelPress",
+        "FuelUsePerHour",
+        "Voltage",
+        "ManifoldPress",
+        "EngineWarnings",
         // Wheels - LF
-        "LFshockDefl", "LFshockDeflST", "LFshockVel", "LFshockVelST", "LFrideHeight",
-        "LFairPressure", "LFcoldPressure",
-        "LFtempCL", "LFtempCC", "LFtempCR",
-        "LFtempL", "LFtempM", "LFtempR",
-        "LFwear", "LFspeed", "LFbrakeLinePress",
+        "LFshockDefl",
+        "LFshockDeflST",
+        "LFshockVel",
+        "LFshockVelST",
+        "LFrideHeight",
+        "LFairPressure",
+        "LFcoldPressure",
+        "LFtempCL",
+        "LFtempCC",
+        "LFtempCR",
+        "LFtempL",
+        "LFtempM",
+        "LFtempR",
+        "LFwear",
+        "LFspeed",
+        "LFbrakeLinePress",
         // Wheels - RF
-        "RFshockDefl", "RFshockDeflST", "RFshockVel", "RFshockVelST", "RFrideHeight",
-        "RFairPressure", "RFcoldPressure",
-        "RFtempCL", "RFtempCC", "RFtempCR",
-        "RFtempL", "RFtempM", "RFtempR",
-        "RFwear", "RFspeed", "RFbrakeLinePress",
+        "RFshockDefl",
+        "RFshockDeflST",
+        "RFshockVel",
+        "RFshockVelST",
+        "RFrideHeight",
+        "RFairPressure",
+        "RFcoldPressure",
+        "RFtempCL",
+        "RFtempCC",
+        "RFtempCR",
+        "RFtempL",
+        "RFtempM",
+        "RFtempR",
+        "RFwear",
+        "RFspeed",
+        "RFbrakeLinePress",
         // Wheels - LR
-        "LRshockDefl", "LRshockDeflST", "LRshockVel", "LRshockVelST", "LRrideHeight",
-        "LRairPressure", "LRcoldPressure",
-        "LRtempCL", "LRtempCC", "LRtempCR",
-        "LRtempL", "LRtempM", "LRtempR",
-        "LRwear", "LRspeed", "LRbrakeLinePress",
+        "LRshockDefl",
+        "LRshockDeflST",
+        "LRshockVel",
+        "LRshockVelST",
+        "LRrideHeight",
+        "LRairPressure",
+        "LRcoldPressure",
+        "LRtempCL",
+        "LRtempCC",
+        "LRtempCR",
+        "LRtempL",
+        "LRtempM",
+        "LRtempR",
+        "LRwear",
+        "LRspeed",
+        "LRbrakeLinePress",
         // Wheels - RR
-        "RRshockDefl", "RRshockDeflST", "RRshockVel", "RRshockVelST", "RRrideHeight",
-        "RRairPressure", "RRcoldPressure",
-        "RRtempCL", "RRtempCC", "RRtempCR",
-        "RRtempL", "RRtempM", "RRtempR",
-        "RRwear", "RRspeed", "RRbrakeLinePress",
+        "RRshockDefl",
+        "RRshockDeflST",
+        "RRshockVel",
+        "RRshockVelST",
+        "RRrideHeight",
+        "RRairPressure",
+        "RRcoldPressure",
+        "RRtempCL",
+        "RRtempCC",
+        "RRtempCR",
+        "RRtempL",
+        "RRtempM",
+        "RRtempR",
+        "RRwear",
+        "RRspeed",
+        "RRbrakeLinePress",
         // Timing
-        "LapCurrentLapTime", "LapLastLapTime", "LapBestLapTime",
-        "LapBestNLapTime", "LapBestNLapLap",
-        "Lap", "LapCompleted", "LapDist", "LapDistPct",
-        "PlayerCarPosition", "PlayerCarClassPosition",
-        "LapDeltaToBestLap", "LapDeltaToBestLap_OK",
-        "LapDeltaToSessionBestLap", "LapDeltaToSessionBestLap_OK",
-        "LapDeltaToOptimalLap", "LapDeltaToOptimalLap_OK",
+        "LapCurrentLapTime",
+        "LapLastLapTime",
+        "LapBestLapTime",
+        "LapBestNLapTime",
+        "LapBestNLapLap",
+        "Lap",
+        "LapCompleted",
+        "LapDist",
+        "LapDistPct",
+        "PlayerCarPosition",
+        "PlayerCarClassPosition",
+        "LapDeltaToBestLap",
+        "LapDeltaToBestLap_OK",
+        "LapDeltaToSessionBestLap",
+        "LapDeltaToSessionBestLap_OK",
+        "LapDeltaToOptimalLap",
+        "LapDeltaToOptimalLap_OK",
         "RaceLaps",
         // Session
-        "SessionState", "SessionTime", "SessionTimeRemain", "SessionTimeOfDay",
-        "SessionLapsRemainEx", "SessionFlags", "SessionNum",
+        "SessionState",
+        "SessionTime",
+        "SessionTimeRemain",
+        "SessionTimeOfDay",
+        "SessionLapsRemainEx",
+        "SessionFlags",
+        "SessionNum",
         // Weather
-        "AirTemp", "TrackTempCrew", "AirPressure", "AirDensity",
-        "RelativeHumidity", "WindVel", "WindDir",
-        "FogLevel", "Precipitation", "TrackWetness",
-        "Skies", "WeatherDeclaredWet",
+        "AirTemp",
+        "TrackTempCrew",
+        "AirPressure",
+        "AirDensity",
+        "RelativeHumidity",
+        "WindVel",
+        "WindDir",
+        "FogLevel",
+        "Precipitation",
+        "TrackWetness",
+        "Skies",
+        "WeatherDeclaredWet",
         // Pit
-        "OnPitRoad", "PitstopActive", "PlayerCarPitSvStatus",
-        "PitRepairLeft", "PitOptRepairLeft",
-        "FastRepairAvailable", "FastRepairUsed",
-        "dpFuelFill", "dpFuelAddKg",
-        "dpLFTireChange", "dpRFTireChange", "dpLRTireChange", "dpRRTireChange",
-        "dpLFTireColdPress", "dpRFTireColdPress", "dpLRTireColdPress", "dpRRTireColdPress",
-        "dpWindshieldTearoff", "dpFastRepair",
+        "OnPitRoad",
+        "PitstopActive",
+        "PlayerCarPitSvStatus",
+        "PitRepairLeft",
+        "PitOptRepairLeft",
+        "FastRepairAvailable",
+        "FastRepairUsed",
+        "dpFuelFill",
+        "dpFuelAddKg",
+        "dpLFTireChange",
+        "dpRFTireChange",
+        "dpLRTireChange",
+        "dpRRTireChange",
+        "dpLFTireColdPress",
+        "dpRFTireColdPress",
+        "dpLRTireColdPress",
+        "dpRRTireColdPress",
+        "dpWindshieldTearoff",
+        "dpFastRepair",
         // Electronics
-        "dcABS", "dcTractionControl", "dcTractionControl2",
-        "dcBrakeBias", "dcAntiRollFront", "dcAntiRollRear",
-        "DRS_Status", "dcThrottleShape",
+        "dcABS",
+        "dcTractionControl",
+        "dcTractionControl2",
+        "dcBrakeBias",
+        "dcAntiRollFront",
+        "dcAntiRollRear",
+        "DRS_Status",
+        "dcThrottleShape",
         "PushToPass",
         // Per-car arrays
-        "CarIdxLap", "CarIdxLapCompleted", "CarIdxLapDistPct",
-        "CarIdxPosition", "CarIdxClassPosition",
-        "CarIdxOnPitRoad", "CarIdxTrackSurface",
-        "CarIdxBestLapTime", "CarIdxLastLapTime", "CarIdxEstTime",
-        "CarIdxGear", "CarIdxRPM", "CarIdxSteer",
+        "CarIdxLap",
+        "CarIdxLapCompleted",
+        "CarIdxLapDistPct",
+        "CarIdxPosition",
+        "CarIdxClassPosition",
+        "CarIdxOnPitRoad",
+        "CarIdxTrackSurface",
+        "CarIdxBestLapTime",
+        "CarIdxLastLapTime",
+        "CarIdxEstTime",
+        "CarIdxGear",
+        "CarIdxRPM",
+        "CarIdxSteer",
         // Tick
         "SessionTick",
     ];
@@ -712,7 +815,9 @@ impl IbtFile {
             VarValue::Float(f) => serde_json::json!((*f * 10000.0).round() / 10000.0),
             VarValue::Double(d) => serde_json::json!((*d * 10000.0).round() / 10000.0),
             VarValue::CharArray(v) => {
-                let s = String::from_utf8_lossy(v).trim_end_matches('\0').to_string();
+                let s = String::from_utf8_lossy(v)
+                    .trim_end_matches('\0')
+                    .to_string();
                 serde_json::json!(s)
             }
             VarValue::IntArray(v) => serde_json::json!(v),
@@ -777,9 +882,7 @@ impl IbtFile {
         });
 
         let rotation = match (get_f32("Pitch"), get_f32("Yaw"), get_f32("Roll")) {
-            (Some(p), Some(y), Some(r)) => {
-                Some(Vector3::new(Radians(p), Radians(y), Radians(r)))
-            }
+            (Some(p), Some(y), Some(r)) => Some(Vector3::new(Radians(p), Radians(y), Radians(r))),
             _ => None,
         };
 
@@ -810,9 +913,9 @@ impl IbtFile {
         // Vehicle
         // =================================================================
         let speed = get_f32("Speed").map(MetersPerSecond).or_else(|| {
-            velocity.as_ref().map(|v| {
-                MetersPerSecond((v.x.0.powi(2) + v.y.0.powi(2) + v.z.0.powi(2)).sqrt())
-            })
+            velocity
+                .as_ref()
+                .map(|v| MetersPerSecond((v.x.0.powi(2) + v.y.0.powi(2) + v.z.0.powi(2)).sqrt()))
         });
 
         let track_surface = get_i32("PlayerTrackSurface").map(|idx| match idx {
@@ -854,8 +957,7 @@ impl IbtFile {
         // =================================================================
         // Engine
         // =================================================================
-        let engine_warnings =
-            get_u32("EngineWarnings").map(EngineWarnings::from_iracing_bits);
+        let engine_warnings = get_u32("EngineWarnings").map(EngineWarnings::from_iracing_bits);
 
         let engine = Some(EngineData {
             water_temp: get_f32("WaterTemp").map(Celsius),
@@ -1069,9 +1171,15 @@ impl IbtFile {
         // Inner/outer mapping: for left wheels, CL=outer edge, CR=inner edge.
         // For right wheels, CL=inner edge, CR=outer edge.
         let (surface_temp_inner, surface_temp_outer) = if is_left_side {
-            (get_f32("tempCR").map(Celsius), get_f32("tempCL").map(Celsius))
+            (
+                get_f32("tempCR").map(Celsius),
+                get_f32("tempCL").map(Celsius),
+            )
         } else {
-            (get_f32("tempCL").map(Celsius), get_f32("tempCR").map(Celsius))
+            (
+                get_f32("tempCL").map(Celsius),
+                get_f32("tempCR").map(Celsius),
+            )
         };
 
         let (carcass_temp_inner, carcass_temp_outer) = if is_left_side {
@@ -1210,9 +1318,7 @@ fn read_array_value(
             for i in 0..count {
                 let off = offset + i * 4;
                 if off + 4 <= buf.len() {
-                    vals.push(i32::from_le_bytes(
-                        buf[off..off + 4].try_into().ok()?,
-                    ));
+                    vals.push(i32::from_le_bytes(buf[off..off + 4].try_into().ok()?));
                 }
             }
             Some(VarValue::IntArray(vals))
@@ -1222,9 +1328,7 @@ fn read_array_value(
             for i in 0..count {
                 let off = offset + i * 4;
                 if off + 4 <= buf.len() {
-                    vals.push(f32::from_le_bytes(
-                        buf[off..off + 4].try_into().ok()?,
-                    ));
+                    vals.push(f32::from_le_bytes(buf[off..off + 4].try_into().ok()?));
                 }
             }
             Some(VarValue::FloatArray(vals))
@@ -1234,9 +1338,7 @@ fn read_array_value(
             for i in 0..count {
                 let off = offset + i * 8;
                 if off + 8 <= buf.len() {
-                    vals.push(f64::from_le_bytes(
-                        buf[off..off + 8].try_into().ok()?,
-                    ));
+                    vals.push(f64::from_le_bytes(buf[off..off + 8].try_into().ok()?));
                 }
             }
             Some(VarValue::DoubleArray(vals))
@@ -1349,7 +1451,9 @@ SessionInfo:
 
     #[test]
     fn test_ibt_open_and_header() {
-        if !has_fixture() { return; }
+        if !has_fixture() {
+            return;
+        }
         let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
 
         assert_eq!(ibt.header.ver, 2);
@@ -1358,13 +1462,17 @@ SessionInfo:
         assert_eq!(ibt.disk_sub_header.session_record_count, 16263);
         assert_eq!(ibt.record_count(), 16263);
         let duration = ibt.duration_secs();
-        assert!(duration > 270.0 && duration < 272.0,
-            "Expected ~271s duration, got {duration}");
+        assert!(
+            duration > 270.0 && duration < 272.0,
+            "Expected ~271s duration, got {duration}"
+        );
     }
 
     #[test]
     fn test_ibt_session_info_yaml() {
-        if !has_fixture() { return; }
+        if !has_fixture() {
+            return;
+        }
         let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
         let info = &ibt.session_info;
         assert_eq!(info.track_display_name, "Red Bull Ring");
@@ -1373,7 +1481,9 @@ SessionInfo:
 
     #[test]
     fn test_ibt_read_and_convert_frame() {
-        if !has_fixture() { return; }
+        if !has_fixture() {
+            return;
+        }
         let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
 
         // Read a frame ~30s in where car is likely on track
@@ -1417,18 +1527,25 @@ SessionInfo:
 
     #[test]
     fn test_ibt_frame_values_are_sane() {
-        if !has_fixture() { return; }
+        if !has_fixture() {
+            return;
+        }
         let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
 
         for &idx in &[0, 1000, 5000, 10000, ibt.record_count() - 1] {
-            if idx >= ibt.record_count() { continue; }
+            if idx >= ibt.record_count() {
+                continue;
+            }
             let sample = ibt.read_sample(idx).unwrap();
             let frame = ibt.sample_to_frame(&sample);
 
             if let Some(ref v) = frame.vehicle {
                 if let Some(speed) = v.speed {
-                    assert!(speed.0 >= 0.0 && speed.0 < 120.0,
-                        "Frame {idx}: Speed {:.1} m/s out of range", speed.0);
+                    assert!(
+                        speed.0 >= 0.0 && speed.0 < 120.0,
+                        "Frame {idx}: Speed {:.1} m/s out of range",
+                        speed.0
+                    );
                 }
                 if let Some(rpm) = v.rpm {
                     assert!(rpm.0 >= 0.0 && rpm.0 < 20000.0);
@@ -1445,14 +1562,19 @@ SessionInfo:
 
     #[test]
     fn test_ibt_lap_index() {
-        if !has_fixture() { return; }
+        if !has_fixture() {
+            return;
+        }
         let mut ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
         let laps = ibt.build_lap_index().unwrap();
         assert_eq!(laps.len(), 3);
         // Lap 0 is the out-lap (~70s from SessionTime delta)
         assert_eq!(laps[0].lap_number, 0);
         let t0 = laps[0].lap_time_secs.expect("Lap 0 should have a time");
-        assert!(t0 > 60.0 && t0 < 80.0, "Lap 0 (out-lap) time {t0} out of range");
+        assert!(
+            t0 > 60.0 && t0 < 80.0,
+            "Lap 0 (out-lap) time {t0} out of range"
+        );
         // Lap 1 is the first timed lap (~105s from SessionTime delta)
         assert_eq!(laps[1].lap_number, 1);
         let t1 = laps[1].lap_time_secs.expect("Lap 1 should have a time");
@@ -1464,13 +1586,29 @@ SessionInfo:
 
     #[test]
     fn test_ibt_sequential_read_consistency() {
-        if !has_fixture() { return; }
+        if !has_fixture() {
+            return;
+        }
         let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
 
-        let first = ibt.read_sample(0).unwrap().get("SessionTime").unwrap().as_f64().unwrap();
-        let sixtieth = ibt.read_sample(59).unwrap().get("SessionTime").unwrap().as_f64().unwrap();
+        let first = ibt
+            .read_sample(0)
+            .unwrap()
+            .get("SessionTime")
+            .unwrap()
+            .as_f64()
+            .unwrap();
+        let sixtieth = ibt
+            .read_sample(59)
+            .unwrap()
+            .get("SessionTime")
+            .unwrap()
+            .as_f64()
+            .unwrap();
         let elapsed = sixtieth - first;
-        assert!((elapsed - 1.0).abs() < 0.1,
-            "60 frames at 60Hz should span ~1 second, got {elapsed:.3}s");
+        assert!(
+            (elapsed - 1.0).abs() < 0.1,
+            "60 frames at 60Hz should span ~1 second, got {elapsed:.3}s"
+        );
     }
 }

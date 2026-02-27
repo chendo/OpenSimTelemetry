@@ -61,8 +61,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/sinks/stream", get(sinks_stream))
         .route("/api/sinks/:id", delete(delete_sink))
         // Replay endpoints
-        .route("/api/replay/upload", post(replay_upload)
-            .layer(DefaultBodyLimit::max(512 * 1024 * 1024)))
+        .route(
+            "/api/replay/upload",
+            post(replay_upload).layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
         .route("/api/replay/info", get(replay_info))
         .route("/api/replay/frames", get(replay_frames))
         .route("/api/replay/control", post(replay_control))
@@ -114,17 +116,20 @@ async fn toggle_adapter(
         let mut active_adapter = state.active_adapter.write().await;
         let mut disabled = state.disabled_adapters.write().await;
 
-        let adapter = adapters
-            .iter_mut()
-            .find(|a| a.key() == key)
-            .ok_or((StatusCode::NOT_FOUND, format!("Adapter '{}' not found", key)))?;
+        let adapter = adapters.iter_mut().find(|a| a.key() == key).ok_or((
+            StatusCode::NOT_FOUND,
+            format!("Adapter '{}' not found", key),
+        ))?;
 
         let is_enabled = !disabled.contains(adapter.key());
 
         if is_enabled {
             // Disable: stop if active, add to disabled set
             let is_active = adapter.is_active()
-                || active_adapter.as_ref().map(|n| n == adapter.key()).unwrap_or(false);
+                || active_adapter
+                    .as_ref()
+                    .map(|n| n == adapter.key())
+                    .unwrap_or(false);
             if is_active {
                 let _ = adapter.stop();
                 *active_adapter = None;
@@ -287,9 +292,7 @@ async fn sinks_stream(
         }
     });
 
-    let initial_event = stream::once(async move {
-        Ok(Event::default().data(initial_json))
-    });
+    let initial_event = stream::once(async move { Ok(Event::default().data(initial_json)) });
 
     Sse::new(initial_event.chain(updates)).keep_alive(KeepAlive::default())
 }
@@ -333,9 +336,7 @@ async fn status_stream(
     });
 
     // Prepend the initial state event
-    let initial_event = stream::once(async move {
-        Ok(Event::default().data(initial_json))
-    });
+    let initial_event = stream::once(async move { Ok(Event::default().data(initial_json)) });
 
     Sse::new(initial_event.chain(updates)).keep_alive(KeepAlive::default())
 }
@@ -449,13 +450,15 @@ async fn replay_upload(
     let field = multipart
         .next_field()
         .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Failed to read upload: {}", e)))?
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to read upload: {}", e),
+            )
+        })?
         .ok_or((StatusCode::BAD_REQUEST, "No file provided".to_string()))?;
 
-    let file_name = field
-        .file_name()
-        .unwrap_or("upload.ibt")
-        .to_string();
+    let file_name = field.file_name().unwrap_or("upload.ibt").to_string();
 
     if !file_name.to_lowercase().ends_with(".ibt") {
         return Err((
@@ -464,10 +467,12 @@ async fn replay_upload(
         ));
     }
 
-    let data = field
-        .bytes()
-        .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Failed to read file data: {}", e)))?;
+    let data = field.bytes().await.map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Failed to read file data: {}", e),
+        )
+    })?;
 
     tracing::info!("Received .ibt file: {} ({} bytes)", file_name, data.len());
 
@@ -475,20 +480,36 @@ async fn replay_upload(
     // SSE keep-alive events and other async tasks
     let replay_state = tokio::task::spawn_blocking(move || {
         let temp_dir = std::env::temp_dir().join("ost-replay");
-        std::fs::create_dir_all(&temp_dir)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp dir: {}", e)))?;
+        std::fs::create_dir_all(&temp_dir).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create temp dir: {}", e),
+            )
+        })?;
 
         let temp_path = temp_dir.join(&file_name);
-        std::fs::write(&temp_path, &data)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write temp file: {}", e)))?;
+        std::fs::write(&temp_path, &data).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write temp file: {}", e),
+            )
+        })?;
 
         ReplayState::from_file(&temp_path).map_err(|e| {
             let _ = std::fs::remove_file(&temp_path);
-            (StatusCode::BAD_REQUEST, format!("Failed to parse .ibt file: {}", e))
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to parse .ibt file: {}", e),
+            )
         })
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("File processing failed: {}", e)))??;
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("File processing failed: {}", e),
+        )
+    })??;
 
     let info = replay_state.info();
 
@@ -602,19 +623,24 @@ async fn replay_control(
             Ok(Json(serde_json::json!({"status": "paused"})))
         }
         "seek" => {
-            let frame = request
-                .value
-                .ok_or((StatusCode::BAD_REQUEST, "Missing 'value' for seek".to_string()))?
-                as usize;
+            let frame = request.value.ok_or((
+                StatusCode::BAD_REQUEST,
+                "Missing 'value' for seek".to_string(),
+            ))? as usize;
             rs.seek(frame);
-            Ok(Json(serde_json::json!({"status": "seeked", "frame": rs.current_frame()})))
+            Ok(Json(
+                serde_json::json!({"status": "seeked", "frame": rs.current_frame()}),
+            ))
         }
         "speed" => {
-            let speed = request
-                .value
-                .ok_or((StatusCode::BAD_REQUEST, "Missing 'value' for speed".to_string()))?;
+            let speed = request.value.ok_or((
+                StatusCode::BAD_REQUEST,
+                "Missing 'value' for speed".to_string(),
+            ))?;
             rs.set_speed(speed);
-            Ok(Json(serde_json::json!({"status": "speed_set", "speed": rs.playback_speed()})))
+            Ok(Json(
+                serde_json::json!({"status": "speed_set", "speed": rs.playback_speed()}),
+            ))
         }
         _ => Err((
             StatusCode::BAD_REQUEST,
@@ -623,9 +649,7 @@ async fn replay_control(
     }
 }
 
-async fn replay_delete(
-    State(state): State<AppState>,
-) -> Result<StatusCode, (StatusCode, String)> {
+async fn replay_delete(State(state): State<AppState>) -> Result<StatusCode, (StatusCode, String)> {
     {
         let mut cancel = state.replay_cancel.write().await;
         if let Some(token) = cancel.take() {
@@ -706,10 +730,8 @@ async fn start_playback_task(state: AppState) {
                 (1_000_000.0 / (tick_rate as f64 * playback_speed)).max(1000.0) as u64;
             let current_period = interval.period();
             if current_period != Duration::from_micros(new_period_us) {
-                interval =
-                    tokio::time::interval(Duration::from_micros(new_period_us));
-                interval
-                    .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                interval = tokio::time::interval(Duration::from_micros(new_period_us));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 interval.tick().await;
                 last_send = tokio::time::Instant::now();
             }
@@ -717,8 +739,9 @@ async fn start_playback_task(state: AppState) {
             // Calculate how many frames are due based on elapsed wall time
             let now = tokio::time::Instant::now();
             let elapsed = (now - last_send).as_secs_f64();
-            let frames_due =
-                (elapsed * tick_rate as f64 * playback_speed).round().max(1.0) as usize;
+            let frames_due = (elapsed * tick_rate as f64 * playback_speed)
+                .round()
+                .max(1.0) as usize;
             last_send = now;
 
             let frame = {

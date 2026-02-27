@@ -67,7 +67,10 @@ async fn detection_cycle(state: &AppState) -> Result<()> {
         if let Some(ref active_key) = *active_adapter {
             if let Some(adapter) = adapters.iter_mut().find(|a| a.key() == active_key) {
                 if !adapter.detect() {
-                    info!("Game {} no longer detected, stopping adapter", adapter.name());
+                    info!(
+                        "Game {} no longer detected, stopping adapter",
+                        adapter.name()
+                    );
                     if let Err(e) = adapter.stop() {
                         error!("Error stopping adapter {}: {}", adapter.name(), e);
                     }

@@ -39,79 +39,195 @@ mod windows_impl {
     /// Variables NOT in this set will be forwarded to extras.
     const MAPPED_VARS: &[&str] = &[
         // Motion
-        "VelocityX", "VelocityY", "VelocityZ",
-        "LatAccel", "LongAccel", "VertAccel",
-        "Pitch", "Yaw", "Roll",
-        "PitchRate", "YawRate", "RollRate",
+        "VelocityX",
+        "VelocityY",
+        "VelocityZ",
+        "LatAccel",
+        "LongAccel",
+        "VertAccel",
+        "Pitch",
+        "Yaw",
+        "Roll",
+        "PitchRate",
+        "YawRate",
+        "RollRate",
         "Speed",
         // Vehicle
-        "RPM", "Gear", "Throttle", "Brake", "Clutch",
-        "SteeringWheelAngle", "SteeringWheelTorque", "SteeringWheelPctTorque",
-        "IsOnTrack", "IsInGarage", "PlayerTrackSurface",
+        "RPM",
+        "Gear",
+        "Throttle",
+        "Brake",
+        "Clutch",
+        "SteeringWheelAngle",
+        "SteeringWheelTorque",
+        "SteeringWheelPctTorque",
+        "IsOnTrack",
+        "IsInGarage",
+        "PlayerTrackSurface",
         // Engine
-        "WaterTemp", "OilTemp", "OilPress", "OilLevel",
-        "FuelLevel", "FuelLevelPct", "FuelPress", "FuelUsePerHour",
-        "Voltage", "ManifoldPress", "EngineWarnings",
+        "WaterTemp",
+        "OilTemp",
+        "OilPress",
+        "OilLevel",
+        "FuelLevel",
+        "FuelLevelPct",
+        "FuelPress",
+        "FuelUsePerHour",
+        "Voltage",
+        "ManifoldPress",
+        "EngineWarnings",
         // Wheels - LF
-        "LFshockDefl", "LFshockDeflST", "LFshockVel", "LFshockVelST", "LFrideHeight",
-        "LFairPressure", "LFcoldPressure",
-        "LFtempCL", "LFtempCC", "LFtempCR",
-        "LFtempL", "LFtempM", "LFtempR",
-        "LFwear", "LFspeed", "LFbrakeLinePress",
+        "LFshockDefl",
+        "LFshockDeflST",
+        "LFshockVel",
+        "LFshockVelST",
+        "LFrideHeight",
+        "LFairPressure",
+        "LFcoldPressure",
+        "LFtempCL",
+        "LFtempCC",
+        "LFtempCR",
+        "LFtempL",
+        "LFtempM",
+        "LFtempR",
+        "LFwear",
+        "LFspeed",
+        "LFbrakeLinePress",
         // Wheels - RF
-        "RFshockDefl", "RFshockDeflST", "RFshockVel", "RFshockVelST", "RFrideHeight",
-        "RFairPressure", "RFcoldPressure",
-        "RFtempCL", "RFtempCC", "RFtempCR",
-        "RFtempL", "RFtempM", "RFtempR",
-        "RFwear", "RFspeed", "RFbrakeLinePress",
+        "RFshockDefl",
+        "RFshockDeflST",
+        "RFshockVel",
+        "RFshockVelST",
+        "RFrideHeight",
+        "RFairPressure",
+        "RFcoldPressure",
+        "RFtempCL",
+        "RFtempCC",
+        "RFtempCR",
+        "RFtempL",
+        "RFtempM",
+        "RFtempR",
+        "RFwear",
+        "RFspeed",
+        "RFbrakeLinePress",
         // Wheels - LR
-        "LRshockDefl", "LRshockDeflST", "LRshockVel", "LRshockVelST", "LRrideHeight",
-        "LRairPressure", "LRcoldPressure",
-        "LRtempCL", "LRtempCC", "LRtempCR",
-        "LRtempL", "LRtempM", "LRtempR",
-        "LRwear", "LRspeed", "LRbrakeLinePress",
+        "LRshockDefl",
+        "LRshockDeflST",
+        "LRshockVel",
+        "LRshockVelST",
+        "LRrideHeight",
+        "LRairPressure",
+        "LRcoldPressure",
+        "LRtempCL",
+        "LRtempCC",
+        "LRtempCR",
+        "LRtempL",
+        "LRtempM",
+        "LRtempR",
+        "LRwear",
+        "LRspeed",
+        "LRbrakeLinePress",
         // Wheels - RR
-        "RRshockDefl", "RRshockDeflST", "RRshockVel", "RRshockVelST", "RRrideHeight",
-        "RRairPressure", "RRcoldPressure",
-        "RRtempCL", "RRtempCC", "RRtempCR",
-        "RRtempL", "RRtempM", "RRtempR",
-        "RRwear", "RRspeed", "RRbrakeLinePress",
+        "RRshockDefl",
+        "RRshockDeflST",
+        "RRshockVel",
+        "RRshockVelST",
+        "RRrideHeight",
+        "RRairPressure",
+        "RRcoldPressure",
+        "RRtempCL",
+        "RRtempCC",
+        "RRtempCR",
+        "RRtempL",
+        "RRtempM",
+        "RRtempR",
+        "RRwear",
+        "RRspeed",
+        "RRbrakeLinePress",
         // Timing
-        "LapCurrentLapTime", "LapLastLapTime", "LapBestLapTime",
-        "LapBestNLapTime", "LapBestNLapLap",
-        "Lap", "LapCompleted", "LapDist", "LapDistPct",
-        "PlayerCarPosition", "PlayerCarClassPosition",
-        "LapDeltaToBestLap", "LapDeltaToBestLap_OK",
-        "LapDeltaToSessionBestLap", "LapDeltaToSessionBestLap_OK",
-        "LapDeltaToOptimalLap", "LapDeltaToOptimalLap_OK",
+        "LapCurrentLapTime",
+        "LapLastLapTime",
+        "LapBestLapTime",
+        "LapBestNLapTime",
+        "LapBestNLapLap",
+        "Lap",
+        "LapCompleted",
+        "LapDist",
+        "LapDistPct",
+        "PlayerCarPosition",
+        "PlayerCarClassPosition",
+        "LapDeltaToBestLap",
+        "LapDeltaToBestLap_OK",
+        "LapDeltaToSessionBestLap",
+        "LapDeltaToSessionBestLap_OK",
+        "LapDeltaToOptimalLap",
+        "LapDeltaToOptimalLap_OK",
         "RaceLaps",
         // Session
-        "SessionState", "SessionTime", "SessionTimeRemain", "SessionTimeOfDay",
-        "SessionLapsRemainEx", "SessionFlags", "SessionNum",
+        "SessionState",
+        "SessionTime",
+        "SessionTimeRemain",
+        "SessionTimeOfDay",
+        "SessionLapsRemainEx",
+        "SessionFlags",
+        "SessionNum",
         // Weather
-        "AirTemp", "TrackTempCrew", "AirPressure", "AirDensity",
-        "RelativeHumidity", "WindVel", "WindDir",
-        "FogLevel", "Precipitation", "TrackWetness",
-        "Skies", "WeatherDeclaredWet",
+        "AirTemp",
+        "TrackTempCrew",
+        "AirPressure",
+        "AirDensity",
+        "RelativeHumidity",
+        "WindVel",
+        "WindDir",
+        "FogLevel",
+        "Precipitation",
+        "TrackWetness",
+        "Skies",
+        "WeatherDeclaredWet",
         // Pit
-        "OnPitRoad", "PitstopActive", "PlayerCarPitSvStatus",
-        "PitRepairLeft", "PitOptRepairLeft",
-        "FastRepairAvailable", "FastRepairUsed",
-        "dpFuelFill", "dpFuelAddKg",
-        "dpLFTireChange", "dpRFTireChange", "dpLRTireChange", "dpRRTireChange",
-        "dpLFTireColdPress", "dpRFTireColdPress", "dpLRTireColdPress", "dpRRTireColdPress",
-        "dpWindshieldTearoff", "dpFastRepair",
+        "OnPitRoad",
+        "PitstopActive",
+        "PlayerCarPitSvStatus",
+        "PitRepairLeft",
+        "PitOptRepairLeft",
+        "FastRepairAvailable",
+        "FastRepairUsed",
+        "dpFuelFill",
+        "dpFuelAddKg",
+        "dpLFTireChange",
+        "dpRFTireChange",
+        "dpLRTireChange",
+        "dpRRTireChange",
+        "dpLFTireColdPress",
+        "dpRFTireColdPress",
+        "dpLRTireColdPress",
+        "dpRRTireColdPress",
+        "dpWindshieldTearoff",
+        "dpFastRepair",
         // Electronics
-        "dcABS", "dcTractionControl", "dcTractionControl2",
-        "dcBrakeBias", "dcAntiRollFront", "dcAntiRollRear",
-        "DRS_Status", "dcThrottleShape",
+        "dcABS",
+        "dcTractionControl",
+        "dcTractionControl2",
+        "dcBrakeBias",
+        "dcAntiRollFront",
+        "dcAntiRollRear",
+        "DRS_Status",
+        "dcThrottleShape",
         "PushToPass",
         // Per-car arrays
-        "CarIdxLap", "CarIdxLapCompleted", "CarIdxLapDistPct",
-        "CarIdxPosition", "CarIdxClassPosition",
-        "CarIdxOnPitRoad", "CarIdxTrackSurface",
-        "CarIdxBestLapTime", "CarIdxLastLapTime", "CarIdxEstTime",
-        "CarIdxGear", "CarIdxRPM", "CarIdxSteer",
+        "CarIdxLap",
+        "CarIdxLapCompleted",
+        "CarIdxLapDistPct",
+        "CarIdxPosition",
+        "CarIdxClassPosition",
+        "CarIdxOnPitRoad",
+        "CarIdxTrackSurface",
+        "CarIdxBestLapTime",
+        "CarIdxLastLapTime",
+        "CarIdxEstTime",
+        "CarIdxGear",
+        "CarIdxRPM",
+        "CarIdxSteer",
         // Tick
         "SessionTick",
     ];
@@ -146,10 +262,8 @@ mod windows_impl {
         fn convert_sample(&self, sample: &IRacingSample) -> TelemetryFrame {
             // Get all variables in one pass
             let all_vars = sample.all();
-            let vars: HashMap<&str, &ValueDescription> = all_vars
-                .iter()
-                .map(|v| (v.name.as_str(), v))
-                .collect();
+            let vars: HashMap<&str, &ValueDescription> =
+                all_vars.iter().map(|v| (v.name.as_str(), v)).collect();
 
             // Helper closures for type conversion
             let get_f32 = |name: &str| -> Option<f32> {
@@ -164,16 +278,19 @@ mod windows_impl {
             let get_u32 = |name: &str| -> Option<u32> {
                 vars.get(name).and_then(|v| v.value.clone().try_into().ok())
             };
-            let get_bool = |name: &str| -> Option<bool> {
-                vars.get(name).map(|v| v.value.clone().into())
-            };
+            let get_bool =
+                |name: &str| -> Option<bool> { vars.get(name).map(|v| v.value.clone().into()) };
 
             let tick = get_i32("SessionTick").map(|t| t as u32);
 
             // =================================================================
             // Motion
             // =================================================================
-            let velocity = match (get_f32("VelocityX"), get_f32("VelocityY"), get_f32("VelocityZ")) {
+            let velocity = match (
+                get_f32("VelocityX"),
+                get_f32("VelocityY"),
+                get_f32("VelocityZ"),
+            ) {
                 (Some(vx), Some(vy), Some(vz)) => Some(Vector3::new(
                     MetersPerSecond(vx),
                     MetersPerSecond(vy),
@@ -182,7 +299,11 @@ mod windows_impl {
                 _ => None,
             };
 
-            let acceleration = match (get_f32("LatAccel"), get_f32("LongAccel"), get_f32("VertAccel")) {
+            let acceleration = match (
+                get_f32("LatAccel"),
+                get_f32("LongAccel"),
+                get_f32("VertAccel"),
+            ) {
                 (Some(lat), Some(long), Some(vert)) => Some(Vector3::new(
                     MetersPerSecondSquared(lat),
                     MetersPerSecondSquared(vert),
@@ -206,7 +327,11 @@ mod windows_impl {
                 _ => None,
             };
 
-            let angular_velocity = match (get_f32("PitchRate"), get_f32("YawRate"), get_f32("RollRate")) {
+            let angular_velocity = match (
+                get_f32("PitchRate"),
+                get_f32("YawRate"),
+                get_f32("RollRate"),
+            ) {
                 (Some(p), Some(y), Some(r)) => Some(Vector3::new(
                     RadiansPerSecond(p),
                     RadiansPerSecond(y),
@@ -234,30 +359,30 @@ mod windows_impl {
                 })
             });
 
-            let track_surface = get_i32("PlayerTrackSurface").map(|idx| {
-                match idx {
-                    -1 => TrackSurface::NotInWorld,
-                    0 => TrackSurface::Undefined,
-                    1..=4 => TrackSurface::Asphalt,
-                    6 | 7 => TrackSurface::Concrete,
-                    8 | 9 => TrackSurface::RacingDirt,
-                    10 | 11 => TrackSurface::Paint,
-                    12..=15 => TrackSurface::Rumble,
-                    16..=19 => TrackSurface::Grass,
-                    20..=23 => TrackSurface::Dirt,
-                    24 => TrackSurface::Sand,
-                    25..=28 => TrackSurface::Gravel,
-                    29 => TrackSurface::Grasscrete,
-                    30 => TrackSurface::Astroturf,
-                    _ => TrackSurface::Unknown,
-                }
+            let track_surface = get_i32("PlayerTrackSurface").map(|idx| match idx {
+                -1 => TrackSurface::NotInWorld,
+                0 => TrackSurface::Undefined,
+                1..=4 => TrackSurface::Asphalt,
+                6 | 7 => TrackSurface::Concrete,
+                8 | 9 => TrackSurface::RacingDirt,
+                10 | 11 => TrackSurface::Paint,
+                12..=15 => TrackSurface::Rumble,
+                16..=19 => TrackSurface::Grass,
+                20..=23 => TrackSurface::Dirt,
+                24 => TrackSurface::Sand,
+                25..=28 => TrackSurface::Gravel,
+                29 => TrackSurface::Grasscrete,
+                30 => TrackSurface::Astroturf,
+                _ => TrackSurface::Unknown,
             });
 
             // Session info for RPM limits
-            let (max_rpm, idle_rpm) = self.session_details.as_ref().map_or(
-                (None, None),
-                |s| (Some(Rpm(s.drivers.red_line_rpm)), Some(Rpm(s.drivers.idle_rpm))),
-            );
+            let (max_rpm, idle_rpm) = self.session_details.as_ref().map_or((None, None), |s| {
+                (
+                    Some(Rpm(s.drivers.red_line_rpm)),
+                    Some(Rpm(s.drivers.idle_rpm)),
+                )
+            });
 
             let vehicle = Some(VehicleData {
                 speed,
@@ -286,8 +411,7 @@ mod windows_impl {
                 .as_ref()
                 .map(|s| Liters(s.drivers.fuel_capacity));
 
-            let engine_warnings = get_u32("EngineWarnings")
-                .map(EngineWarnings::from_iracing_bits);
+            let engine_warnings = get_u32("EngineWarnings").map(EngineWarnings::from_iracing_bits);
 
             let engine = Some(EngineData {
                 water_temp: get_f32("WaterTemp").map(Celsius),
@@ -359,12 +483,19 @@ mod windows_impl {
             let flags = get_u32("SessionFlags").map(FlagState::from_iracing_bits);
 
             let (track_name, track_config, track_length_m, track_type_str, car_name, car_class) =
-                self.session_details.as_ref().map_or(
-                    (None, None, None, None, None, None),
-                    |s| {
+                self.session_details
+                    .as_ref()
+                    .map_or((None, None, None, None, None, None), |s| {
                         let player_idx = s.drivers.car_index;
-                        let driver = s.drivers.other_drivers.iter().find(|d| d.index == player_idx);
-                        let track_len = s.weekend.track_length.trim_end_matches(" km")
+                        let driver = s
+                            .drivers
+                            .other_drivers
+                            .iter()
+                            .find(|d| d.index == player_idx);
+                        let track_len = s
+                            .weekend
+                            .track_length
+                            .trim_end_matches(" km")
                             .replace(',', ".")
                             .parse::<f32>()
                             .ok()
@@ -382,17 +513,20 @@ mod windows_impl {
                             driver.map(|d| d.car_screen_name.clone()),
                             driver.map(|d| d.car_class_short_name.clone()),
                         )
-                    },
-                );
+                    });
 
             // Determine session type from session info
             let session_type = self.session_details.as_ref().and_then(|s| {
                 let sess_num = get_i32("SessionNum").unwrap_or(0) as u64;
-                s.session.sessions.iter()
+                s.session
+                    .sessions
+                    .iter()
                     .find(|sess| sess.session_number == sess_num)
                     .map(|sess| match sess.session_type.to_lowercase().as_str() {
                         "practice" | "open practice" | "lone practice" => SessionType::Practice,
-                        "qualify" | "open qualify" | "lone qualify" | "qualifying" => SessionType::Qualifying,
+                        "qualify" | "open qualify" | "lone qualify" | "qualifying" => {
+                            SessionType::Qualifying
+                        }
                         "race" => SessionType::Race,
                         "warmup" | "warm up" => SessionType::Warmup,
                         "time trial" => SessionType::TimeTrial,
@@ -402,7 +536,9 @@ mod windows_impl {
 
             let session_laps = self.session_details.as_ref().and_then(|s| {
                 let sess_num = get_i32("SessionNum").unwrap_or(0) as u64;
-                s.session.sessions.iter()
+                s.session
+                    .sessions
+                    .iter()
                     .find(|sess| sess.session_number == sess_num)
                     .and_then(|sess| sess.max_laps().map(|l| l as u32))
             });
@@ -473,7 +609,8 @@ mod windows_impl {
             });
 
             let pit_speed_limit = self.session_details.as_ref().and_then(|s| {
-                s.weekend.track_pit_speed_limit
+                s.weekend
+                    .track_pit_speed_limit
                     .trim_end_matches(" kph")
                     .replace(',', ".")
                     .parse::<f32>()
@@ -519,7 +656,11 @@ mod windows_impl {
             // =================================================================
             let driver = self.session_details.as_ref().map(|s| {
                 let player_idx = s.drivers.car_index;
-                let driver_info = s.drivers.other_drivers.iter().find(|d| d.index == player_idx);
+                let driver_info = s
+                    .drivers
+                    .other_drivers
+                    .iter()
+                    .find(|d| d.index == player_idx);
 
                 DriverData {
                     name: driver_info.map(|d| d.user_name.clone()),
@@ -544,8 +685,7 @@ mod windows_impl {
             let mut extras = HashMap::new();
 
             // Build a set of mapped names for fast lookup
-            let mapped_set: std::collections::HashSet<&str> =
-                MAPPED_VARS.iter().copied().collect();
+            let mapped_set: std::collections::HashSet<&str> = MAPPED_VARS.iter().copied().collect();
 
             for vd in &all_vars {
                 if mapped_set.contains(vd.name.as_str()) {
@@ -564,14 +704,40 @@ mod windows_impl {
             // Also add game-specific driver metadata from session info
             if let Some(ref s) = self.session_details {
                 let player_idx = s.drivers.car_index;
-                if let Some(driver_info) = s.drivers.other_drivers.iter().find(|d| d.index == player_idx) {
-                    extras.insert("iracing/iRating".to_string(), serde_json::json!(driver_info.i_rating));
-                    extras.insert("iracing/LicenseLevel".to_string(), serde_json::json!(driver_info.license_level));
-                    extras.insert("iracing/LicenseSubLevel".to_string(), serde_json::json!(driver_info.license_sub_level));
-                    extras.insert("iracing/LicenseString".to_string(), serde_json::json!(driver_info.license.clone()));
-                    extras.insert("iracing/SeriesID".to_string(), serde_json::json!(s.weekend.series_id));
-                    extras.insert("iracing/SessionID".to_string(), serde_json::json!(s.weekend.session_id));
-                    extras.insert("iracing/SubSessionID".to_string(), serde_json::json!(s.weekend.sub_session_id));
+                if let Some(driver_info) = s
+                    .drivers
+                    .other_drivers
+                    .iter()
+                    .find(|d| d.index == player_idx)
+                {
+                    extras.insert(
+                        "iracing/iRating".to_string(),
+                        serde_json::json!(driver_info.i_rating),
+                    );
+                    extras.insert(
+                        "iracing/LicenseLevel".to_string(),
+                        serde_json::json!(driver_info.license_level),
+                    );
+                    extras.insert(
+                        "iracing/LicenseSubLevel".to_string(),
+                        serde_json::json!(driver_info.license_sub_level),
+                    );
+                    extras.insert(
+                        "iracing/LicenseString".to_string(),
+                        serde_json::json!(driver_info.license.clone()),
+                    );
+                    extras.insert(
+                        "iracing/SeriesID".to_string(),
+                        serde_json::json!(s.weekend.series_id),
+                    );
+                    extras.insert(
+                        "iracing/SessionID".to_string(),
+                        serde_json::json!(s.weekend.session_id),
+                    );
+                    extras.insert(
+                        "iracing/SubSessionID".to_string(),
+                        serde_json::json!(s.weekend.sub_session_id),
+                    );
                 }
             }
 
@@ -606,15 +772,22 @@ mod windows_impl {
         ) -> WheelInfo {
             let get_f32 = |suffix: &str| -> Option<f32> {
                 let key = format!("{}{}", prefix, suffix);
-                vars.get(key.as_str()).and_then(|v| v.value.clone().try_into().ok())
+                vars.get(key.as_str())
+                    .and_then(|v| v.value.clone().try_into().ok())
             };
 
             // Inner/outer mapping: for left wheels, CL=outer edge, CR=inner edge.
             // For right wheels, CL=inner edge, CR=outer edge.
             let (surface_temp_inner, surface_temp_outer) = if is_left_side {
-                (get_f32("tempCR").map(Celsius), get_f32("tempCL").map(Celsius))
+                (
+                    get_f32("tempCR").map(Celsius),
+                    get_f32("tempCL").map(Celsius),
+                )
             } else {
-                (get_f32("tempCL").map(Celsius), get_f32("tempCR").map(Celsius))
+                (
+                    get_f32("tempCL").map(Celsius),
+                    get_f32("tempCR").map(Celsius),
+                )
             };
 
             let (carcass_temp_inner, carcass_temp_outer) = if is_left_side {
@@ -649,7 +822,10 @@ mod windows_impl {
         }
 
         /// Extract competitor data from CarIdx* arrays and merge with session info.
-        fn extract_competitors(&self, all_vars: &[ValueDescription]) -> Option<Vec<CompetitorData>> {
+        fn extract_competitors(
+            &self,
+            all_vars: &[ValueDescription],
+        ) -> Option<Vec<CompetitorData>> {
             // Find the CarIdx arrays
             let find_int_vec = |name: &str| -> Option<&Vec<i32>> {
                 all_vars.iter().find(|v| v.name == name).and_then(|v| {
@@ -705,10 +881,7 @@ mod windows_impl {
             };
 
             // Player car index to skip
-            let player_idx = self
-                .session_details
-                .as_ref()
-                .map(|s| s.drivers.car_index);
+            let player_idx = self.session_details.as_ref().map(|s| s.drivers.car_index);
 
             let mut competitors = Vec::new();
 
@@ -726,40 +899,43 @@ mod windows_impl {
 
                 // Get session info for this driver
                 let (driver_name, car_name_str, car_class_str, team_name_str, car_number_str) =
-                    self.session_details.as_ref().map_or(
-                        (None, None, None, None, None),
-                        |s| {
-                            s.drivers.other_drivers.iter().find(|d| d.index == i).map_or(
-                                (None, None, None, None, None),
-                                |d| (
-                                    Some(d.user_name.clone()),
-                                    Some(d.car_screen_name.clone()),
-                                    Some(d.car_class_short_name.clone()),
-                                    Some(d.team_name.clone()),
-                                    Some(d.car_number.to_string()),
-                                ),
-                            )
-                        },
-                    );
+                    self.session_details
+                        .as_ref()
+                        .map_or((None, None, None, None, None), |s| {
+                            s.drivers
+                                .other_drivers
+                                .iter()
+                                .find(|d| d.index == i)
+                                .map_or((None, None, None, None, None), |d| {
+                                    (
+                                        Some(d.user_name.clone()),
+                                        Some(d.car_screen_name.clone()),
+                                        Some(d.car_class_short_name.clone()),
+                                        Some(d.team_name.clone()),
+                                        Some(d.car_number.to_string()),
+                                    )
+                                })
+                        });
 
-                let track_surface_val = track_surfaces.and_then(|v| v.get(i).copied()).map(|idx| {
-                    match idx {
-                        -1 => TrackSurface::NotInWorld,
-                        0 => TrackSurface::Undefined,
-                        1..=4 => TrackSurface::Asphalt,
-                        6 | 7 => TrackSurface::Concrete,
-                        8 | 9 => TrackSurface::RacingDirt,
-                        10 | 11 => TrackSurface::Paint,
-                        12..=15 => TrackSurface::Rumble,
-                        16..=19 => TrackSurface::Grass,
-                        20..=23 => TrackSurface::Dirt,
-                        24 => TrackSurface::Sand,
-                        25..=28 => TrackSurface::Gravel,
-                        29 => TrackSurface::Grasscrete,
-                        30 => TrackSurface::Astroturf,
-                        _ => TrackSurface::Unknown,
-                    }
-                });
+                let track_surface_val =
+                    track_surfaces
+                        .and_then(|v| v.get(i).copied())
+                        .map(|idx| match idx {
+                            -1 => TrackSurface::NotInWorld,
+                            0 => TrackSurface::Undefined,
+                            1..=4 => TrackSurface::Asphalt,
+                            6 | 7 => TrackSurface::Concrete,
+                            8 | 9 => TrackSurface::RacingDirt,
+                            10 | 11 => TrackSurface::Paint,
+                            12..=15 => TrackSurface::Rumble,
+                            16..=19 => TrackSurface::Grass,
+                            20..=23 => TrackSurface::Dirt,
+                            24 => TrackSurface::Sand,
+                            25..=28 => TrackSurface::Gravel,
+                            29 => TrackSurface::Grasscrete,
+                            30 => TrackSurface::Astroturf,
+                            _ => TrackSurface::Unknown,
+                        });
 
                 competitors.push(CompetitorData {
                     car_index: i as u32,
@@ -769,20 +945,30 @@ mod windows_impl {
                     team_name: team_name_str,
                     car_number: car_number_str,
                     lap: lap_val.map(|l| l as u32),
-                    laps_completed: laps_completed.and_then(|v| v.get(i).copied()).map(|l| l as u32),
-                    lap_distance_pct: lap_dist_pct.and_then(|v| v.get(i).copied()).map(Percentage::new),
+                    laps_completed: laps_completed
+                        .and_then(|v| v.get(i).copied())
+                        .map(|l| l as u32),
+                    lap_distance_pct: lap_dist_pct
+                        .and_then(|v| v.get(i).copied())
+                        .map(Percentage::new),
                     position: positions.and_then(|v| v.get(i).copied()).map(|p| p as u32),
-                    class_position: class_positions.and_then(|v| v.get(i).copied()).map(|p| p as u32),
+                    class_position: class_positions
+                        .and_then(|v| v.get(i).copied())
+                        .map(|p| p as u32),
                     on_pit_road: on_pit_road.and_then(|v| v.get(i).copied()),
                     track_surface: track_surface_val,
-                    best_lap_time: best_lap_times.and_then(|v| v.get(i).copied()).and_then(|t| {
-                        if t > 0.0 { Some(Seconds(t)) } else { None }
-                    }),
-                    last_lap_time: last_lap_times.and_then(|v| v.get(i).copied()).and_then(|t| {
-                        if t > 0.0 { Some(Seconds(t)) } else { None }
-                    }),
+                    best_lap_time: best_lap_times
+                        .and_then(|v| v.get(i).copied())
+                        .and_then(|t| if t > 0.0 { Some(Seconds(t)) } else { None }),
+                    last_lap_time: last_lap_times
+                        .and_then(|v| v.get(i).copied())
+                        .and_then(|t| if t > 0.0 { Some(Seconds(t)) } else { None }),
                     estimated_time: est_times.and_then(|v| v.get(i).copied()).and_then(|t| {
-                        if t > 0.0 { Some(Seconds(t)) } else { None }
+                        if t > 0.0 {
+                            Some(Seconds(t))
+                        } else {
+                            None
+                        }
                     }),
                     gear: gears.and_then(|v| v.get(i).copied()).map(|g| g as i8),
                     rpm: rpms.and_then(|v| v.get(i).copied()).map(Rpm),

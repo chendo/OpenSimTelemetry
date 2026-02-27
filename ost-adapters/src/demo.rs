@@ -16,55 +16,181 @@ use std::time::Instant;
 
 #[derive(Clone, Copy)]
 enum SegmentKind {
-    Straight,   // Full throttle, top speed
-    Braking,    // Heavy braking into a corner
-    Corner,     // Constant-ish speed cornering
-    Accel,      // Accelerating out of a corner
+    Straight, // Full throttle, top speed
+    Braking,  // Heavy braking into a corner
+    Corner,   // Constant-ish speed cornering
+    Accel,    // Accelerating out of a corner
 }
 
 #[derive(Clone, Copy)]
 struct TrackSegment {
     kind: SegmentKind,
-    duration: f32,       // seconds to traverse at representative pace
-    target_speed: f32,   // m/s at end of segment
-    steering: f32,       // peak steering angle in radians (signed: + = right)
-    lateral_g: f32,      // peak lateral G
+    duration: f32,     // seconds to traverse at representative pace
+    target_speed: f32, // m/s at end of segment
+    steering: f32,     // peak steering angle in radians (signed: + = right)
+    lateral_g: f32,    // peak lateral G
 }
 
 /// A simple circuit: ~85s lap, mix of corners and straights
 fn demo_track() -> Vec<TrackSegment> {
     vec![
         // Start/finish straight
-        TrackSegment { kind: SegmentKind::Straight, duration: 8.0,  target_speed: 75.0, steering: 0.0,   lateral_g: 0.0 },
+        TrackSegment {
+            kind: SegmentKind::Straight,
+            duration: 8.0,
+            target_speed: 75.0,
+            steering: 0.0,
+            lateral_g: 0.0,
+        },
         // T1: heavy braking into slow right-hander
-        TrackSegment { kind: SegmentKind::Braking,  duration: 3.0,  target_speed: 28.0, steering: 0.02,  lateral_g: 0.1 },
-        TrackSegment { kind: SegmentKind::Corner,   duration: 4.0,  target_speed: 25.0, steering: 0.35,  lateral_g: 1.8 },
-        TrackSegment { kind: SegmentKind::Accel,    duration: 3.5,  target_speed: 55.0, steering: 0.1,   lateral_g: 0.4 },
+        TrackSegment {
+            kind: SegmentKind::Braking,
+            duration: 3.0,
+            target_speed: 28.0,
+            steering: 0.02,
+            lateral_g: 0.1,
+        },
+        TrackSegment {
+            kind: SegmentKind::Corner,
+            duration: 4.0,
+            target_speed: 25.0,
+            steering: 0.35,
+            lateral_g: 1.8,
+        },
+        TrackSegment {
+            kind: SegmentKind::Accel,
+            duration: 3.5,
+            target_speed: 55.0,
+            steering: 0.1,
+            lateral_g: 0.4,
+        },
         // Short straight
-        TrackSegment { kind: SegmentKind::Straight, duration: 4.0,  target_speed: 62.0, steering: 0.0,   lateral_g: 0.0 },
+        TrackSegment {
+            kind: SegmentKind::Straight,
+            duration: 4.0,
+            target_speed: 62.0,
+            steering: 0.0,
+            lateral_g: 0.0,
+        },
         // T2: medium braking into fast left-hander
-        TrackSegment { kind: SegmentKind::Braking,  duration: 2.0,  target_speed: 45.0, steering: -0.02, lateral_g: -0.1 },
-        TrackSegment { kind: SegmentKind::Corner,   duration: 3.5,  target_speed: 42.0, steering: -0.22, lateral_g: -1.5 },
-        TrackSegment { kind: SegmentKind::Accel,    duration: 3.0,  target_speed: 58.0, steering: -0.05, lateral_g: -0.3 },
+        TrackSegment {
+            kind: SegmentKind::Braking,
+            duration: 2.0,
+            target_speed: 45.0,
+            steering: -0.02,
+            lateral_g: -0.1,
+        },
+        TrackSegment {
+            kind: SegmentKind::Corner,
+            duration: 3.5,
+            target_speed: 42.0,
+            steering: -0.22,
+            lateral_g: -1.5,
+        },
+        TrackSegment {
+            kind: SegmentKind::Accel,
+            duration: 3.0,
+            target_speed: 58.0,
+            steering: -0.05,
+            lateral_g: -0.3,
+        },
         // Back straight
-        TrackSegment { kind: SegmentKind::Straight, duration: 10.0, target_speed: 80.0, steering: 0.0,   lateral_g: 0.0 },
+        TrackSegment {
+            kind: SegmentKind::Straight,
+            duration: 10.0,
+            target_speed: 80.0,
+            steering: 0.0,
+            lateral_g: 0.0,
+        },
         // T3: chicane — quick right-left
-        TrackSegment { kind: SegmentKind::Braking,  duration: 2.5,  target_speed: 35.0, steering: 0.05,  lateral_g: 0.2 },
-        TrackSegment { kind: SegmentKind::Corner,   duration: 2.0,  target_speed: 32.0, steering: 0.30,  lateral_g: 1.6 },
-        TrackSegment { kind: SegmentKind::Corner,   duration: 2.0,  target_speed: 30.0, steering: -0.32, lateral_g: -1.7 },
-        TrackSegment { kind: SegmentKind::Accel,    duration: 3.0,  target_speed: 50.0, steering: -0.05, lateral_g: -0.2 },
+        TrackSegment {
+            kind: SegmentKind::Braking,
+            duration: 2.5,
+            target_speed: 35.0,
+            steering: 0.05,
+            lateral_g: 0.2,
+        },
+        TrackSegment {
+            kind: SegmentKind::Corner,
+            duration: 2.0,
+            target_speed: 32.0,
+            steering: 0.30,
+            lateral_g: 1.6,
+        },
+        TrackSegment {
+            kind: SegmentKind::Corner,
+            duration: 2.0,
+            target_speed: 30.0,
+            steering: -0.32,
+            lateral_g: -1.7,
+        },
+        TrackSegment {
+            kind: SegmentKind::Accel,
+            duration: 3.0,
+            target_speed: 50.0,
+            steering: -0.05,
+            lateral_g: -0.2,
+        },
         // Medium straight
-        TrackSegment { kind: SegmentKind::Straight, duration: 6.0,  target_speed: 68.0, steering: 0.0,   lateral_g: 0.0 },
+        TrackSegment {
+            kind: SegmentKind::Straight,
+            duration: 6.0,
+            target_speed: 68.0,
+            steering: 0.0,
+            lateral_g: 0.0,
+        },
         // T4: long sweeping right
-        TrackSegment { kind: SegmentKind::Braking,  duration: 1.5,  target_speed: 52.0, steering: 0.03,  lateral_g: 0.1 },
-        TrackSegment { kind: SegmentKind::Corner,   duration: 5.0,  target_speed: 50.0, steering: 0.18,  lateral_g: 1.3 },
-        TrackSegment { kind: SegmentKind::Accel,    duration: 3.0,  target_speed: 60.0, steering: 0.05,  lateral_g: 0.3 },
+        TrackSegment {
+            kind: SegmentKind::Braking,
+            duration: 1.5,
+            target_speed: 52.0,
+            steering: 0.03,
+            lateral_g: 0.1,
+        },
+        TrackSegment {
+            kind: SegmentKind::Corner,
+            duration: 5.0,
+            target_speed: 50.0,
+            steering: 0.18,
+            lateral_g: 1.3,
+        },
+        TrackSegment {
+            kind: SegmentKind::Accel,
+            duration: 3.0,
+            target_speed: 60.0,
+            steering: 0.05,
+            lateral_g: 0.3,
+        },
         // T5: tight hairpin left
-        TrackSegment { kind: SegmentKind::Braking,  duration: 3.5,  target_speed: 22.0, steering: -0.03, lateral_g: -0.1 },
-        TrackSegment { kind: SegmentKind::Corner,   duration: 4.5,  target_speed: 20.0, steering: -0.42, lateral_g: -1.2 },
-        TrackSegment { kind: SegmentKind::Accel,    duration: 4.0,  target_speed: 55.0, steering: -0.1,  lateral_g: -0.3 },
+        TrackSegment {
+            kind: SegmentKind::Braking,
+            duration: 3.5,
+            target_speed: 22.0,
+            steering: -0.03,
+            lateral_g: -0.1,
+        },
+        TrackSegment {
+            kind: SegmentKind::Corner,
+            duration: 4.5,
+            target_speed: 20.0,
+            steering: -0.42,
+            lateral_g: -1.2,
+        },
+        TrackSegment {
+            kind: SegmentKind::Accel,
+            duration: 4.0,
+            target_speed: 55.0,
+            steering: -0.1,
+            lateral_g: -0.3,
+        },
         // Run to start/finish
-        TrackSegment { kind: SegmentKind::Straight, duration: 6.0,  target_speed: 72.0, steering: 0.0,   lateral_g: 0.0 },
+        TrackSegment {
+            kind: SegmentKind::Straight,
+            duration: 6.0,
+            target_speed: 72.0,
+            steering: 0.0,
+            lateral_g: 0.0,
+        },
     ]
 }
 
@@ -288,7 +414,14 @@ impl DemoAdapter {
         let make_wheel = |is_left: bool, is_front: bool| {
             let lat_load = if is_left { -lat_g } else { lat_g } * 0.008;
             let long_load = if is_front { long_g } else { -long_g } * 0.006;
-            let travel = (base_travel + lat_load + long_load + jitter(n + if is_left { 0.0 } else { 1.0 } + if is_front { 0.0 } else { 2.0 }, 0.001)).max(0.01);
+            let travel = (base_travel
+                + lat_load
+                + long_load
+                + jitter(
+                    n + if is_left { 0.0 } else { 1.0 } + if is_front { 0.0 } else { 2.0 },
+                    0.001,
+                ))
+            .max(0.01);
             let heat_base = if is_front { 85.0 } else { 78.0 };
             let heat_offset = speed * 0.15 + lat_g.abs() * 3.0;
 
@@ -300,9 +433,13 @@ impl DemoAdapter {
                 ride_height: Some(Meters(0.06 - travel * 0.2)),
                 tyre_pressure: Some(Kilopascals(178.0 + heat_offset * 0.3 + jitter(n, 0.5))),
                 tyre_cold_pressure: Some(Kilopascals(172.0)),
-                surface_temp_inner: Some(Celsius(heat_base + heat_offset + 5.0 + jitter(n * 2.1, 0.5))),
+                surface_temp_inner: Some(Celsius(
+                    heat_base + heat_offset + 5.0 + jitter(n * 2.1, 0.5),
+                )),
                 surface_temp_middle: Some(Celsius(heat_base + heat_offset + jitter(n * 2.2, 0.5))),
-                surface_temp_outer: Some(Celsius(heat_base + heat_offset - 3.0 + jitter(n * 2.3, 0.5))),
+                surface_temp_outer: Some(Celsius(
+                    heat_base + heat_offset - 3.0 + jitter(n * 2.3, 0.5),
+                )),
                 carcass_temp_inner: Some(Celsius(heat_base + heat_offset * 0.7 + 8.0)),
                 carcass_temp_middle: Some(Celsius(heat_base + heat_offset * 0.7 + 5.0)),
                 carcass_temp_outer: Some(Celsius(heat_base + heat_offset * 0.7 + 2.0)),
@@ -310,9 +447,13 @@ impl DemoAdapter {
                 wheel_speed: Some(RadiansPerSecond(speed / 0.33 + jitter(n, 0.5))), // ~0.33m tyre radius
                 slip_ratio: Some(jitter(n * 3.0, 0.03 + brake * 0.05)),
                 slip_angle: Some(Radians(steering.abs() * 0.1 + jitter(n * 3.1, 0.005))),
-                load: Some(Newtons(2500.0 + (lat_load + long_load) * 800.0 + jitter(n * 3.2, 50.0))),
+                load: Some(Newtons(
+                    2500.0 + (lat_load + long_load) * 800.0 + jitter(n * 3.2, 50.0),
+                )),
                 brake_line_pressure: Some(Kilopascals(brake * 3500.0 + jitter(n * 3.3, 10.0))),
-                brake_temp: Some(Celsius(200.0 + brake * 300.0 + speed * 1.5 + jitter(n * 3.4, 5.0))),
+                brake_temp: Some(Celsius(
+                    200.0 + brake * 300.0 + speed * 1.5 + jitter(n * 3.4, 5.0),
+                )),
                 tyre_compound: Some("Soft".to_string()),
             }
         };
@@ -379,7 +520,9 @@ impl DemoAdapter {
         // --- Engine ---
         let fuel_remaining = (60.0 * (1.0 - elapsed * 0.00015)).max(0.0);
         let engine = Some(EngineData {
-            water_temp: Some(Celsius(88.0 + rpm * 0.0005 + speed * 0.02 + jitter(n * 5.0, 0.3))),
+            water_temp: Some(Celsius(
+                88.0 + rpm * 0.0005 + speed * 0.02 + jitter(n * 5.0, 0.3),
+            )),
             oil_temp: Some(Celsius(102.0 + rpm * 0.0004 + jitter(n * 5.1, 0.2))),
             oil_pressure: Some(Kilopascals(320.0 + rpm * 0.005 + jitter(n * 5.2, 3.0))),
             oil_level: Some(Percentage::new(0.95)),

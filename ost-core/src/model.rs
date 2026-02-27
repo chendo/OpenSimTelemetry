@@ -1508,18 +1508,22 @@ mod tests {
             "iRacing/brakeABSactive".to_string(),
             serde_json::Value::Bool(true),
         );
-        frame.extras.insert(
-            "iRacing/dcBrakeBias".to_string(),
-            serde_json::json!(56.5),
-        );
+        frame
+            .extras
+            .insert("iRacing/dcBrakeBias".to_string(), serde_json::json!(56.5));
 
         // Request only one extras key with mixed-case path
         let mask = FieldMask::parse("extras.iRacing/brakeABSactive");
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        let extras = parsed.get("extras").expect("extras section should be present");
-        assert_eq!(extras.get("iRacing/brakeABSactive"), Some(&serde_json::Value::Bool(true)));
+        let extras = parsed
+            .get("extras")
+            .expect("extras section should be present");
+        assert_eq!(
+            extras.get("iRacing/brakeABSactive"),
+            Some(&serde_json::Value::Bool(true))
+        );
         // The other extras key should NOT be included
         assert!(extras.get("iRacing/dcBrakeBias").is_none());
     }

@@ -43,12 +43,7 @@ async fn test_get_root_returns_200_with_html() {
     let app = app();
 
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
         .await
         .unwrap();
 
@@ -125,7 +120,10 @@ async fn test_get_adapters_with_demo_adapter_registered() {
 
     assert_eq!(adapters.len(), 1, "Should have one adapter");
     assert_eq!(adapters[0]["name"], "Demo");
-    assert_eq!(adapters[0]["detected"], true, "Demo adapter is always detected");
+    assert_eq!(
+        adapters[0]["detected"], true,
+        "Demo adapter is always detected"
+    );
 }
 
 // ==================== GET /api/sinks ====================
@@ -221,10 +219,7 @@ async fn test_create_sink_generates_id_when_empty() {
     let body = body_string(response.into_body()).await;
     let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
     let id = parsed["id"].as_str().unwrap();
-    assert!(
-        !id.is_empty(),
-        "Generated ID should not be empty"
-    );
+    assert!(!id.is_empty(), "Generated ID should not be empty");
     assert!(
         id.starts_with("sink-"),
         "Generated ID should start with 'sink-', got: {}",
@@ -496,8 +491,14 @@ async fn test_telemetry_stream_with_field_filter() {
             let json_str = data_line.trim_start_matches("data:").trim();
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
                 // Should have requested sections
-                assert!(parsed.get("vehicle").is_some(), "Filtered response should include vehicle");
-                assert!(parsed.get("timing").is_some(), "Filtered response should include timing");
+                assert!(
+                    parsed.get("vehicle").is_some(),
+                    "Filtered response should include vehicle"
+                );
+                assert!(
+                    parsed.get("timing").is_some(),
+                    "Filtered response should include timing"
+                );
                 // Should NOT have unrequested sections
                 assert!(
                     parsed.get("engine").is_none(),

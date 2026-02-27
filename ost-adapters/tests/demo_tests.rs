@@ -39,7 +39,10 @@ fn test_demo_adapter_start_and_stop() {
     let mut adapter = DemoAdapter::new();
 
     adapter.start().expect("start() should succeed");
-    assert!(adapter.is_active(), "Adapter should be active after start()");
+    assert!(
+        adapter.is_active(),
+        "Adapter should be active after start()"
+    );
 
     adapter.stop().expect("stop() should succeed");
     assert!(
@@ -72,9 +75,15 @@ fn test_demo_adapter_produces_valid_frame() {
     let motion = frame.motion.as_ref().expect("motion should be populated");
     assert!(motion.g_force.is_some(), "g_force should be populated");
     let session = frame.session.as_ref().expect("session should be populated");
-    assert!(session.track_name.is_some(), "track_name should be populated");
+    assert!(
+        session.track_name.is_some(),
+        "track_name should be populated"
+    );
     assert!(session.car_name.is_some(), "car_name should be populated");
-    assert!(session.session_type.is_some(), "session_type should be populated");
+    assert!(
+        session.session_type.is_some(),
+        "session_type should be populated"
+    );
 }
 
 #[test]
@@ -130,8 +139,13 @@ fn test_demo_adapter_frame_values_in_reasonable_range() {
     );
 
     // Fuel level should be 0.0 to 1.0
-    let fuel = frame.engine.as_ref().expect("engine should be populated")
-        .fuel_level_pct.unwrap().0;
+    let fuel = frame
+        .engine
+        .as_ref()
+        .expect("engine should be populated")
+        .fuel_level_pct
+        .unwrap()
+        .0;
     assert!(
         (0.0..=1.0).contains(&fuel),
         "Fuel level {} should be between 0 and 1",
@@ -186,8 +200,7 @@ fn test_demo_adapter_frame_serializes_to_json() {
     assert!(!json.is_empty(), "JSON should not be empty");
 
     // Should be valid JSON
-    let parsed: serde_json::Value =
-        serde_json::from_str(&json).expect("JSON should be parseable");
+    let parsed: serde_json::Value = serde_json::from_str(&json).expect("JSON should be parseable");
     assert_eq!(parsed["game"], "Demo");
 }
 
