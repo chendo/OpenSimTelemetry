@@ -83,11 +83,12 @@ class ReplayPlayer {
             this.buf.cursor = this.info.current_frame || 0;
             this.buf.playing = this.info.playing !== false;
             this.buf.playbackSpeed = this.currentSpeed;
+            this.buf.replayId = this.info.replay_id || null;
             // Setup lap data
             this.laps = this.info.laps || [];
             this.buildLapUI();
-            // Fetch initial chunks around cursor (no field filter — all widgets need full frames)
-            await this.buf.ensureLoaded(null);
+            // Fetch initial chunks around cursor with field mask
+            await this.buf.ensureLoaded(buildReplayFieldMask());
         }
         this.updateSpeedButtons();
         this.updateControlsFromBuf();
@@ -162,7 +163,7 @@ class ReplayPlayer {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'seek', value: frame })
         }).catch(() => {});
-        this.buf.ensureLoadedDebounced(50, null);
+        this.buf.ensureLoadedDebounced(50, buildReplayFieldMask());
         this.seekSlider.value = frame;
         this.updateControlsFromBuf();
         requestRedraw();
@@ -249,8 +250,10 @@ class ReplayPlayer {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'pause' })
             }).catch(() => {});
+            this._seekThrottleTime = 0;
         }
         this.seeking = true;
+        this.buf.scrubbing = true;
         const frame = parseInt(value);
         this.buf.cursor = frame;
         this.buf.playing = false;
@@ -261,14 +264,20 @@ class ReplayPlayer {
             const currentTime = (frame / this.info.total_frames) * this.info.duration_secs;
             this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(this.info.duration_secs)}`;
         }
-        // Debounce chunk fetch for rapid scrubbing
-        this.buf.ensureLoadedDebounced(200, null);
+        // Throttle: fetch at most once per 250ms during scrubbing
+        const now = performance.now();
+        if (now - this._seekThrottleTime >= 250) {
+            this._seekThrottleTime = now;
+            if (this.buf._abortController) this.buf._abortController.abort();
+            this.buf.ensureLoaded(buildReplayFieldMask());
+        }
         this.playPauseBtn.innerHTML = '&#9654;';
         requestRedraw();
     }
 
     onSeekChange(value) {
         this.seeking = false;
+        this.buf.scrubbing = false;
         const frame = parseInt(value);
         this.buf.cursor = frame;
         this.buf._dirty = true;
@@ -278,8 +287,9 @@ class ReplayPlayer {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'seek', value: frame })
         }).catch(() => {});
-        // Ensure cache covers this position
-        this.buf.ensureLoadedDebounced(50, null);
+        // Abort any in-flight scrub fetch, then fetch final position with prefetch
+        if (this.buf._abortController) this.buf._abortController.abort();
+        this.buf.ensureLoaded(buildReplayFieldMask());
         requestRedraw();
     }
 

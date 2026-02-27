@@ -50,6 +50,47 @@ class TelemetryStore {
     }
 }
 
+// Map preset GRAPH_METRICS keys to their TelemetryFrame field paths
+// e.g. speed → 'vehicle.speed', lat_g → 'motion.g_force.x'
+const GRAPH_METRIC_PATHS = {};
+(function() {
+    for (const [key, m] of Object.entries(GRAPH_METRICS)) {
+        const src = m.extract.toString();
+        // Match f.vehicle?.speed or f.motion?.g_force?.x etc.
+        const match = src.match(/f\.([\w?]+(?:\.[\w?]+)*)/);
+        if (match) {
+            GRAPH_METRIC_PATHS[key] = match[1].replace(/\?/g, '');
+        }
+    }
+})();
+
+// Build a dynamic field mask from all visible widgets on the dashboard.
+// Emits individual metric paths (e.g. "vehicle.speed,motion.g_force")
+// so the server can filter at the field level, especially for extras.
+function buildReplayFieldMask() {
+    const fields = new Set();
+    // Static widgets
+    fields.add('vehicle');  // VehicleWidget needs the whole section
+    fields.add('motion');   // GForceWidget needs the whole section
+    fields.add('timing');   // LapTimingWidget needs the whole section
+    // Collect individual paths from graph widgets
+    if (typeof grid !== 'undefined') {
+        for (const w of grid.widgets.values()) {
+            if (!(w instanceof GraphWidget)) continue;
+            for (const key of w.enabledMetrics) {
+                if (GRAPH_METRIC_PATHS[key]) {
+                    fields.add(GRAPH_METRIC_PATHS[key]);
+                } else {
+                    // Custom field: full dotted path like "extras.iracing/Foo"
+                    const custom = w.customMetrics.get(key);
+                    if (custom) fields.add(key); // key IS the dotted path
+                }
+            }
+        }
+    }
+    return Array.from(fields).join(',');
+}
+
 /* ==================== ReplayBuffer ==================== */
 // Client-side cache for replay frames using 5-second chunk fetching.
 class ReplayBuffer {
@@ -68,6 +109,9 @@ class ReplayBuffer {
         this._fetchDebounce = null;
         this._dirty = false;
         this._lastPlayTick = null;
+        this._abortController = null; // AbortController for cancelling stale fetches
+        this.scrubbing = false;       // True during active slider drag
+        this.replayId = null;         // Replay ID for cache-busted URLs
     }
 
     // Sim-time in ms for a frame index
@@ -112,7 +156,7 @@ class ReplayBuffer {
     }
 
     // Fetch a single chunk, merge into cache
-    async _fetchChunk(chunkIdx, fields) {
+    async _fetchChunk(chunkIdx, fields, signal) {
         if (this._hasChunk(chunkIdx) || this._fetchingChunks.has(chunkIdx)) return;
         const start = chunkIdx * this._chunkSize;
         if (start >= this.totalFrames) return;
@@ -121,11 +165,14 @@ class ReplayBuffer {
         try {
             let url = `/api/replay/frames?start=${start}&count=${count}`;
             if (fields) url += `&fields=${encodeURIComponent(fields)}`;
-            const resp = await fetch(url);
+            if (this.replayId) url += `&rid=${encodeURIComponent(this.replayId)}`;
+            const opts = signal ? { signal } : {};
+            const resp = await fetch(url, opts);
             if (!resp.ok) throw new Error(await resp.text());
             const frames = await resp.json();
             this._mergeFrames(frames);
         } catch (e) {
+            if (e.name === 'AbortError') return; // Cancelled — expected during scrubbing
             console.error(`Failed to fetch chunk ${chunkIdx}:`, e);
         } finally {
             this._fetchingChunks.delete(chunkIdx);
@@ -208,25 +255,37 @@ class ReplayBuffer {
 
     // Main entry point: ensure cursor's region is loaded, prefetch adjacent chunks
     async ensureLoaded(fields) {
+        // Create a fresh controller if none exists or previous was aborted
+        if (!this._abortController || this._abortController.signal.aborted) {
+            this._abortController = new AbortController();
+        }
+        const signal = this._abortController.signal;
+
         const cursorChunk = this._chunkIndex(this.cursor);
         // Await cursor chunk so UI can render immediately
-        await this._fetchChunk(cursorChunk, fields);
+        await this._fetchChunk(cursorChunk, fields, signal);
+
+        // During active scrubbing, skip prefetches to minimize blocking
+        if (this.scrubbing) return;
+
         // Fire-and-forget: adjacent chunks
-        if (cursorChunk > 0) this._fetchChunk(cursorChunk - 1, fields);
+        if (cursorChunk > 0) this._fetchChunk(cursorChunk - 1, fields, signal);
         const maxChunk = this._chunkIndex(this.totalFrames - 1);
-        if (cursorChunk < maxChunk) this._fetchChunk(cursorChunk + 1, fields);
+        if (cursorChunk < maxChunk) this._fetchChunk(cursorChunk + 1, fields, signal);
         // During playback, prefetch further ahead
         if (this.playing) {
             for (let i = 2; i <= 4; i++) {
                 const ahead = cursorChunk + i;
-                if (ahead <= maxChunk) this._fetchChunk(ahead, fields);
+                if (ahead <= maxChunk) this._fetchChunk(ahead, fields, signal);
             }
         }
     }
 
-    // Debounced ensureLoaded for rapid scrubbing
+    // Debounced ensureLoaded for rapid scrubbing — aborts stale fetches
     ensureLoadedDebounced(delayMs = 200, fields) {
         clearTimeout(this._fetchDebounce);
+        // Cancel in-flight fetches from the previous scrub position
+        if (this._abortController) this._abortController.abort();
         this._fetchDebounce = setTimeout(() => this.ensureLoaded(fields), delayMs);
     }
 
@@ -279,6 +338,9 @@ class ReplayBuffer {
         this.playing = false;
         this._lastPlayTick = null;
         this._dirty = false;
+        if (this._abortController) { this._abortController.abort(); this._abortController = null; }
+        this.scrubbing = false;
+        this.replayId = null;
     }
 }
 

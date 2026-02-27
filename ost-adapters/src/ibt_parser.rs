@@ -10,6 +10,10 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
+#[cfg(unix)]
+use std::os::unix::fs::FileExt;
+#[cfg(windows)]
+use std::os::windows::fs::FileExt;
 
 // ============================================================================
 // Binary format types
@@ -253,6 +257,32 @@ pub struct IbtFile {
 }
 
 impl IbtFile {
+    /// Positional read: reads `buf.len()` bytes at the given offset without
+    /// mutating the file cursor. Uses pread on Unix and seek_read on Windows.
+    #[cfg(unix)]
+    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<()> {
+        self.file
+            .read_exact_at(buf, offset)
+            .context("positional read failed")?;
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<()> {
+        let mut pos = 0;
+        while pos < buf.len() {
+            let n = self
+                .file
+                .seek_read(&mut buf[pos..], offset + pos as u64)
+                .context("positional read failed")?;
+            if n == 0 {
+                bail!("unexpected EOF during positional read");
+            }
+            pos += n;
+        }
+        Ok(())
+    }
+
     /// Open and parse an .ibt file from disk.
     /// Reads headers and session info, but does NOT load sample data into memory.
     pub fn open(path: &Path) -> Result<Self> {
@@ -509,7 +539,7 @@ impl IbtFile {
     /// Much faster than calling `read_sample()` in a loop because it avoids
     /// per-frame seek overhead.
     pub fn read_samples_range(
-        &mut self,
+        &self,
         start: usize,
         count: usize,
     ) -> Result<Vec<HashMap<String, VarValue>>> {
@@ -530,10 +560,9 @@ impl IbtFile {
         let offset = self.sample_data_offset + (start as u64) * (buf_len as u64);
         let total_bytes = buf_len * clamped_count;
 
-        // Single seek + single read for the entire range
-        self.file.seek(SeekFrom::Start(offset))?;
+        // Positional read for the entire range (no seek needed, supports concurrent reads)
         let mut bulk_buf = vec![0u8; total_bytes];
-        self.file.read_exact(&mut bulk_buf)?;
+        self.read_at(&mut bulk_buf, offset)?;
 
         // Parse each frame from the in-memory buffer
         let mut results = Vec::with_capacity(clamped_count);
@@ -562,7 +591,7 @@ impl IbtFile {
     }
 
     /// Read a single sample by index, returning a HashMap of variable name -> VarValue
-    pub fn read_sample(&mut self, index: usize) -> Result<HashMap<String, VarValue>> {
+    pub fn read_sample(&self, index: usize) -> Result<HashMap<String, VarValue>> {
         let record_count = self.record_count();
         if index >= record_count {
             bail!(
@@ -575,9 +604,8 @@ impl IbtFile {
         let buf_len = self.header.buf_len as u64;
         let offset = self.sample_data_offset + (index as u64) * buf_len;
 
-        self.file.seek(SeekFrom::Start(offset))?;
         let mut sample_buf = vec![0u8; buf_len as usize];
-        self.file.read_exact(&mut sample_buf)?;
+        self.read_at(&mut sample_buf, offset)?;
 
         let mut result = HashMap::with_capacity(self.var_headers.len());
 
@@ -1358,7 +1386,7 @@ SessionInfo:
     #[test]
     fn test_ibt_read_and_convert_frame() {
         if !has_fixture() { return; }
-        let mut ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
+        let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
 
         // Read a frame ~30s in where car is likely on track
         let idx = 1800.min(ibt.record_count() - 1);
@@ -1402,7 +1430,7 @@ SessionInfo:
     #[test]
     fn test_ibt_frame_values_are_sane() {
         if !has_fixture() { return; }
-        let mut ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
+        let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
 
         for &idx in &[0, 1000, 5000, 10000, ibt.record_count() - 1] {
             if idx >= ibt.record_count() { continue; }
@@ -1430,7 +1458,7 @@ SessionInfo:
     #[test]
     fn test_ibt_sequential_read_consistency() {
         if !has_fixture() { return; }
-        let mut ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
+        let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
 
         let first = ibt.read_sample(0).unwrap().get("SessionTime").unwrap().as_f64().unwrap();
         let sixtieth = ibt.read_sample(59).unwrap().get("SessionTime").unwrap().as_f64().unwrap();

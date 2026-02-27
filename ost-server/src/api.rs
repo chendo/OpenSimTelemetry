@@ -5,7 +5,7 @@ use crate::state::{AppState, SinkConfig};
 use crate::web_ui;
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Query, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse,
@@ -494,15 +494,18 @@ struct ReplayFramesQuery {
     start: usize,
     count: usize,
     fields: Option<String>,
+    /// Replay ID for cache-busting; when present, response is immutable-cached
+    rid: Option<String>,
 }
 
 async fn replay_frames(
     State(state): State<AppState>,
     Query(params): Query<ReplayFramesQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let mut replay = state.replay.write().await;
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Read lock: get_frames_range uses pread, no &mut self needed
+    let replay = state.replay.read().await;
     let rs = replay
-        .as_mut()
+        .as_ref()
         .ok_or((StatusCode::NOT_FOUND, "No active replay".to_string()))?;
 
     let frames = rs
@@ -532,7 +535,17 @@ async fn replay_frames(
         })
         .collect();
 
-    Ok(Json(serde_json::json!(json_frames)))
+    // When a replay_id is in the URL, the response is content-addressed and immutable
+    let cache_header = if params.rid.is_some() {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+
+    Ok((
+        [(header::CACHE_CONTROL, cache_header)],
+        Json(serde_json::json!(json_frames)),
+    ))
 }
 
 #[derive(Deserialize)]

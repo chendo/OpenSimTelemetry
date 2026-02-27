@@ -7,6 +7,8 @@ use anyhow::Result;
 use ost_adapters::ibt_parser::{IbtFile, LapInfo};
 use ost_core::model::TelemetryFrame;
 use serde::Serialize;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 /// State for an active replay session
@@ -23,6 +25,7 @@ pub struct ReplayState {
     car_name: String,
     duration_secs: f64,
     laps: Vec<LapInfo>,
+    replay_id: String,
 }
 
 impl ReplayState {
@@ -37,6 +40,14 @@ impl ReplayState {
         let duration_secs = ibt.duration_secs();
         let laps = ibt.build_lap_index().unwrap_or_default();
 
+        // Compute a stable replay ID from file metadata
+        let mut hasher = DefaultHasher::new();
+        file_size.hash(&mut hasher);
+        total_frames.hash(&mut hasher);
+        track_name.hash(&mut hasher);
+        car_name.hash(&mut hasher);
+        let replay_id = format!("{:016x}", hasher.finish());
+
         Ok(ReplayState {
             ibt,
             current_frame: 0,
@@ -50,19 +61,20 @@ impl ReplayState {
             car_name,
             duration_secs,
             laps,
+            replay_id,
         })
     }
 
-    pub fn get_frame(&mut self, index: usize) -> Result<TelemetryFrame> {
+    pub fn get_frame(&self, index: usize) -> Result<TelemetryFrame> {
         let sample = self.ibt.read_sample(index)?;
         Ok(self.ibt.sample_to_frame(&sample))
     }
 
     /// Read a range of frames for batch delivery to the client.
     /// Returns Vec of (frame_index, TelemetryFrame) pairs.
-    /// Uses bulk disk read for performance (single seek instead of per-frame seeks).
+    /// Uses positional reads so this only requires &self (no write lock needed).
     pub fn get_frames_range(
-        &mut self,
+        &self,
         start: usize,
         count: usize,
     ) -> Result<Vec<(usize, TelemetryFrame)>> {
@@ -97,6 +109,7 @@ impl ReplayState {
             car_name: self.car_name.clone(),
             file_size: self.file_size,
             laps: self.laps.clone(),
+            replay_id: self.replay_id.clone(),
         }
     }
 
@@ -168,4 +181,5 @@ pub struct ReplayInfo {
     pub car_name: String,
     pub file_size: u64,
     pub laps: Vec<LapInfo>,
+    pub replay_id: String,
 }

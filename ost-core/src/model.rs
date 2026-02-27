@@ -991,6 +991,33 @@ impl FieldMask {
         false
     }
 
+    /// Return the set of child keys requested under a section.
+    ///
+    /// For example, if the mask contains `extras.iracing/Foo` and `extras.iracing/Bar`,
+    /// calling `child_keys("extras")` returns `Some({"iracing/Foo", "iracing/Bar"})`.
+    /// Returns `None` if the bare section name is in the mask (meaning include all).
+    pub fn child_keys(&self, section: &str) -> Option<Vec<&str>> {
+        if self.include_all {
+            return None;
+        }
+        let section_lower = section.to_lowercase();
+        // If the bare section is requested, include everything
+        if self.fields.contains(&section_lower) {
+            return None;
+        }
+        let prefix = format!("{}.", section_lower);
+        let keys: Vec<&str> = self
+            .fields
+            .iter()
+            .filter_map(|f| f.strip_prefix(&prefix))
+            .collect();
+        if keys.is_empty() {
+            None
+        } else {
+            Some(keys)
+        }
+    }
+
     /// Check if all fields should be included
     pub fn is_all(&self) -> bool {
         self.include_all
@@ -1163,7 +1190,23 @@ impl TelemetryFrame {
             }
         }
         if mask.includes("extras") && !self.extras.is_empty() {
-            map.insert("extras".to_string(), serde_json::to_value(&self.extras)?);
+            // Filter extras to only requested keys when specific paths are given
+            match mask.child_keys("extras") {
+                None => {
+                    // Bare "extras" in mask — include all
+                    map.insert("extras".to_string(), serde_json::to_value(&self.extras)?);
+                }
+                Some(keys) => {
+                    let filtered: HashMap<&String, &serde_json::Value> = self
+                        .extras
+                        .iter()
+                        .filter(|(k, _)| keys.iter().any(|req| k.as_str() == *req))
+                        .collect();
+                    if !filtered.is_empty() {
+                        map.insert("extras".to_string(), serde_json::to_value(&filtered)?);
+                    }
+                }
+            }
         }
 
         serde_json::to_string(&map)

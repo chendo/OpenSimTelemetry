@@ -171,7 +171,7 @@ function renderLoop() {
         replayBuf.advancePlayback(now);
         // Ensure chunks around cursor are loaded (prefetches ahead during playback)
         if (replayBuf.needsFetch() || replayBuf.playing) {
-            replayBuf.ensureLoaded(null);
+            replayBuf.ensureLoaded(buildReplayFieldMask());
         }
         // Sync store.currentFrame so non-graph widgets see the replay frame
         const replayFrame = replayBuf.currentFrame();
