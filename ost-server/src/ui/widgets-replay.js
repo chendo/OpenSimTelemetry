@@ -6,6 +6,8 @@ class ReplayPlayer {
         this.seeking = false;
         this.currentSpeed = 1;
         this.buf = replayBuf;
+        this.laps = [];
+        this._currentLapIdx = -1;
 
         this.badge = document.getElementById('mode-badge');
         this.bar = document.getElementById('replay-bar');
@@ -13,13 +15,20 @@ class ReplayPlayer {
         this.carEl = document.getElementById('replay-car');
         this.playPauseBtn = document.getElementById('replay-play-pause');
         this.seekSlider = document.getElementById('replay-seek');
+        this.seekWrap = document.getElementById('replay-seek-wrap');
         this.timeEl = document.getElementById('replay-time');
         this.exitBtn = document.getElementById('replay-exit');
+        this.lapGroup = document.getElementById('replay-lap-group');
+        this.lapBtn = document.getElementById('replay-lap-btn');
+        this.lapMenu = document.getElementById('replay-lap-menu');
 
         this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
         this.seekSlider.addEventListener('input', (e) => this.onSeekInput(e.target.value));
         this.seekSlider.addEventListener('change', (e) => this.onSeekChange(e.target.value));
         this.exitBtn.addEventListener('click', () => this.exit());
+        this.lapBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleLapMenu(); });
+        document.addEventListener('click', () => this.closeLapMenu());
+        this.lapMenu.addEventListener('click', (e) => e.stopPropagation());
 
         document.querySelectorAll('.speed-btn').forEach(btn => {
             btn.addEventListener('click', () => this.setSpeed(parseFloat(btn.dataset.speed)));
@@ -74,6 +83,9 @@ class ReplayPlayer {
             this.buf.cursor = this.info.current_frame || 0;
             this.buf.playing = this.info.playing !== false;
             this.buf.playbackSpeed = this.currentSpeed;
+            // Setup lap data
+            this.laps = this.info.laps || [];
+            this.buildLapUI();
             // Fetch initial chunks around cursor (no field filter — all widgets need full frames)
             await this.buf.ensureLoaded(null);
         }
@@ -82,12 +94,118 @@ class ReplayPlayer {
         if (typeof updateStatus === 'function') updateStatus();
     }
 
+    buildLapUI() {
+        if (this.laps.length === 0) {
+            this.lapGroup.style.display = 'none';
+            return;
+        }
+        this.lapGroup.style.display = '';
+
+        // Find best lap (lowest lap_time_secs, excluding null)
+        let bestIdx = -1, bestTime = Infinity;
+        for (let i = 0; i < this.laps.length; i++) {
+            const lt = this.laps[i].lap_time_secs;
+            if (lt != null && lt < bestTime) { bestTime = lt; bestIdx = i; }
+        }
+        this._bestLapIdx = bestIdx;
+
+        // Build dropdown menu
+        this.lapMenu.innerHTML = '';
+        for (let i = 0; i < this.laps.length; i++) {
+            const lap = this.laps[i];
+            const item = document.createElement('div');
+            item.className = 'replay-lap-item' + (i === bestIdx ? ' best' : '');
+            item.dataset.idx = i;
+            const isBest = i === bestIdx;
+            const timeStr = lap.lap_time_secs != null ? this.fmtLapTime(lap.lap_time_secs) : '--';
+            item.innerHTML = `<span class="replay-lap-num">${isBest ? '\u2605 ' : ''}Lap ${lap.lap_number}</span><span class="replay-lap-time">${timeStr}</span>`;
+            item.addEventListener('click', () => this.seekToLap(i));
+            this.lapMenu.appendChild(item);
+        }
+
+        // Build slider tick marks
+        const existingTicks = this.seekWrap.querySelectorAll('.replay-lap-tick');
+        existingTicks.forEach(t => t.remove());
+        const total = this.info.total_frames;
+        for (let i = 1; i < this.laps.length; i++) { // skip first lap tick at 0
+            const lap = this.laps[i];
+            const pct = (lap.start_frame / total) * 100;
+            const tick = document.createElement('div');
+            tick.className = 'replay-lap-tick';
+            tick.style.left = pct + '%';
+            const label = document.createElement('span');
+            label.className = 'replay-lap-tick-label';
+            label.textContent = lap.lap_number;
+            tick.appendChild(label);
+            this.seekWrap.appendChild(tick);
+        }
+    }
+
+    seekToLap(idx) {
+        const lap = this.laps[idx];
+        if (!lap) return;
+        this.closeLapMenu();
+        const frame = lap.start_frame;
+        this.buf.cursor = frame;
+        this.buf.playing = false;
+        this.buf._lastPlayTick = null;
+        this.buf._dirty = true;
+        this.playPauseBtn.innerHTML = '&#9654;';
+        // Sync to server
+        fetch('/api/replay/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'pause' })
+        }).catch(() => {});
+        fetch('/api/replay/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'seek', value: frame })
+        }).catch(() => {});
+        this.buf.ensureLoadedDebounced(50, null);
+        this.seekSlider.value = frame;
+        this.updateControlsFromBuf();
+        requestRedraw();
+    }
+
+    toggleLapMenu() {
+        this.lapMenu.classList.toggle('open');
+        if (this.lapMenu.classList.contains('open')) this._updateLapMenuHighlight();
+    }
+
+    closeLapMenu() {
+        this.lapMenu.classList.remove('open');
+    }
+
+    _getCurrentLapIdx() {
+        const cursor = this.buf.cursor;
+        let idx = 0;
+        for (let i = this.laps.length - 1; i >= 0; i--) {
+            if (cursor >= this.laps[i].start_frame) { idx = i; break; }
+        }
+        return idx;
+    }
+
+    _updateLapMenuHighlight() {
+        const idx = this._getCurrentLapIdx();
+        this.lapMenu.querySelectorAll('.replay-lap-item').forEach((item, i) => {
+            item.classList.toggle('current', i === idx);
+        });
+        // Scroll current into view
+        const cur = this.lapMenu.querySelector('.current');
+        if (cur) cur.scrollIntoView({ block: 'nearest' });
+    }
+
     exitReplayMode() {
         this.badge.style.display = 'none';
         this.bar.classList.remove('active');
         this.active = false;
         this.info = null;
+        this.laps = [];
+        this.lapGroup.style.display = 'none';
         this.buf.reset();
+        // Clean up tick marks
+        this.seekWrap.querySelectorAll('.replay-lap-tick').forEach(t => t.remove());
         if (typeof updateStatus === 'function') updateStatus();
     }
 
@@ -178,6 +296,14 @@ class ReplayPlayer {
         if (!this.seeking) this.seekSlider.value = this.buf.cursor;
         const currentTime = (this.buf.cursor / this.info.total_frames) * this.info.duration_secs;
         this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(this.info.duration_secs)}`;
+        // Update lap button text
+        if (this.laps.length > 0) {
+            const idx = this._getCurrentLapIdx();
+            if (idx !== this._currentLapIdx) {
+                this._currentLapIdx = idx;
+                this.lapBtn.textContent = `Lap ${this.laps[idx].lap_number}`;
+            }
+        }
     }
 
     fmtTime(secs) {
@@ -186,5 +312,12 @@ class ReplayPlayer {
         const s = Math.floor(secs % 60);
         const t = Math.floor((secs * 10) % 10);
         return `${m}:${String(s).padStart(2, '0')}.${t}`;
+    }
+
+    fmtLapTime(secs) {
+        if (!secs || isNaN(secs)) return '--';
+        const m = Math.floor(secs / 60);
+        const s = (secs % 60).toFixed(3).padStart(6, '0');
+        return `${m}:${s}`;
     }
 }

@@ -114,6 +114,14 @@ impl VarValue {
     }
 }
 
+/// Lap boundary info for replay seeking
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LapInfo {
+    pub lap_number: i32,
+    pub start_frame: usize,
+    pub lap_time_secs: Option<f64>,
+}
+
 /// Main .ibt file header (48 bytes at offset 0)
 #[derive(Debug, Clone)]
 pub struct IbtHeader {
@@ -395,6 +403,106 @@ impl IbtFile {
 
     pub fn file_size(&self) -> u64 {
         self.file_size
+    }
+
+    /// Scan all frames to build a lap index for replay seeking.
+    /// Efficiently reads only the `Lap` and `LapLastLapTime` variables
+    /// from each frame buffer instead of parsing all ~200 variables.
+    pub fn build_lap_index(&mut self) -> Result<Vec<LapInfo>> {
+        let record_count = self.record_count();
+        if record_count == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Find the VarHeaders for Lap and LapLastLapTime
+        let lap_vh = self.var_index.get("Lap").map(|&i| &self.var_headers[i]);
+        let last_lap_vh = self
+            .var_index
+            .get("LapLastLapTime")
+            .map(|&i| &self.var_headers[i]);
+
+        let lap_vh = match lap_vh {
+            Some(vh) => vh.clone(),
+            None => return Ok(Vec::new()), // No Lap variable — can't build index
+        };
+        let last_lap_vh = last_lap_vh.cloned();
+
+        // Bulk read all sample buffers
+        let buf_len = self.header.buf_len as usize;
+        let total_bytes = buf_len * record_count;
+        self.file.seek(SeekFrom::Start(self.sample_data_offset))?;
+        let mut bulk_buf = vec![0u8; total_bytes];
+        self.file.read_exact(&mut bulk_buf)?;
+
+        // Helper to read LapLastLapTime from a frame buffer
+        let read_last_lap_time = |frame_buf: &[u8], vh: &VarHeader| -> Option<f64> {
+            let lt_offset = vh.offset as usize;
+            match vh.var_type {
+                VarType::Float if lt_offset + 4 <= frame_buf.len() => {
+                    let v = f32::from_le_bytes(
+                        frame_buf[lt_offset..lt_offset + 4].try_into().unwrap(),
+                    );
+                    if v > 0.0 && v < 3600.0 { Some(v as f64) } else { None }
+                }
+                VarType::Double if lt_offset + 8 <= frame_buf.len() => {
+                    let v = f64::from_le_bytes(
+                        frame_buf[lt_offset..lt_offset + 8].try_into().unwrap(),
+                    );
+                    if v > 0.0 && v < 3600.0 { Some(v) } else { None }
+                }
+                _ => None,
+            }
+        };
+
+        // Pass 1: find lap transitions
+        let mut laps: Vec<LapInfo> = Vec::new();
+        let mut prev_lap: Option<i32> = None;
+
+        for i in 0..record_count {
+            let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
+            let lap_offset = lap_vh.offset as usize;
+            if lap_offset + 4 > frame_buf.len() {
+                continue;
+            }
+            let lap_num = i32::from_le_bytes(
+                frame_buf[lap_offset..lap_offset + 4].try_into().unwrap(),
+            );
+
+            if prev_lap.is_none() || prev_lap != Some(lap_num) {
+                laps.push(LapInfo {
+                    lap_number: lap_num,
+                    start_frame: i,
+                    lap_time_secs: None,
+                });
+                prev_lap = Some(lap_num);
+            }
+        }
+
+        // Pass 2: scan for LapLastLapTime changes and assign to completed laps
+        if let Some(ref vh) = last_lap_vh {
+            let mut prev_lt: Option<f64> = None;
+            // Track which lap index we're assigning times to (0 = first lap)
+            let mut assign_idx: usize = 0;
+
+            for i in 0..record_count {
+                let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
+                let lt = read_last_lap_time(frame_buf, vh);
+
+                // When LapLastLapTime changes to a new positive value,
+                // it's the time for the most recently completed lap
+                if lt != prev_lt {
+                    if let Some(time) = lt {
+                        if assign_idx < laps.len() {
+                            laps[assign_idx].lap_time_secs = Some(time);
+                            assign_idx += 1;
+                        }
+                    }
+                    prev_lt = lt;
+                }
+            }
+        }
+
+        Ok(laps)
     }
 
     /// Read a contiguous range of samples in a single disk operation.

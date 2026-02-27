@@ -207,7 +207,7 @@ class GraphWidget extends Widget {
                 if (key === '_frame') continue;
                 const path = prefix ? `${prefix}.${key}` : key;
                 if (value && typeof value === 'object' && !Array.isArray(value)) walk(value, path);
-                else if (typeof value === 'number') paths.push(path);
+                else if (typeof value === 'number' || typeof value === 'boolean') paths.push(path);
             }
         };
         walk(frame, '');
@@ -230,7 +230,7 @@ class GraphWidget extends Widget {
             const parentObj = this._resolve(frame, parentParts);
             if (parentObj && typeof parentObj === 'object') {
                 for (const [k, v] of Object.entries(parentObj)) {
-                    if (typeof v === 'number') {
+                    if (typeof v === 'number' || typeof v === 'boolean') {
                         const sibPath = [...parentParts, k].join('.');
                         if (!seen.has(sibPath)) { suggestions.push({ path: sibPath, label: deriveLabel(sibPath) }); seen.add(sibPath); }
                     }
@@ -244,7 +244,7 @@ class GraphWidget extends Widget {
                 const gpObj = this._resolve(frame, gpParts);
                 if (gpObj && typeof gpObj === 'object') {
                     for (const [k, v] of Object.entries(gpObj)) {
-                        if (v && typeof v === 'object' && leaf in v && typeof v[leaf] === 'number') {
+                        if (v && typeof v === 'object' && leaf in v && (typeof v[leaf] === 'number' || typeof v[leaf] === 'boolean')) {
                             const cousinPath = [...gpParts, k, leaf].join('.');
                             if (!seen.has(cousinPath)) { suggestions.push({ path: cousinPath, label: deriveLabel(cousinPath) }); seen.add(cousinPath); }
                         }
@@ -269,7 +269,7 @@ class GraphWidget extends Widget {
         const frame = store.currentFrame;
         if (!frame) return;
 
-        // Collect all numeric fields grouped by top-level section
+        // Collect all numeric and boolean fields grouped by top-level section
         const sections = {};
         const walk = (obj, prefix) => {
             for (const [key, value] of Object.entries(obj)) {
@@ -277,7 +277,7 @@ class GraphWidget extends Widget {
                 const path = prefix ? `${prefix}.${key}` : key;
                 if (value && typeof value === 'object' && !Array.isArray(value)) {
                     walk(value, path);
-                } else if (typeof value === 'number') {
+                } else if (typeof value === 'number' || typeof value === 'boolean') {
                     const section = path.split('.')[0];
                     if (!sections[section]) sections[section] = [];
                     sections[section].push(path);
@@ -344,9 +344,14 @@ class GraphWidget extends Widget {
                     const added = alreadyAdded.has(path);
                     item.className = 'field-picker-item' + (added ? ' dimmed' : '');
                     const parts = path.split('.');
-                    const rawVal = resolveFieldPathParts(frame, parts);
-                    const fmt = rawVal != null ? formatFieldValue(path, rawVal) : null;
-                    const valHtml = fmt ? `<span class="field-picker-value">${fmt.text}${fmt.unit ? ' <span class="field-picker-unit">' + fmt.unit + '</span>' : ''}</span>` : '';
+                    const rawVal = resolveFieldPathRaw(frame, parts);
+                    let valHtml = '';
+                    if (typeof rawVal === 'boolean') {
+                        valHtml = `<span class="field-picker-value">${rawVal ? 'true' : 'false'} <span class="field-picker-unit">bool</span></span>`;
+                    } else if (typeof rawVal === 'number') {
+                        const fmt = formatFieldValue(path, rawVal);
+                        valHtml = `<span class="field-picker-value">${fmt.text}${fmt.unit ? ' <span class="field-picker-unit">' + fmt.unit + '</span>' : ''}</span>`;
+                    }
                     item.innerHTML = `<span class="field-picker-path">${path}</span>${valHtml}`;
                     if (!added) {
                         addablePaths.push(path);
@@ -410,8 +415,12 @@ class GraphWidget extends Widget {
             this.enabledMetrics.add(path);
         } else {
             if (this.customMetrics.has(path)) return;
-            const unitInfo = getFieldUnitInfo(path);
             const parts = path.split('.');
+            // Check if this field is boolean in the current frame
+            const frame = store.currentFrame;
+            const rawVal = frame ? resolveFieldPathRaw(frame, parts) : undefined;
+            const isBool = typeof rawVal === 'boolean';
+            const unitInfo = isBool ? { unit: '', norm: 'boolean' } : getFieldUnitInfo(path);
             this.customMetrics.set(path, {
                 path,
                 label: deriveLabel(path),
@@ -456,6 +465,7 @@ class GraphWidget extends Widget {
 
         // Build unified traces array from enabled metrics, with display conversion
         const traces = [];
+        const boolTraces = [];
         for (const key of this.enabledMetrics) {
             const preset = GRAPH_METRICS[key];
             if (preset) {
@@ -466,16 +476,26 @@ class GraphWidget extends Widget {
                 const custom = this.customMetrics.get(key);
                 if (custom) {
                     const parts = custom.parts;
-                    const leaf = parts[parts.length - 1];
-                    let dU = custom.unit, dM = 1;
-                    if (custom.norm === 'pct') { dU = '%'; dM = 100; }
-                    else if (custom.unit === 'm' && METERS_TO_MM_FIELDS.test(leaf)) { dU = 'mm'; dM = 1000; }
-                    else if (custom.unit === 'm/s' && MPS_TO_MMPS_FIELDS.test(leaf)) { dU = 'mm/s'; dM = 1000; }
-                    traces.push({ key, color: custom.color, norm: custom.norm, unit: custom.unit, dU, dM, getValue: (entry) => entry._frame ? resolveFieldPathParts(entry._frame, parts) : null });
+                    if (custom.norm === 'boolean') {
+                        boolTraces.push({ key, color: custom.color, norm: 'boolean', unit: '', dU: '', dM: 1, label: custom.label,
+                            getValue: (entry) => {
+                                if (!entry._frame) return null;
+                                const v = resolveFieldPathRaw(entry._frame, parts);
+                                return typeof v === 'boolean' ? v : null;
+                            }
+                        });
+                    } else {
+                        const leaf = parts[parts.length - 1];
+                        let dU = custom.unit, dM = 1;
+                        if (custom.norm === 'pct') { dU = '%'; dM = 100; }
+                        else if (custom.unit === 'm' && METERS_TO_MM_FIELDS.test(leaf)) { dU = 'mm'; dM = 1000; }
+                        else if (custom.unit === 'm/s' && MPS_TO_MMPS_FIELDS.test(leaf)) { dU = 'mm/s'; dM = 1000; }
+                        traces.push({ key, color: custom.color, norm: custom.norm, unit: custom.unit, dU, dM, getValue: (entry) => entry._frame ? resolveFieldPathParts(entry._frame, parts) : null });
+                    }
                 }
             }
         }
-        if (traces.length === 0) { ctx.clearRect(0, 0, w, h); return; }
+        if (traces.length === 0 && boolTraces.length === 0) { ctx.clearRect(0, 0, w, h); return; }
 
         const tMin = getEntry(0).t;
         const tMax = getEntry(dataCount - 1).t;
@@ -512,9 +532,11 @@ class GraphWidget extends Widget {
         }
         const axes = [...axisMap.values()];
 
+        const boolBarH = 10, boolBarGap = 2;
+        const boolAreaH = boolTraces.length > 0 ? boolTraces.length * (boolBarH + boolBarGap) + 4 : 0;
         const padLeft = axes.length >= 1 ? 52 : 36;
         const padRight = axes.length >= 2 ? 52 : 8;
-        const pad = { top: 8, right: padRight, bottom: 16, left: padLeft };
+        const pad = { top: 8 + boolAreaH, right: padRight, bottom: 16, left: padLeft };
         const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
         ctx.clearRect(0, 0, w, h);
 
@@ -596,6 +618,41 @@ class GraphWidget extends Widget {
             ctx.stroke();
         }
 
+        // Boolean bars: colored rectangles above the chart for true periods
+        for (let bi = 0; bi < boolTraces.length; bi++) {
+            const bt = boolTraces[bi];
+            const barY = 8 + bi * (boolBarH + boolBarGap);
+            // Draw label
+            ctx.font = '8px sans-serif'; ctx.fillStyle = bt.color; ctx.textAlign = 'right';
+            ctx.fillText(bt.label, pad.left - 4, barY + boolBarH - 1);
+            // Draw bar background
+            ctx.fillStyle = 'rgba(255,255,255,0.03)';
+            ctx.fillRect(pad.left, barY, pw, boolBarH);
+            // Draw true spans
+            ctx.fillStyle = bt.color;
+            ctx.globalAlpha = 0.5;
+            let spanStart = null;
+            for (let i = 0; i < dataCount; i++) {
+                const entry = getEntry(i);
+                const val = bt.getValue(entry);
+                const x = pad.left + ((entry.t - tMin) / tRange) * pw;
+                if (val === true) {
+                    if (spanStart == null) spanStart = x;
+                } else {
+                    if (spanStart != null) {
+                        ctx.fillRect(spanStart, barY, Math.max(x - spanStart, 1), boolBarH);
+                        spanStart = null;
+                    }
+                }
+            }
+            // Close final span
+            if (spanStart != null) {
+                const lastX = pad.left + ((getEntry(dataCount - 1).t - tMin) / tRange) * pw;
+                ctx.fillRect(spanStart, barY, Math.max(lastX - spanStart, 1), boolBarH);
+            }
+            ctx.globalAlpha = 1.0;
+        }
+
         // Crosshair: vertical line + value dots + tooltip
         if (crosshair.t != null) {
             const cx = pad.left + ((crosshair.t - tMin) / tRange) * pw;
@@ -603,7 +660,8 @@ class GraphWidget extends Widget {
                 ctx.strokeStyle = 'rgba(255,255,255,0.3)';
                 ctx.lineWidth = 1;
                 ctx.setLineDash([4, 3]);
-                ctx.beginPath(); ctx.moveTo(cx, pad.top); ctx.lineTo(cx, pad.top + ph); ctx.stroke();
+                const crosshairTop = boolTraces.length > 0 ? 8 : pad.top;
+                ctx.beginPath(); ctx.moveTo(cx, crosshairTop); ctx.lineTo(cx, pad.top + ph); ctx.stroke();
                 ctx.setLineDash([]);
 
                 // Find nearest data entry by binary search
@@ -628,6 +686,12 @@ class GraphWidget extends Widget {
                     const displayVal = raw * trace.dM;
                     tipItems.push({ color: trace.color, label, displayVal, dU: trace.dU });
                 }
+                // Boolean trace values for tooltip
+                for (const bt of boolTraces) {
+                    const val = bt.getValue(entry);
+                    if (val == null) continue;
+                    tipItems.push({ color: bt.color, label: bt.label, displayVal: null, dU: '', _valStr: val ? 'ON' : 'OFF' });
+                }
 
                 if (tipItems.length > 0) {
                     ctx.font = '10px sans-serif';
@@ -636,8 +700,10 @@ class GraphWidget extends Widget {
                     let maxLabelW = 0, maxValW = 0;
                     for (const item of tipItems) {
                         maxLabelW = Math.max(maxLabelW, ctx.measureText(item.label).width);
-                        const av = Math.abs(item.displayVal);
-                        item._valStr = (av >= 100 ? item.displayVal.toFixed(0) : av >= 1 ? item.displayVal.toFixed(1) : item.displayVal.toFixed(2)) + (item.dU ? ' ' + item.dU : '');
+                        if (!item._valStr) {
+                            const av = Math.abs(item.displayVal);
+                            item._valStr = (av >= 100 ? item.displayVal.toFixed(0) : av >= 1 ? item.displayVal.toFixed(1) : item.displayVal.toFixed(2)) + (item.dU ? ' ' + item.dU : '');
+                        }
                         maxValW = Math.max(maxValW, ctx.measureText(item._valStr).width);
                     }
                     const boxW = 14 + maxLabelW + 12 + maxValW + tipPadX * 2;

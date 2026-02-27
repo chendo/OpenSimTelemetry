@@ -4,7 +4,7 @@
 //! (play/pause/seek/speed) and frame-by-frame reading from parsed .ibt files.
 
 use anyhow::Result;
-use ost_adapters::ibt_parser::IbtFile;
+use ost_adapters::ibt_parser::{IbtFile, LapInfo};
 use ost_core::model::TelemetryFrame;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -22,11 +22,12 @@ pub struct ReplayState {
     track_name: String,
     car_name: String,
     duration_secs: f64,
+    laps: Vec<LapInfo>,
 }
 
 impl ReplayState {
     pub fn from_file(path: &Path) -> Result<Self> {
-        let ibt = IbtFile::open(path)?;
+        let mut ibt = IbtFile::open(path)?;
 
         let total_frames = ibt.record_count();
         let tick_rate = ibt.tick_rate();
@@ -34,6 +35,7 @@ impl ReplayState {
         let track_name = ibt.session_info().track_display_name.clone();
         let car_name = ibt.session_info().car_name.clone();
         let duration_secs = ibt.duration_secs();
+        let laps = ibt.build_lap_index().unwrap_or_default();
 
         Ok(ReplayState {
             ibt,
@@ -47,6 +49,7 @@ impl ReplayState {
             track_name,
             car_name,
             duration_secs,
+            laps,
         })
     }
 
@@ -93,6 +96,7 @@ impl ReplayState {
             track_name: self.track_name.clone(),
             car_name: self.car_name.clone(),
             file_size: self.file_size,
+            laps: self.laps.clone(),
         }
     }
 
@@ -163,4 +167,5 @@ pub struct ReplayInfo {
     pub track_name: String,
     pub car_name: String,
     pub file_size: u64,
+    pub laps: Vec<LapInfo>,
 }

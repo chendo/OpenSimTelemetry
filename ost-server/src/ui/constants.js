@@ -192,6 +192,15 @@ function resolveFieldPathParts(obj, parts) {
     return typeof cur === 'number' ? cur : null;
 }
 
+function resolveFieldPathRaw(obj, parts) {
+    let cur = obj;
+    for (let i = 0; i < parts.length; i++) {
+        if (cur == null || typeof cur !== 'object') return undefined;
+        cur = cur[parts[i]];
+    }
+    return cur;
+}
+
 const CUSTOM_COLORS = [
     '#22d3ee', '#f472b6', '#a3e635', '#fb923c', '#818cf8',
     '#e879f9', '#34d399', '#fbbf24', '#f87171', '#38bdf8',
