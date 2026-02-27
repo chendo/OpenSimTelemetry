@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenSimTelemetry</title>
+    <link href="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack.min.css" rel="stylesheet"/>
+    <script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
     <style>
         /* ==================== CSS Reset & Variables ==================== */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -120,14 +122,21 @@
         }
         .header-reset-btn:hover { border-color: var(--accent); color: var(--accent); }
 
-        /* ==================== Dashboard Grid ==================== */
+        /* ==================== Dashboard Grid (GridStack) ==================== */
         #dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(var(--grid-columns), 1fr);
-            grid-auto-rows: var(--grid-row-height);
-            gap: var(--grid-gap);
             padding: var(--grid-gap);
             min-height: calc(100vh - var(--header-height));
+        }
+        /* GridStack overrides for dark theme */
+        .grid-stack { background: transparent; }
+        .grid-stack-item-content {
+            background: transparent !important;
+            inset: 5px !important;
+        }
+        .grid-stack-placeholder > .placeholder-content {
+            background: var(--accent-dim) !important;
+            border: 1px dashed var(--accent) !important;
+            border-radius: var(--widget-border-radius);
         }
 
         /* ==================== Widget Chrome ==================== */
@@ -142,16 +151,10 @@
             transition: box-shadow 0.15s ease;
             min-width: 0;
             min-height: 0;
+            width: 100%;
+            height: 100%;
         }
         .widget:hover { border-color: rgba(255,255,255,0.1); }
-        .widget.dragging {
-            opacity: 0.85;
-            z-index: 1000;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-        }
-        .widget.resizing {
-            box-shadow: 0 0 0 1px var(--accent);
-        }
 
         .widget-title {
             height: var(--widget-title-height);
@@ -209,26 +212,20 @@
             min-height: 0;
         }
 
-        .widget-resize-handle {
-            position: absolute;
-            bottom: 0;
-            right: 0;
-            width: 14px;
-            height: 14px;
-            cursor: se-resize;
-            z-index: 5;
+        /* GridStack resize handle styling */
+        .grid-stack-item > .ui-resizable-se {
+            background: none;
+            width: 14px; height: 14px;
         }
-        .widget-resize-handle::after {
+        .grid-stack-item > .ui-resizable-se::after {
             content: '';
             position: absolute;
-            bottom: 3px;
-            right: 3px;
-            width: 6px;
-            height: 6px;
+            bottom: 3px; right: 3px;
+            width: 6px; height: 6px;
             border-right: 1.5px solid var(--text-muted);
             border-bottom: 1.5px solid var(--text-muted);
         }
-        .widget:hover .widget-resize-handle::after {
+        .grid-stack-item:hover > .ui-resizable-se::after {
             border-color: var(--accent);
         }
 
@@ -1095,14 +1092,14 @@
         <button class="replay-exit-btn" id="replay-exit">EXIT REPLAY</button>
     </div>
 
-    <div id="dashboard-grid"></div>
+    <div id="dashboard-grid" class="grid-stack"></div>
 
     <script>
     /* ==================== Constants ==================== */
     const LAYOUT_KEY = 'ost-dashboard-layout';
     const LAYOUT_VERSION_KEY = 'ost-dashboard-version';
     const GRAPHS_KEY = 'ost-dashboard-graphs';
-    const LAYOUT_VERSION = '3';
+    const LAYOUT_VERSION = '4'; // Bumped for GridStack migration (0-based coords)
     const RAD2DEG = 180 / Math.PI;
     const BUFFER_MAX = 3600;
 
@@ -1541,7 +1538,16 @@
         constructor(id, title, defaultLayout) {
             this.id = id;
             this.title = title;
-            this.layout = { ...defaultLayout };
+            const dl = defaultLayout || {};
+            // GridStack uses 0-based x,y; our defaults use 1-based col,row → convert
+            this.gsOpts = {
+                x: (dl.col || 1) - 1,
+                y: (dl.row || 1) - 1,
+                w: dl.width || 4,
+                h: dl.height || 4,
+                minW: 2, minH: 2,
+                id: id,
+            };
             this._visible = true;
 
             this.element = document.createElement('div');
@@ -1560,17 +1566,12 @@
             this.contentArea = document.createElement('div');
             this.contentArea.className = 'widget-content';
 
-            this.resizeHandle = document.createElement('div');
-            this.resizeHandle.className = 'widget-resize-handle';
-
             this.element.appendChild(this.titleBar);
             this.element.appendChild(this.contentArea);
-            this.element.appendChild(this.resizeHandle);
         }
 
         init() {
             this.buildContent(this.contentArea);
-            this.applyLayout();
             widgetVisibilityObserver.observe(this.element);
             return this;
         }
@@ -1578,162 +1579,70 @@
         buildContent(container) {}
         update(store, now) {}
         onResize() {}
-
-        applyLayout() {
-            const { col, row, width, height } = this.layout;
-            this.element.style.gridColumn = `${col} / span ${width}`;
-            this.element.style.gridRow = `${row} / span ${height}`;
-        }
-
-        serializeLayout() { return { ...this.layout }; }
-
-        restoreLayout(saved) {
-            Object.assign(this.layout, saved);
-            this.applyLayout();
-        }
     }
 
-    /* ==================== DashboardGrid ==================== */
+    /* ==================== DashboardGrid (GridStack wrapper) ==================== */
     class DashboardGrid {
-        constructor(container) {
-            this.container = container;
+        constructor(containerEl) {
+            this.container = containerEl;
             this.widgets = new Map();
-            this.columns = 12;
-            this.dragState = null;
-            this.resizeState = null;
+            this.gs = GridStack.init({
+                column: 12,
+                cellHeight: 40,
+                margin: 5,
+                handle: '.widget-title',
+                animate: true,
+                float: false,
+                disableOneColumnMode: true,
+                alwaysShowResizeHandle: 'mobile',
+            }, '#dashboard-grid');
 
-            document.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-            document.addEventListener('mouseup', (e) => this.handleMouseUp(e));
-            document.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
-            document.addEventListener('touchend', (e) => this.handleTouchEnd(e));
+            // Notify widgets on resize
+            this.gs.on('resizestop', (event, el) => {
+                const w = el.querySelector('.widget')?._widget;
+                if (w) w.onResize();
+            });
+            // Auto-save on any layout change
+            this.gs.on('change', () => this.saveLayout());
         }
 
         addWidget(widget) {
             this.widgets.set(widget.id, widget);
-            this.container.appendChild(widget.element);
-
-            widget.titleBar.addEventListener('mousedown', (e) => { e.preventDefault(); this.startDrag(widget, e.clientX, e.clientY); });
-            widget.titleBar.addEventListener('touchstart', (e) => { this.startDrag(widget, e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
-            widget.resizeHandle.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); this.startResize(widget, e.clientX, e.clientY); });
-            widget.resizeHandle.addEventListener('touchstart', (e) => { e.stopPropagation(); this.startResize(widget, e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+            // GridStack creates the wrapper; we insert our widget into it
+            const gsItem = this.gs.addWidget({
+                x: widget.gsOpts.x,
+                y: widget.gsOpts.y,
+                w: widget.gsOpts.w,
+                h: widget.gsOpts.h,
+                minW: widget.gsOpts.minW,
+                minH: widget.gsOpts.minH,
+                id: widget.id,
+                content: '',
+            });
+            gsItem.querySelector('.grid-stack-item-content').appendChild(widget.element);
         }
 
-        getGridMetrics() {
-            const rect = this.container.getBoundingClientRect();
-            const gap = parseFloat(getComputedStyle(this.container).gap) || 10;
-            const colWidth = (rect.width - gap * (this.columns + 1)) / this.columns;
-            const rowHeight = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--grid-row-height')) || 40;
-            return { rect, gap, colWidth, rowHeight };
-        }
-
-        startDrag(widget, mx, my) {
-            this.dragState = { widget, startX: mx, startY: my, startCol: widget.layout.col, startRow: widget.layout.row };
-            widget.element.classList.add('dragging');
-        }
-
-        startResize(widget, mx, my) {
-            this.resizeState = { widget, startX: mx, startY: my, startW: widget.layout.width, startH: widget.layout.height };
-            widget.element.classList.add('resizing');
-        }
-
-        handleMouseMove(e) { this.handleMove(e.clientX, e.clientY); }
-        handleTouchMove(e) {
-            if (this.dragState || this.resizeState) {
-                e.preventDefault();
-                this.handleMove(e.touches[0].clientX, e.touches[0].clientY);
-            }
-        }
-
-        getOverlapping(widget, col, row, width, height) {
-            const hits = [];
-            for (const [id, other] of this.widgets) {
-                if (other === widget) continue;
-                const o = other.layout;
-                if (col < o.col + o.width && col + width > o.col &&
-                    row < o.row + o.height && row + height > o.row) hits.push(other);
-            }
-            return hits;
-        }
-
-        handleMove(mx, my) {
-            const { gap, colWidth, rowHeight } = this.getGridMetrics();
-            const cellW = colWidth + gap;
-            const cellH = rowHeight + gap;
-
-            if (this.dragState) {
-                const s = this.dragState;
-                const dc = Math.round((mx - s.startX) / cellW);
-                const dr = Math.round((my - s.startY) / cellH);
-                const newCol = Math.max(1, Math.min(s.startCol + dc, this.columns - s.widget.layout.width + 1));
-                const newRow = Math.max(1, s.startRow + dr);
-                if (newCol === s.widget.layout.col && newRow === s.widget.layout.row) return;
-
-                const hits = this.getOverlapping(s.widget, newCol, newRow, s.widget.layout.width, s.widget.layout.height);
-                if (hits.length === 0) {
-                    // Free space - just move
-                    s.widget.layout.col = newCol;
-                    s.widget.layout.row = newRow;
-                    s.widget.applyLayout();
-                } else if (hits.length === 1) {
-                    // Swap position and size with the single overlapped widget
-                    const other = hits[0];
-                    const prevCol = s.widget.layout.col, prevRow = s.widget.layout.row;
-                    const prevW = s.widget.layout.width, prevH = s.widget.layout.height;
-                    // Move dragged widget to other's position/size
-                    s.widget.layout.col = other.layout.col;
-                    s.widget.layout.row = other.layout.row;
-                    s.widget.layout.width = other.layout.width;
-                    s.widget.layout.height = other.layout.height;
-                    // Move other to dragged widget's previous position/size
-                    other.layout.col = prevCol;
-                    other.layout.row = prevRow;
-                    other.layout.width = prevW;
-                    other.layout.height = prevH;
-                    s.widget.applyLayout(); s.widget.onResize();
-                    other.applyLayout(); other.onResize();
-                    // Update drag origin so continued dragging works from new position
-                    s.startCol = s.widget.layout.col;
-                    s.startRow = s.widget.layout.row;
-                    s.startX = mx; s.startY = my;
-                }
-                // If hits > 1, skip (would overlap multiple widgets)
-            }
-
-            if (this.resizeState) {
-                const s = this.resizeState;
-                const dc = Math.round((mx - s.startX) / cellW);
-                const dr = Math.round((my - s.startY) / cellH);
-                const newW = Math.max(2, Math.min(s.startW + dc, this.columns - s.widget.layout.col + 1));
-                const newH = Math.max(2, s.startH + dr);
-                const hits = this.getOverlapping(s.widget, s.widget.layout.col, s.widget.layout.row, newW, newH);
-                if (hits.length === 0) {
-                    s.widget.layout.width = newW;
-                    s.widget.layout.height = newH;
-                    s.widget.applyLayout();
-                    s.widget.onResize();
-                }
-            }
-        }
-
-        handleMouseUp() { this.handleEnd(); }
-        handleTouchEnd() { this.handleEnd(); }
-
-        handleEnd() {
-            if (this.dragState) {
-                this.dragState.widget.element.classList.remove('dragging');
-                this.dragState = null;
+        removeWidget(id) {
+            const w = this.widgets.get(id);
+            if (w) {
+                widgetVisibilityObserver.unobserve(w.element);
+                // GridStack needs the grid-stack-item wrapper, not our inner .widget
+                const gsItem = w.element.closest('.grid-stack-item');
+                if (gsItem) this.gs.removeWidget(gsItem);
+                this.widgets.delete(id);
                 this.saveLayout();
-            }
-            if (this.resizeState) {
-                this.resizeState.widget.element.classList.remove('resizing');
-                this.resizeState = null;
-                this.saveLayout();
+                this.saveGraphConfigs();
             }
         }
 
         saveLayout() {
             const layouts = {};
-            for (const [id, w] of this.widgets) layouts[id] = w.serializeLayout();
+            for (const node of this.gs.getGridItems()) {
+                const w = node.querySelector('.widget')?._widget;
+                if (!w) continue;
+                const n = node.gridstackNode;
+                layouts[w.id] = { x: n.x, y: n.y, w: n.w, h: n.h };
+            }
             localStorage.setItem(LAYOUT_KEY, JSON.stringify(layouts));
             localStorage.setItem(LAYOUT_VERSION_KEY, LAYOUT_VERSION);
         }
@@ -1743,40 +1652,28 @@
             try {
                 const layouts = JSON.parse(localStorage.getItem(LAYOUT_KEY));
                 if (!layouts) return false;
-                for (const [id, w] of this.widgets) {
-                    if (layouts[id]) w.restoreLayout(layouts[id]);
+                this.gs.batchUpdate();
+                for (const node of this.gs.getGridItems()) {
+                    const w = node.querySelector('.widget')?._widget;
+                    if (!w || !layouts[w.id]) continue;
+                    const saved = layouts[w.id];
+                    this.gs.update(node, { x: saved.x, y: saved.y, w: saved.w, h: saved.h });
                 }
+                this.gs.batchUpdate(false);
                 return true;
             } catch { return false; }
         }
 
-        removeWidget(id) {
-            const w = this.widgets.get(id);
-            if (w) {
-                widgetVisibilityObserver.unobserve(w.element);
-                w.element.remove();
-                this.widgets.delete(id);
-                this.saveLayout();
-                this.saveGraphConfigs();
-            }
-        }
-
         findOpenPosition(width, height) {
-            // Find first row where a widget of given size can fit without overlap
-            for (let row = 1; row < 100; row++) {
-                for (let col = 1; col <= this.columns - width + 1; col++) {
-                    if (this.getOverlapping(null, col, row, width, height).length === 0) return { col, row };
-                }
-            }
-            return { col: 1, row: 1 };
+            // Let GridStack figure out placement — return 0-based coords
+            // We'll just pass the size to addWidget and let it auto-place
+            return { col: 0, row: 0 };
         }
 
         saveGraphConfigs() {
             const configs = [];
             for (const [id, w] of this.widgets) {
-                if (w instanceof GraphWidget) {
-                    configs.push(w.getConfig());
-                }
+                if (w instanceof GraphWidget) configs.push(w.getConfig());
             }
             localStorage.setItem(GRAPHS_KEY, JSON.stringify(configs));
         }
@@ -3030,7 +2927,9 @@
         }
     );
 
-    // Create static widgets
+    // Create all widgets in a batch to avoid excessive change events
+    grid.gs.batchUpdate();
+
     const staticWidgets = [
         new VehicleWidget(),
         new GForceWidget(),
@@ -3058,14 +2957,14 @@
         grid.addWidget(defaultGraph);
     }
 
+    grid.gs.batchUpdate(false);
     grid.restoreLayout();
 
     // Add Graph button
     let graphCounter = Date.now();
     document.getElementById('header-add-graph').addEventListener('click', () => {
         const id = 'graph-' + (graphCounter++);
-        const pos = grid.findOpenPosition(12, 6);
-        const gw = new GraphWidget(id, { col: pos.col, row: pos.row, width: 12, height: 6 }, ['speed', 'rpm', 'throttle', 'brake']);
+        const gw = new GraphWidget(id, { col: 1, row: 100, width: 12, height: 6 }, ['speed', 'rpm', 'throttle', 'brake']);
         gw.init();
         grid.addWidget(gw);
         grid.saveLayout();
