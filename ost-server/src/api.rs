@@ -27,6 +27,7 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(web_ui::serve_ui))
         .route("/api/adapters", get(list_adapters))
+        .route("/api/adapters/:name/toggle", post(toggle_adapter))
         .route("/api/telemetry/stream", get(telemetry_stream))
         .route("/api/sinks", get(list_sinks).post(create_sink))
         .route("/api/sinks/:id", delete(delete_sink))
@@ -48,11 +49,13 @@ struct AdapterInfo {
     name: String,
     detected: bool,
     active: bool,
+    enabled: bool,
 }
 
 async fn list_adapters(State(state): State<AppState>) -> Json<Vec<AdapterInfo>> {
     let adapters = state.adapters.read().await;
     let active_name = state.active_adapter.read().await;
+    let disabled = state.disabled_adapters.read().await;
 
     let info: Vec<AdapterInfo> = adapters
         .iter()
@@ -64,10 +67,58 @@ async fn list_adapters(State(state): State<AppState>) -> Json<Vec<AdapterInfo>> 
                     .as_ref()
                     .map(|n| n == adapter.name())
                     .unwrap_or(false),
+            enabled: !disabled.contains(adapter.name()),
         })
         .collect();
 
     Json(info)
+}
+
+async fn toggle_adapter(
+    State(state): State<AppState>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<Json<AdapterInfo>, (StatusCode, String)> {
+    let mut adapters = state.adapters.write().await;
+    let mut active_adapter = state.active_adapter.write().await;
+    let mut disabled = state.disabled_adapters.write().await;
+
+    let adapter = adapters
+        .iter_mut()
+        .find(|a| a.name() == name)
+        .ok_or((StatusCode::NOT_FOUND, format!("Adapter '{}' not found", name)))?;
+
+    let is_active = adapter.is_active()
+        || active_adapter.as_ref().map(|n| n == &name).unwrap_or(false);
+
+    if is_active {
+        // Stop the adapter
+        if let Err(e) = adapter.stop() {
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to stop adapter: {}", e)));
+        }
+        *active_adapter = None;
+        disabled.insert(name.clone());
+        Ok(Json(AdapterInfo {
+            name: adapter.name().to_string(),
+            detected: adapter.detect(),
+            active: false,
+            enabled: false,
+        }))
+    } else {
+        // Start the adapter
+        disabled.remove(&name);
+        match adapter.start() {
+            Ok(_) => {
+                *active_adapter = Some(name.clone());
+                Ok(Json(AdapterInfo {
+                    name: adapter.name().to_string(),
+                    detected: adapter.detect(),
+                    active: true,
+                    enabled: true,
+                }))
+            }
+            Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to start adapter: {}", e))),
+        }
+    }
 }
 
 // === Telemetry Stream Endpoint ===

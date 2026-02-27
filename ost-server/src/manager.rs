@@ -72,8 +72,12 @@ async fn detection_cycle(state: &AppState) -> Result<()> {
         }
     }
 
-    // No active adapter, look for detected games
+    // No active adapter, look for detected games (skip disabled adapters)
+    let disabled = state.disabled_adapters.read().await;
     for adapter in adapters.iter_mut() {
+        if disabled.contains(adapter.name()) {
+            continue;
+        }
         if adapter.detect() && !adapter.is_active() {
             info!("Game {} detected, starting adapter", adapter.name());
             match adapter.start() {

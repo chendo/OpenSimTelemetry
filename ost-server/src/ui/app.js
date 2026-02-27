@@ -59,12 +59,22 @@ document.getElementById('header-add-graph').addEventListener('click', () => {
     grid.saveGraphConfigs();
 });
 
-// Header: adapter status dots
+// Header: adapter status dots (clickable toggle for adapters)
 const headerAdapters = document.getElementById('header-adapters');
 function updateHeaderAdapters() {
     headerAdapters.innerHTML = store.adapters.map(a =>
-        `<span class="header-adapter-item"><span class="status-dot ${a.active ? 'dot-active' : a.detected ? 'dot-detected' : 'dot-inactive'}"></span>${a.name}</span>`
+        `<span class="header-adapter-item header-adapter-toggle" data-adapter="${a.name}" title="Click to ${a.active ? 'stop' : 'start'} ${a.name}"><span class="status-dot ${a.active ? 'dot-active' : a.detected ? 'dot-detected' : 'dot-inactive'}"></span>${a.name}${a.active ? ' &#9632;' : ' &#9654;'}</span>`
     ).join('');
+    // Attach toggle handlers
+    headerAdapters.querySelectorAll('.header-adapter-toggle').forEach(el => {
+        el.addEventListener('click', async () => {
+            const name = el.dataset.adapter;
+            try {
+                await fetch(`/api/adapters/${encodeURIComponent(name)}/toggle`, { method: 'POST' });
+                await pollAdapters();
+            } catch (e) { console.error('Toggle adapter failed:', e); }
+        });
+    });
 }
 
 // Pause/resume streaming button
@@ -78,6 +88,15 @@ pauseBtn.addEventListener('click', () => {
 
 // Reset layout button
 document.getElementById('header-reset-layout').addEventListener('click', () => grid.resetLayout());
+
+// Load .ibt button
+const ibtFileInput = document.getElementById('ibt-file-input');
+document.getElementById('header-load-ibt').addEventListener('click', () => ibtFileInput.click());
+ibtFileInput.addEventListener('change', () => {
+    const file = ibtFileInput.files[0];
+    if (file && file.name.toLowerCase().endsWith('.ibt')) replayPlayer.upload(file);
+    ibtFileInput.value = '';
+});
 
 // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
 function renderLoop() {

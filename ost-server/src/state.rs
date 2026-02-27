@@ -2,6 +2,7 @@
 
 use crate::replay::ReplayState;
 use ost_core::{adapter::TelemetryAdapter, model::TelemetryFrame};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -27,6 +28,9 @@ pub struct AppState {
 
     /// Cancellation token for the replay playback task
     pub replay_cancel: Arc<RwLock<Option<CancellationToken>>>,
+
+    /// Adapters that should not auto-start (e.g. "Demo")
+    pub disabled_adapters: Arc<RwLock<HashSet<String>>>,
 }
 
 /// Configuration for an output sink
@@ -50,6 +54,9 @@ impl AppState {
         // Create broadcast channel with capacity for 100 frames
         let (telemetry_tx, _) = broadcast::channel(100);
 
+        let mut disabled = HashSet::new();
+        disabled.insert("Demo".to_string());
+
         Self {
             adapters: Arc::new(RwLock::new(Vec::new())),
             active_adapter: Arc::new(RwLock::new(None)),
@@ -57,6 +64,7 @@ impl AppState {
             sinks: Arc::new(RwLock::new(Vec::new())),
             replay: Arc::new(RwLock::new(None)),
             replay_cancel: Arc::new(RwLock::new(None)),
+            disabled_adapters: Arc::new(RwLock::new(disabled)),
         }
     }
 

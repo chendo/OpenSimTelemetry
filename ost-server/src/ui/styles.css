@@ -77,6 +77,15 @@ body {
     text-transform: uppercase;
     color: var(--text-secondary);
 }
+.header-adapter-toggle {
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+.header-adapter-toggle:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
 
 .status-dot {
     width: 7px;
