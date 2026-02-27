@@ -144,8 +144,8 @@ body {
 
 .header-reset-btn {
     background: transparent;
-    border: 1px solid var(--border-color);
-    color: var(--text-muted);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: var(--text-secondary);
     padding: 4px 10px;
     border-radius: 4px;
     cursor: pointer;
@@ -153,6 +153,7 @@ body {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    transition: border-color 0.15s, color 0.15s;
 }
 .header-reset-btn:hover { border-color: var(--accent); color: var(--accent); }
 
