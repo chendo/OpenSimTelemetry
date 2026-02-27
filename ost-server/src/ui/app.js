@@ -63,7 +63,6 @@ grid.gs.batchUpdate();
 const staticWidgets = [
     new VehicleWidget(),
     new GForceWidget(),
-    new OrientationWidget(),
     new SuspensionWidget(),
     new LapTimingWidget(),
     new SessionWidget(),

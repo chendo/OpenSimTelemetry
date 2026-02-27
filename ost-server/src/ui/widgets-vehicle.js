@@ -172,63 +172,6 @@ class GForceWidget extends Widget {
     }
 }
 
-/* ==================== OrientationWidget ==================== */
-class OrientationWidget extends Widget {
-    constructor() {
-        super('orientation', 'Orientation', { col: 9, row: 1, width: 4, height: 6 });
-        this.maxAngle = Math.PI / 4;
-    }
-
-    buildContent(c) {
-        const axes = ['pitch', 'yaw', 'roll'];
-        c.innerHTML = `<div class="orient-axes">${axes.map(a => `
-            <div class="orient-axis">
-                <div class="orient-header">
-                    <span class="orient-axis-label">${a.toUpperCase()}</span>
-                    <span class="orient-angle" id="o-${a}-deg">0.0&deg;</span>
-                    <span class="orient-rate" id="o-${a}-rate">0.0 &deg;/s</span>
-                </div>
-                <div class="orient-bar-track">
-                    <div class="orient-bar-center"></div>
-                    <div class="orient-bar-fill" id="o-${a}-bar"></div>
-                </div>
-            </div>`).join('')}</div>`;
-
-        this.axisEls = {};
-        for (const a of axes) {
-            this.axisEls[a] = {
-                deg: c.querySelector(`#o-${a}-deg`),
-                rate: c.querySelector(`#o-${a}-rate`),
-                bar: c.querySelector(`#o-${a}-bar`),
-            };
-        }
-    }
-
-    update(store) {
-        const f = store.currentFrame; if (!f) return;
-        const rot = f.motion?.rotation, av = f.motion?.angular_velocity;
-
-        const axes = {
-            pitch: { angle: rot?.x ?? 0, rate: av?.x ?? 0 },
-            yaw:   { angle: rot?.y ?? 0, rate: av?.y ?? 0 },
-            roll:  { angle: rot?.z ?? 0, rate: av?.z ?? 0 },
-        };
-
-        for (const [name, data] of Object.entries(axes)) {
-            const els = this.axisEls[name];
-            const deg = data.angle * RAD2DEG;
-            const rateDeg = data.rate * RAD2DEG;
-
-            els.deg.textContent = deg.toFixed(1) + '\u00B0';
-            els.rate.textContent = rateDeg.toFixed(1) + ' \u00B0/s';
-
-            const pct = Math.min(Math.abs(data.angle) / this.maxAngle, 1) * 50;
-            els.bar.style.width = pct + '%';
-            els.bar.style.left = data.angle >= 0 ? '50%' : (50 - pct) + '%';
-        }
-    }
-}
-
 /* ==================== SuspensionWidget ==================== */
 class SuspensionWidget extends Widget {
     constructor() {
