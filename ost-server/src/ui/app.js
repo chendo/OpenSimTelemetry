@@ -258,8 +258,10 @@ document.body.addEventListener('drop', (e) => {
             replayPlayer.info = info;
             replayPlayer.active = true;
             replayPlayer.currentSpeed = info.playback_speed;
-            replayPlayer.enterReplayMode();
+            await replayPlayer.enterReplayMode();
         }
-    } catch {}
+    } catch (e) {
+        console.error('Failed to restore replay state:', e);
+    }
 })();
 </script>

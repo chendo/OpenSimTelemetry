@@ -67,12 +67,12 @@ class ReplayPlayer {
             this.trackEl.textContent = this.info.track_name || 'Unknown Track';
             this.carEl.textContent = this.info.car_name || 'Unknown Car';
             this.seekSlider.max = this.info.total_frames - 1;
-            this.seekSlider.value = 0;
-            // Initialize replay buffer
+            this.seekSlider.value = this.info.current_frame || 0;
+            // Initialize replay buffer (restore position from server state)
             this.buf.totalFrames = this.info.total_frames;
             this.buf.tickRate = this.info.tick_rate;
-            this.buf.cursor = 0;
-            this.buf.playing = true;
+            this.buf.cursor = this.info.current_frame || 0;
+            this.buf.playing = this.info.playing !== false;
             this.buf.playbackSpeed = this.currentSpeed;
             // Fetch initial window of frames (filtered to graph-needed sections)
             const fields = typeof getGraphFieldSections === 'function' ? getGraphFieldSections() : null;
