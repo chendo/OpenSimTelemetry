@@ -57,16 +57,27 @@ function updateStatus() {
     connEl.innerHTML = `<span class="status-dot ${dotClass}"></span><span>${text}</span>`;
 }
 
-function onSseStatus(connected) {
-    sseConnected = connected;
-    if (connected) sseEverConnected = true;
-    updateStatus();
+// Single unified SSE connection (avoids exhausting HTTP/1.1 connection slots)
+let sseSource = null;
+function connectSSE() {
+    if (sseSource) sseSource.close();
+    const es = new EventSource('/api/stream');
+    sseSource = es;
+    es.onopen = () => { sseConnected = true; sseEverConnected = true; updateStatus(); };
+    es.onerror = () => { sseConnected = false; updateStatus(); es.close(); setTimeout(connectSSE, 5000); };
+    es.addEventListener('frame', (e) => {
+        try { if (!streamPaused) store.pushFrame(JSON.parse(e.data)); }
+        catch (err) { console.error('Parse error:', err); }
+    });
+    es.addEventListener('status', (e) => {
+        try { store.adapters = JSON.parse(e.data); updateHeaderAdapters(); updateStatus(); }
+        catch (err) { console.error('Parse error:', err); }
+    });
+    es.addEventListener('sinks', (e) => {
+        try { store.sinks = JSON.parse(e.data); store._sinksVersion = (store._sinksVersion || 0) + 1; requestRedraw(); }
+        catch (err) { console.error('Parse error:', err); }
+    });
 }
-
-const sse = new SSEConnection('/api/telemetry/stream',
-    (frame) => { if (!streamPaused) store.pushFrame(frame); },
-    onSseStatus
-);
 
 // Create all widgets in a batch to avoid excessive change events
 grid.gs.batchUpdate();
@@ -204,22 +215,8 @@ function renderLoop() {
     requestAnimationFrame(renderLoop);
 }
 
-// Status SSE: receive adapter updates in real-time (replaces polling)
-const statusSse = new SSEConnection('/api/status/stream',
-    (adapters) => { store.adapters = adapters; updateHeaderAdapters(); updateStatus(); },
-    onSseStatus
-);
-
-// Sinks SSE: receive sink config updates in real-time
-const sinksSse = new SSEConnection('/api/sinks/stream',
-    (sinks) => { store.sinks = sinks; store._sinksVersion = (store._sinksVersion || 0) + 1; requestRedraw(); },
-    onSseStatus
-);
-
 // Start
-sse.connect();
-statusSse.connect();
-sinksSse.connect();
+connectSSE();
 requestAnimationFrame(renderLoop);
 
 // Replay: drag-drop and init

@@ -28,6 +28,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/", get(web_ui::serve_ui))
         .route("/api/adapters", get(list_adapters))
         .route("/api/adapters/:name/toggle", post(toggle_adapter))
+        .route("/api/stream", get(unified_stream))
         .route("/api/telemetry/stream", get(telemetry_stream))
         .route("/api/status/stream", get(status_stream))
         .route("/api/sinks", get(list_sinks).post(create_sink))
@@ -160,6 +161,87 @@ async fn broadcast_sinks(state: &AppState) {
     if let Ok(json) = serde_json::to_string(&*sinks) {
         let _ = state.sinks_tx.send(json);
     }
+}
+
+/// Unified SSE endpoint that multiplexes telemetry, status, and sinks events
+/// over a single connection. Uses named events: "frame", "status", "sinks".
+/// This avoids consuming multiple HTTP/1.1 connection slots (browsers limit to 6).
+async fn unified_stream(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    // Build initial status
+    let initial_status_json = {
+        let adapters = state.adapters.read().await;
+        let active_name = state.active_adapter.read().await;
+        let disabled = state.disabled_adapters.read().await;
+        let info: Vec<AdapterInfo> = adapters
+            .iter()
+            .map(|adapter| AdapterInfo {
+                key: adapter.key().to_string(),
+                name: adapter.name().to_string(),
+                detected: adapter.detect(),
+                active: adapter.is_active()
+                    || active_name
+                        .as_ref()
+                        .map(|n| n == adapter.key())
+                        .unwrap_or(false),
+                enabled: !disabled.contains(adapter.key()),
+            })
+            .collect();
+        serde_json::to_string(&info).unwrap_or_default()
+    };
+
+    // Build initial sinks
+    let initial_sinks_json = {
+        let sinks = state.sinks.read().await;
+        serde_json::to_string(&*sinks).unwrap_or_default()
+    };
+
+    // Subscribe to all channels
+    let telemetry_rx = state.subscribe();
+    let status_rx = state.status_tx.subscribe();
+    let sinks_rx = state.sinks_tx.subscribe();
+
+    // Initial events
+    let initial = stream::iter(vec![
+        Ok(Event::default().event("status").data(initial_status_json)),
+        Ok(Event::default().event("sinks").data(initial_sinks_json)),
+    ]);
+
+    // Telemetry frames
+    let telemetry = BroadcastStream::new(telemetry_rx).filter_map(|result| async move {
+        match result {
+            Ok(frame) => match frame.to_json_filtered(None) {
+                Ok(json) => Some(Ok(Event::default().event("frame").data(json))),
+                Err(_) => None,
+            },
+            Err(_) => None,
+        }
+    });
+
+    // Status updates
+    let status = BroadcastStream::new(status_rx).filter_map(|result| async move {
+        match result {
+            Ok(json) => Some(Ok(Event::default().event("status").data(json))),
+            Err(_) => None,
+        }
+    });
+
+    // Sinks updates
+    let sinks = BroadcastStream::new(sinks_rx).filter_map(|result| async move {
+        match result {
+            Ok(json) => Some(Ok(Event::default().event("sinks").data(json))),
+            Err(_) => None,
+        }
+    });
+
+    // Merge all streams using select (round-robin polling)
+    let merged = futures::stream::select(
+        futures::stream::select(initial.chain(telemetry), status),
+        sinks,
+    );
+
+    Sse::new(merged).keep_alive(KeepAlive::default())
 }
 
 /// SSE endpoint that pushes sink config updates in real-time.
@@ -418,56 +500,37 @@ async fn replay_frames(
     State(state): State<AppState>,
     Query(params): Query<ReplayFramesQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // Take the replay state out so we can release the lock during blocking I/O
-    let mut rs = {
-        let mut replay = state.replay.write().await;
-        replay
-            .take()
-            .ok_or((StatusCode::NOT_FOUND, "No active replay".to_string()))?
-    };
+    let mut replay = state.replay.write().await;
+    let rs = replay
+        .as_mut()
+        .ok_or((StatusCode::NOT_FOUND, "No active replay".to_string()))?;
+
+    let frames = rs
+        .get_frames_range(params.start, params.count)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read frames: {}", e),
+            )
+        })?;
 
     let field_mask = params.fields.map(|f| FieldMask::parse(&f));
-    let start = params.start;
-    let count = params.count;
 
-    // Move blocking disk I/O + serialization off the async runtime
-    let (rs, result) = tokio::task::spawn_blocking(move || {
-        let frames_result = rs.get_frames_range(start, count).map(|frames| {
-            frames
-                .into_iter()
-                .map(|(idx, frame)| {
-                    let f_val = if let Some(ref mask) = field_mask {
-                        let json_str = frame.to_json_filtered(Some(mask)).unwrap_or_default();
-                        serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null)
-                    } else {
-                        serde_json::to_value(&frame).unwrap_or(serde_json::Value::Null)
-                    };
-                    serde_json::json!({ "i": idx, "f": f_val })
-                })
-                .collect::<Vec<_>>()
-        });
-        (rs, frames_result)
-    })
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Frame read task failed: {}", e),
-        )
-    })?;
-
-    // Put the replay state back
-    {
-        let mut replay = state.replay.write().await;
-        *replay = Some(rs);
-    }
-
-    let json_frames = result.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Failed to read frames: {}", e),
-        )
-    })?;
+    let json_frames: Vec<serde_json::Value> = frames
+        .into_iter()
+        .map(|(idx, frame)| {
+            let f_val = if let Some(ref mask) = field_mask {
+                let json_str = frame.to_json_filtered(Some(mask)).unwrap_or_default();
+                serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null)
+            } else {
+                serde_json::to_value(&frame).unwrap_or(serde_json::Value::Null)
+            };
+            serde_json::json!({
+                "i": idx,
+                "f": f_val
+            })
+        })
+        .collect();
 
     Ok(Json(serde_json::json!(json_frames)))
 }
