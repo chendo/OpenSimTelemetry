@@ -78,94 +78,116 @@ class SessionWidget extends Widget {
 
 /* ==================== AllFieldsWidget ==================== */
 class AllFieldsWidget extends Widget {
-    constructor() { super('allfields', 'All Fields', { col: 1, row: 18, width: 12, height: 6 }); }
+    constructor() { super('allfields', 'All Metrics', { col: 1, row: 18, width: 12, height: 6 }); }
 
     buildContent(c) {
-        c.innerHTML = `<input type="text" class="fields-filter" id="af-filter" placeholder="Filter fields..."><div class="fields-list" id="af-list"></div>`;
+        c.innerHTML = `
+            <div class="fields-toolbar">
+                <input type="text" class="fields-filter" id="af-filter" placeholder="Filter metrics...">
+                <button class="fields-toggle-btn active" id="af-hide-nulls" title="Hide null values">Hide Nulls</button>
+                <button class="fields-toggle-btn" id="af-show-range" title="Show min/max range">Range</button>
+            </div>
+            <div class="fields-list" id="af-list"></div>`;
         this.filterInput = c.querySelector('#af-filter');
         this.listEl = c.querySelector('#af-list');
+        this._hideNulls = true;
+        this._showRange = false;
+        this._minMax = {}; // path -> { min, max }
+
         this.filterInput.addEventListener('input', () => this.renderFields());
+
+        const nullsBtn = c.querySelector('#af-hide-nulls');
+        nullsBtn.addEventListener('click', () => {
+            this._hideNulls = !this._hideNulls;
+            nullsBtn.classList.toggle('active', this._hideNulls);
+            this.renderFields();
+        });
+
+        const rangeBtn = c.querySelector('#af-show-range');
+        rangeBtn.addEventListener('click', () => {
+            this._showRange = !this._showRange;
+            rangeBtn.classList.toggle('active', this._showRange);
+            this.renderFields();
+        });
     }
 
     update(store, now) {
         this.lastFrame = store.currentFrame;
         if (!this._lastRender || now - this._lastRender > 100) {
             this._lastRender = now;
+            this._updateMinMax();
             this.renderFields();
         }
+    }
+
+    _updateMinMax() {
+        if (!this.lastFrame) return;
+        const walk = (obj, prefix) => {
+            for (const [key, value] of Object.entries(obj)) {
+                const fk = prefix ? `${prefix}.${key}` : key;
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    walk(value, fk);
+                } else if (typeof value === 'number' && isFinite(value)) {
+                    const mm = this._minMax[fk];
+                    if (mm) {
+                        if (value < mm.min) mm.min = value;
+                        if (value > mm.max) mm.max = value;
+                    } else {
+                        this._minMax[fk] = { min: value, max: value };
+                    }
+                }
+            }
+        };
+        walk(this.lastFrame, '');
     }
 
     renderFields() {
         if (!this.lastFrame) return;
         const filter = this.filterInput.value.toLowerCase();
-        const fields = [];
+
+        // Extract all leaf values grouped by top-level section
+        const sections = {};
         const extract = (obj, prefix) => {
             for (const [key, value] of Object.entries(obj)) {
                 const fk = prefix ? `${prefix}.${key}` : key;
-                if (value && typeof value === 'object' && !Array.isArray(value)) extract(value, fk);
-                else {
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    extract(value, fk);
+                } else {
+                    if (this._hideNulls && (value === null || value === undefined)) continue;
+                    if (filter && !fk.toLowerCase().includes(filter)) continue;
+                    const section = fk.split('.')[0];
+                    if (!sections[section]) sections[section] = [];
                     const fmt = formatFieldValue(fk, value);
-                    fields.push({ key: fk, text: fmt.text, unit: fmt.unit });
+                    sections[section].push({ key: fk, value, text: fmt.text, unit: fmt.unit });
                 }
             }
         };
         extract(this.lastFrame, '');
-        fields.sort((a, b) => a.key.localeCompare(b.key));
-        const filtered = filter ? fields.filter(f => f.key.toLowerCase().includes(filter)) : fields;
 
-        // Reuse existing DOM nodes instead of rebuilding via innerHTML
-        const existing = this.listEl.children;
-        let i = 0;
-        for (; i < filtered.length; i++) {
-            const f = filtered[i];
-            if (i < existing.length) {
-                // Reuse existing node
-                const row = existing[i];
-                const nameEl = row.firstChild, valEl = row.lastChild;
-                if (nameEl.textContent !== f.key) nameEl.textContent = f.key;
-                const display = f.unit ? f.text + ' ' + f.unit : f.text;
-                if (valEl._display !== display) {
-                    valEl._display = display;
-                    if (f.unit) {
-                        valEl.innerHTML = '';
-                        valEl.appendChild(document.createTextNode(f.text + ' '));
-                        const u = document.createElement('span');
-                        u.className = 'field-unit';
-                        u.textContent = f.unit;
-                        valEl.appendChild(u);
-                    } else {
-                        valEl.textContent = f.text;
+        // Render sections
+        const sortedSections = Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]));
+        let html = '';
+        for (const [section, fields] of sortedSections) {
+            fields.sort((a, b) => a.key.localeCompare(b.key));
+            html += `<div class="field-section-header">${section.charAt(0).toUpperCase() + section.slice(1)}</div>`;
+            for (const f of fields) {
+                let rangeHtml = '';
+                if (this._showRange) {
+                    const mm = this._minMax[f.key];
+                    if (mm) {
+                        const fmtMin = formatFieldValue(f.key, mm.min);
+                        const fmtMax = formatFieldValue(f.key, mm.max);
+                        rangeHtml = `<span class="field-range">${fmtMin.text}..${fmtMax.text}</span>`;
                     }
                 }
-            } else {
-                // Create new node
-                const row = document.createElement('div');
-                row.className = 'field-item';
-                const nameEl = document.createElement('span');
-                nameEl.className = 'field-name';
-                nameEl.textContent = f.key;
-                const valEl = document.createElement('span');
-                valEl.className = 'field-value';
-                if (f.unit) {
-                    valEl.appendChild(document.createTextNode(f.text + ' '));
-                    const u = document.createElement('span');
-                    u.className = 'field-unit';
-                    u.textContent = f.unit;
-                    valEl.appendChild(u);
-                } else {
-                    valEl.textContent = f.text;
-                }
-                valEl._display = f.unit ? f.text + ' ' + f.unit : f.text;
-                row.appendChild(nameEl);
-                row.appendChild(valEl);
-                this.listEl.appendChild(row);
+                const unitHtml = f.unit ? ` <span class="field-unit">${f.unit}</span>` : '';
+                html += `<div class="field-item"><span class="field-name">${f.key}</span><span class="field-value">${rangeHtml}${f.text}${unitHtml}</span></div>`;
             }
         }
-        // Remove excess nodes
-        while (this.listEl.children.length > filtered.length) {
-            this.listEl.lastChild.remove();
-        }
+        this.listEl.innerHTML = html;
     }
+
+    resetMinMax() { this._minMax = {}; }
 }
 
 /* ==================== OutputSinksWidget ==================== */

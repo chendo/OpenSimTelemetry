@@ -71,28 +71,30 @@ class GraphWidget extends Widget {
         this.legendEl.innerHTML = '';
         this.legendItems = {};
 
-        // Preset metrics
+        // Only show enabled preset metrics (disabled ones can be re-added via the picker)
         for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
+            if (!this.enabledMetrics.has(key)) continue;
             const item = document.createElement('span');
-            const enabled = this.enabledMetrics.has(key);
-            item.className = 'graph-legend-item' + (enabled ? ' active' : '');
-            item.innerHTML = `<span class="graph-legend-dot" style="background:${metric.color}"></span>${metric.label}`;
-            item.addEventListener('click', () => {
-                if (this.enabledMetrics.has(key)) this.enabledMetrics.delete(key);
-                else this.enabledMetrics.add(key);
-                item.classList.toggle('active', this.enabledMetrics.has(key));
-                if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
-                requestRedraw();
+            item.className = 'graph-legend-item active';
+            item.innerHTML = `<span class="graph-legend-dot" style="background:${metric.color}"></span>${metric.label}<span class="custom-legend-remove" title="Remove">\u00D7</span>`;
+            item.addEventListener('click', (e) => {
+                if (e.target.classList.contains('custom-legend-remove')) {
+                    this.enabledMetrics.delete(key);
+                    this.rebuildLegend();
+                    if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+                    requestRedraw();
+                    return;
+                }
             });
             this.legendEl.appendChild(item);
             this.legendItems[key] = item;
         }
 
-        // Custom field metrics
+        // Custom field metrics (only show enabled)
         for (const [path, meta] of this.customMetrics) {
+            if (!this.enabledMetrics.has(path)) continue;
             const item = document.createElement('span');
-            const enabled = this.enabledMetrics.has(path);
-            item.className = 'graph-legend-item' + (enabled ? ' active' : '');
+            item.className = 'graph-legend-item active';
             item.innerHTML = `<span class="graph-legend-dot" style="background:${meta.color}"></span>${meta.label}<span class="custom-legend-remove" title="Remove">\u00D7</span>`;
             item.addEventListener('click', (e) => {
                 if (e.target.classList.contains('custom-legend-remove')) {
@@ -103,20 +105,15 @@ class GraphWidget extends Widget {
                     requestRedraw();
                     return;
                 }
-                if (this.enabledMetrics.has(path)) this.enabledMetrics.delete(path);
-                else this.enabledMetrics.add(path);
-                item.classList.toggle('active', this.enabledMetrics.has(path));
-                if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
-                requestRedraw();
             });
             this.legendEl.appendChild(item);
             this.legendItems[path] = item;
         }
 
-        // "+ Field" button
+        // "+ Metric" button
         const addBtn = document.createElement('span');
         addBtn.className = 'graph-legend-item graph-add-field-btn';
-        addBtn.textContent = '+ Field';
+        addBtn.textContent = '+ Metric';
         addBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             this.openFieldPicker(addBtn);
@@ -152,7 +149,7 @@ class GraphWidget extends Widget {
 
         const search = document.createElement('input');
         search.className = 'field-picker-search';
-        search.placeholder = 'Search fields...';
+        search.placeholder = 'Search metrics...';
         search.type = 'text';
         popover.appendChild(search);
 
@@ -160,11 +157,33 @@ class GraphWidget extends Widget {
         list.className = 'field-picker-list';
         popover.appendChild(list);
 
-        const alreadyAdded = new Set([...Object.keys(GRAPH_METRICS), ...this.customMetrics.keys()]);
+        const alreadyAdded = new Set([...this.enabledMetrics]);
 
         const renderList = (filter) => {
             list.innerHTML = '';
             const lf = filter.toLowerCase();
+
+            // Preset metrics section (show un-enabled presets)
+            const presetEntries = Object.entries(GRAPH_METRICS).filter(([key]) => !alreadyAdded.has(key));
+            const filteredPresets = lf ? presetEntries.filter(([key, m]) => key.toLowerCase().includes(lf) || m.label.toLowerCase().includes(lf)) : presetEntries;
+            if (filteredPresets.length > 0) {
+                const hdr = document.createElement('div');
+                hdr.className = 'field-picker-section';
+                hdr.textContent = 'Presets';
+                list.appendChild(hdr);
+                for (const [key, metric] of filteredPresets) {
+                    const item = document.createElement('div');
+                    item.className = 'field-picker-item';
+                    const extract = metric.extract(frame);
+                    const val = extract != null ? (Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2)) : null;
+                    const valHtml = val != null ? `<span class="field-picker-value">${val} <span class="field-picker-unit">${metric.unit}</span></span>` : '';
+                    item.innerHTML = `<span class="field-picker-path">${metric.label}</span>${valHtml}`;
+                    item.addEventListener('click', () => { this.addCustomField(key); this.closeFieldPicker(); });
+                    list.appendChild(item);
+                }
+            }
+
+            // Raw field sections
             for (const [section, paths] of Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]))) {
                 const filtered = lf ? paths.filter(p => p.toLowerCase().includes(lf)) : paths;
                 if (filtered.length === 0) continue;
@@ -178,8 +197,12 @@ class GraphWidget extends Widget {
                     const item = document.createElement('div');
                     const added = alreadyAdded.has(path);
                     item.className = 'field-picker-item' + (added ? ' dimmed' : '');
-                    const unitInfo = getFieldUnitInfo(path);
-                    item.innerHTML = `<span class="field-picker-path">${path}</span>${unitInfo.unit ? `<span class="field-picker-unit">${unitInfo.unit}</span>` : ''}`;
+                    // Resolve current value for display
+                    const parts = path.split('.');
+                    const rawVal = resolveFieldPathParts(frame, parts);
+                    const fmt = rawVal != null ? formatFieldValue(path, rawVal) : null;
+                    const valHtml = fmt ? `<span class="field-picker-value">${fmt.text}${fmt.unit ? ' <span class="field-picker-unit">' + fmt.unit + '</span>' : ''}</span>` : '';
+                    item.innerHTML = `<span class="field-picker-path">${path}</span>${valHtml}`;
                     if (!added) {
                         item.addEventListener('click', () => {
                             this.addCustomField(path);
@@ -223,18 +246,24 @@ class GraphWidget extends Widget {
     }
 
     addCustomField(path) {
-        if (this.customMetrics.has(path)) return;
-        const unitInfo = getFieldUnitInfo(path);
-        const parts = path.split('.');
-        this.customMetrics.set(path, {
-            path,
-            label: deriveLabel(path),
-            color: nextCustomColor(),
-            unit: unitInfo.unit,
-            norm: unitInfo.norm,
-            parts,
-        });
-        this.enabledMetrics.add(path);
+        if (this.enabledMetrics.has(path)) return;
+        // If it's a preset metric, just enable it
+        if (GRAPH_METRICS[path]) {
+            this.enabledMetrics.add(path);
+        } else {
+            if (this.customMetrics.has(path)) return;
+            const unitInfo = getFieldUnitInfo(path);
+            const parts = path.split('.');
+            this.customMetrics.set(path, {
+                path,
+                label: deriveLabel(path),
+                color: nextCustomColor(),
+                unit: unitInfo.unit,
+                norm: unitInfo.norm,
+                parts,
+            });
+            this.enabledMetrics.add(path);
+        }
         this.rebuildLegend();
         if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
     }

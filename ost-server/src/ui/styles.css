@@ -625,9 +625,10 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 .field-picker-item:hover { background: rgba(255,255,255,0.06); }
-.field-picker-item.already-added { opacity: 0.35; cursor: default; }
-.field-picker-item.already-added:hover { background: transparent; }
+.field-picker-item.dimmed { opacity: 0.35; cursor: default; }
+.field-picker-item.dimmed:hover { background: transparent; }
 .field-picker-path { color: var(--accent); }
+.field-picker-value { color: var(--text-secondary); font-size: 0.65rem; }
 .field-picker-unit { color: var(--text-muted); font-size: 0.6rem; }
 
 .graph-canvas-wrap {
@@ -784,7 +785,14 @@ body {
     margin-bottom: 4px;
 }
 
-/* ==================== All Fields Widget ==================== */
+/* ==================== All Metrics Widget ==================== */
+.fields-toolbar {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+}
 .fields-filter {
     background: var(--bg-inset);
     border: 1px solid var(--border-color);
@@ -792,17 +800,50 @@ body {
     padding: 6px 10px;
     border-radius: 4px;
     font-size: 0.75rem;
-    width: 100%;
-    margin-bottom: 6px;
-    flex-shrink: 0;
+    flex: 1;
+    min-width: 0;
 }
 .fields-filter:focus { outline: none; border-color: var(--accent); }
 .fields-filter::placeholder { color: var(--text-muted); }
+
+.fields-toggle-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.12s ease;
+}
+.fields-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
+.fields-toggle-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0, 214, 143, 0.1);
+}
 
 .fields-list {
     flex: 1;
     overflow-y: auto;
     min-height: 0;
+}
+
+.field-section-header {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    padding: 6px 8px 2px;
+    background: var(--bg-inset);
+    position: sticky;
+    top: 0;
+    text-transform: uppercase;
+    z-index: 1;
 }
 
 .field-item {
@@ -815,8 +856,13 @@ body {
 }
 .field-item:last-child { border-bottom: none; }
 .field-name { color: var(--accent); }
-.field-value { color: var(--text-secondary); }
+.field-value { color: var(--text-secondary); white-space: nowrap; }
 .field-unit { color: var(--text-muted); margin-left: 3px; font-size: 0.65rem; }
+.field-range {
+    color: var(--text-muted);
+    font-size: 0.6rem;
+    margin-right: 8px;
+}
 
 /* ==================== Output Sinks Widget ==================== */
 .sink-list {
