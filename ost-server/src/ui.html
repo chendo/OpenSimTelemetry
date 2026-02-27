@@ -1069,6 +1069,7 @@
                 <span>Connecting</span>
             </span>
             <div class="header-adapters" id="header-adapters"></div>
+            <button class="header-reset-btn" id="header-pause-btn">Pause</button>
             <button class="header-reset-btn" id="header-add-graph">+ Add Graph</button>
             <button class="header-reset-btn" id="header-reset-layout">Reset Layout</button>
         </div>
@@ -1109,6 +1110,7 @@
     const crosshair = { t: null };
     let _uiDirty = false;
     function requestRedraw() { _uiDirty = true; }
+    let streamPaused = false;
 
     /* ==================== Graph Metrics Registry ==================== */
     const GRAPH_METRICS = {
@@ -2861,7 +2863,7 @@
     // SSE connection
     const connEl = document.getElementById('header-conn');
     const sse = new SSEConnection('/api/telemetry/stream',
-        (frame) => store.pushFrame(frame),
+        (frame) => { if (!streamPaused) store.pushFrame(frame); },
         (connected) => {
             connEl.innerHTML = `<span class="status-dot ${connected ? 'dot-active' : 'dot-inactive'}"></span><span>${connected ? 'Connected' : 'Disconnected'}</span>`;
         }
@@ -2916,6 +2918,15 @@
             `<span class="header-adapter-item"><span class="status-dot ${a.active ? 'dot-active' : a.detected ? 'dot-detected' : 'dot-inactive'}"></span>${a.name}</span>`
         ).join('');
     }
+
+    // Pause/resume streaming button
+    const pauseBtn = document.getElementById('header-pause-btn');
+    pauseBtn.addEventListener('click', () => {
+        streamPaused = !streamPaused;
+        pauseBtn.textContent = streamPaused ? 'Resume' : 'Pause';
+        pauseBtn.style.borderColor = streamPaused ? 'var(--accent)' : '';
+        pauseBtn.style.color = streamPaused ? 'var(--accent)' : '';
+    });
 
     // Reset layout button
     document.getElementById('header-reset-layout').addEventListener('click', () => grid.resetLayout());
