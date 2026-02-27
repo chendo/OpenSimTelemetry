@@ -109,14 +109,16 @@ class ReplayBuffer {
     }
 
     // Fetch a window of frames centered on the cursor
-    async fetchWindow(windowFrames) {
+    async fetchWindow(windowFrames, fields) {
         if (this._fetching) return;
         const half = Math.floor(windowFrames / 2);
         const start = Math.max(0, this.cursor - half);
         const count = Math.min(windowFrames, this.totalFrames - start);
         this._fetching = true;
         try {
-            const resp = await fetch(`/api/replay/frames?start=${start}&count=${count}`);
+            let url = `/api/replay/frames?start=${start}&count=${count}`;
+            if (fields) url += `&fields=${encodeURIComponent(fields)}`;
+            const resp = await fetch(url);
             if (!resp.ok) throw new Error(await resp.text());
             const frames = await resp.json();
             this.loadFrames(frames);
@@ -128,9 +130,9 @@ class ReplayBuffer {
     }
 
     // Debounced fetch for rapid scrubbing
-    fetchWindowDebounced(windowFrames, delayMs = 200) {
+    fetchWindowDebounced(windowFrames, delayMs = 200, fields) {
         clearTimeout(this._fetchDebounce);
-        this._fetchDebounce = setTimeout(() => this.fetchWindow(windowFrames), delayMs);
+        this._fetchDebounce = setTimeout(() => this.fetchWindow(windowFrames, fields), delayMs);
     }
 
     // Check if cursor is near cache boundary and needs re-fetch

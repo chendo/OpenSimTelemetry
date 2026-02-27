@@ -405,6 +405,7 @@ async fn replay_info(
 struct ReplayFramesQuery {
     start: usize,
     count: usize,
+    fields: Option<String>,
 }
 
 async fn replay_frames(
@@ -425,12 +426,20 @@ async fn replay_frames(
             )
         })?;
 
+    let field_mask = params.fields.map(|f| FieldMask::parse(&f));
+
     let json_frames: Vec<serde_json::Value> = frames
         .into_iter()
         .map(|(idx, frame)| {
+            let f_val = if let Some(ref mask) = field_mask {
+                let json_str = frame.to_json_filtered(Some(mask)).unwrap_or_default();
+                serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null)
+            } else {
+                serde_json::to_value(&frame).unwrap_or(serde_json::Value::Null)
+            };
             serde_json::json!({
                 "i": idx,
-                "f": frame
+                "f": f_val
             })
         })
         .collect();

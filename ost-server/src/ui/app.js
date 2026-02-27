@@ -6,6 +6,28 @@ const grid = new DashboardGrid(document.getElementById('dashboard-grid'));
 // Global function for GraphWidget to call when config changes
 function dashboardSaveGraphs() { grid.saveGraphConfigs(); }
 
+// Compute the top-level field sections needed by all graph widgets for filtered replay fetches
+function getGraphFieldSections() {
+    const sections = new Set();
+    for (const w of grid.widgets.values()) {
+        if (!(w instanceof GraphWidget)) continue;
+        for (const key of w.enabledMetrics) {
+            if (GRAPH_METRICS[key]) {
+                // Preset metrics use vehicle and motion sections
+                sections.add('vehicle');
+                sections.add('motion');
+            } else {
+                // Custom metric — extract top-level section from path
+                const custom = w.customMetrics.get(key);
+                if (custom && custom.parts.length > 0) {
+                    sections.add(custom.parts[0]);
+                }
+            }
+        }
+    }
+    return sections.size > 0 ? [...sections].join(',') : null;
+}
+
 // SSE connection + status line
 const connEl = document.getElementById('header-conn');
 let sseConnected = false;
@@ -42,7 +64,7 @@ function onSseStatus(connected) {
 }
 
 const sse = new SSEConnection('/api/telemetry/stream',
-    (frame) => { if (!streamPaused && replayBuf.count === 0) store.pushFrame(frame); },
+    (frame) => { if (!streamPaused) store.pushFrame(frame); },
     onSseStatus
 );
 
@@ -156,16 +178,15 @@ function renderLoop() {
     const now = performance.now();
     const activeReplay = replayBuf.count > 0 ? replayBuf : null;
 
-    // Advance client-side replay playback
+    // Advance client-side cursor for graph buffer positioning (server drives actual playback via SSE)
     if (activeReplay) {
         replayBuf.advancePlayback(now);
+        const fields = getGraphFieldSections();
         // Pre-fetch when cursor nears cache boundary
         if (replayBuf.playing && replayBuf.needsFetch()) {
-            replayBuf.fetchWindowDebounced(7200, 100);
+            // Immediate fetch during playback to avoid cache exhaustion
+            replayBuf.fetchWindow(7200, fields);
         }
-        // Update store.currentFrame so dashboard widgets get values
-        const curEntry = replayBuf.currentEntry();
-        if (curEntry) store.currentFrame = curEntry._frame;
         // Update replay controls (slider, time)
         if (typeof replayPlayer !== 'undefined' && replayPlayer.active) {
             replayPlayer.updateControlsFromBuf();

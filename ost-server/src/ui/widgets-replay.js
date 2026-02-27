@@ -48,12 +48,6 @@ class ReplayPlayer {
             this.info = result.info;
             this.active = true;
             this.currentSpeed = 1;
-            // Pause server-side playback — client handles playback now
-            fetch('/api/replay/control', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'pause' })
-            }).catch(() => {});
             this.enterReplayMode();
         } catch (e) {
             console.error('Upload failed:', e);
@@ -80,8 +74,9 @@ class ReplayPlayer {
             this.buf.cursor = 0;
             this.buf.playing = true;
             this.buf.playbackSpeed = this.currentSpeed;
-            // Fetch initial window of frames
-            await this.buf.fetchWindow(this._fetchFrames);
+            // Fetch initial window of frames (filtered to graph-needed sections)
+            const fields = typeof getGraphFieldSections === 'function' ? getGraphFieldSections() : null;
+            await this.buf.fetchWindow(this._fetchFrames, fields);
         }
         this.updateSpeedButtons();
         this.updateControlsFromBuf();
@@ -101,6 +96,13 @@ class ReplayPlayer {
         this.buf.playing = !this.buf.playing;
         if (!this.buf.playing) this.buf._lastPlayTick = null;
         this.playPauseBtn.innerHTML = this.buf.playing ? '&#9646;&#9646;' : '&#9654;';
+        // Sync play/pause to server
+        const action = this.buf.playing ? 'play' : 'pause';
+        fetch('/api/replay/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action })
+        }).catch(() => {});
         requestRedraw();
     }
 
@@ -108,6 +110,12 @@ class ReplayPlayer {
         this.currentSpeed = speed;
         this.buf.playbackSpeed = speed;
         this.updateSpeedButtons();
+        // Sync speed to server
+        fetch('/api/replay/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'speed', value: speed })
+        }).catch(() => {});
     }
 
     updateSpeedButtons() {
@@ -117,6 +125,14 @@ class ReplayPlayer {
     }
 
     onSeekInput(value) {
+        if (!this.seeking) {
+            // Pause server playback when scrubbing starts
+            fetch('/api/replay/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'pause' })
+            }).catch(() => {});
+        }
         this.seeking = true;
         const frame = parseInt(value);
         this.buf.cursor = frame;
@@ -128,9 +144,10 @@ class ReplayPlayer {
             const currentTime = (frame / this.info.total_frames) * this.info.duration_secs;
             this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(this.info.duration_secs)}`;
         }
-        // If outside cache, debounce fetch
+        // If outside cache, debounce fetch (for rapid scrubbing)
         if (this.buf.needsFetch()) {
-            this.buf.fetchWindowDebounced(this._fetchFrames);
+            const fields = typeof getGraphFieldSections === 'function' ? getGraphFieldSections() : null;
+            this.buf.fetchWindowDebounced(this._fetchFrames, 200, fields);
         }
         this.playPauseBtn.innerHTML = '&#9654;';
         requestRedraw();
@@ -149,7 +166,8 @@ class ReplayPlayer {
         }).catch(() => {});
         // Ensure cache covers this position (non-blocking)
         if (this.buf.needsFetch()) {
-            this.buf.fetchWindowDebounced(this._fetchFrames, 50);
+            const fields = typeof getGraphFieldSections === 'function' ? getGraphFieldSections() : null;
+            this.buf.fetchWindowDebounced(this._fetchFrames, 50, fields);
         }
         requestRedraw();
     }

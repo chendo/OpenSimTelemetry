@@ -89,7 +89,7 @@ class AllFieldsWidget extends Widget {
 
     update(store, now) {
         this.lastFrame = store.currentFrame;
-        if (!this._lastRender || now - this._lastRender > 250) {
+        if (!this._lastRender || now - this._lastRender > 100) {
             this._lastRender = now;
             this.renderFields();
         }
