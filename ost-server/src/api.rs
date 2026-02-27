@@ -363,18 +363,24 @@ async fn replay_upload(
 
     tracing::info!("Received .ibt file: {} ({} bytes)", file_name, data.len());
 
-    let temp_dir = std::env::temp_dir().join("ost-replay");
-    std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp dir: {}", e)))?;
+    // Move blocking file I/O off the async runtime to avoid starving
+    // SSE keep-alive events and other async tasks
+    let replay_state = tokio::task::spawn_blocking(move || {
+        let temp_dir = std::env::temp_dir().join("ost-replay");
+        std::fs::create_dir_all(&temp_dir)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp dir: {}", e)))?;
 
-    let temp_path = temp_dir.join(&file_name);
-    std::fs::write(&temp_path, &data)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write temp file: {}", e)))?;
+        let temp_path = temp_dir.join(&file_name);
+        std::fs::write(&temp_path, &data)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write temp file: {}", e)))?;
 
-    let replay_state = ReplayState::from_file(&temp_path).map_err(|e| {
-        let _ = std::fs::remove_file(&temp_path);
-        (StatusCode::BAD_REQUEST, format!("Failed to parse .ibt file: {}", e))
-    })?;
+        ReplayState::from_file(&temp_path).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            (StatusCode::BAD_REQUEST, format!("Failed to parse .ibt file: {}", e))
+        })
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("File processing failed: {}", e)))??;
 
     let info = replay_state.info();
 
@@ -412,37 +418,56 @@ async fn replay_frames(
     State(state): State<AppState>,
     Query(params): Query<ReplayFramesQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let mut replay = state.replay.write().await;
-    let rs = replay
-        .as_mut()
-        .ok_or((StatusCode::NOT_FOUND, "No active replay".to_string()))?;
-
-    let frames = rs
-        .get_frames_range(params.start, params.count)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to read frames: {}", e),
-            )
-        })?;
+    // Take the replay state out so we can release the lock during blocking I/O
+    let mut rs = {
+        let mut replay = state.replay.write().await;
+        replay
+            .take()
+            .ok_or((StatusCode::NOT_FOUND, "No active replay".to_string()))?
+    };
 
     let field_mask = params.fields.map(|f| FieldMask::parse(&f));
+    let start = params.start;
+    let count = params.count;
 
-    let json_frames: Vec<serde_json::Value> = frames
-        .into_iter()
-        .map(|(idx, frame)| {
-            let f_val = if let Some(ref mask) = field_mask {
-                let json_str = frame.to_json_filtered(Some(mask)).unwrap_or_default();
-                serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null)
-            } else {
-                serde_json::to_value(&frame).unwrap_or(serde_json::Value::Null)
-            };
-            serde_json::json!({
-                "i": idx,
-                "f": f_val
-            })
-        })
-        .collect();
+    // Move blocking disk I/O + serialization off the async runtime
+    let (rs, result) = tokio::task::spawn_blocking(move || {
+        let frames_result = rs.get_frames_range(start, count).map(|frames| {
+            frames
+                .into_iter()
+                .map(|(idx, frame)| {
+                    let f_val = if let Some(ref mask) = field_mask {
+                        let json_str = frame.to_json_filtered(Some(mask)).unwrap_or_default();
+                        serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null)
+                    } else {
+                        serde_json::to_value(&frame).unwrap_or(serde_json::Value::Null)
+                    };
+                    serde_json::json!({ "i": idx, "f": f_val })
+                })
+                .collect::<Vec<_>>()
+        });
+        (rs, frames_result)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Frame read task failed: {}", e),
+        )
+    })?;
+
+    // Put the replay state back
+    {
+        let mut replay = state.replay.write().await;
+        *replay = Some(rs);
+    }
+
+    let json_frames = result.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to read frames: {}", e),
+        )
+    })?;
 
     Ok(Json(serde_json::json!(json_frames)))
 }
