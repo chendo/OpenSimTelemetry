@@ -4,6 +4,10 @@
 default:
     @just --list
 
+# Check compilation (fast, no codegen)
+check:
+    cargo check --workspace
+
 # Build for the host platform (debug)
 build:
     cargo build
@@ -26,7 +30,7 @@ run-release:
 
 # Run all tests
 test:
-    cargo test
+    cargo test --workspace
 
 # Run clippy lints
 lint:
@@ -39,6 +43,9 @@ fmt:
 # Check formatting without modifying files
 fmt-check:
     cargo fmt --all -- --check
+
+# Run check + lint + test (CI-equivalent)
+ci: check lint test fmt-check
 
 # Clean build artifacts
 clean:
