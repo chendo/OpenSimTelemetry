@@ -126,6 +126,10 @@ class ReplayBuffer {
             console.error('Failed to fetch replay frames:', e);
         } finally {
             this._fetching = false;
+            // If cursor moved past the newly loaded data (e.g. seek during fetch), retry
+            if (this.needsFetch()) {
+                this.fetchWindowDebounced(windowFrames, 50, fields);
+            }
         }
     }
 
@@ -150,6 +154,8 @@ class ReplayBuffer {
         const halfFrames = Math.floor((windowMs / 1000) * this.tickRate / 2);
         const from = Math.max(this.startFrame, this.cursor - halfFrames);
         const to = Math.min(this.startFrame + this.count - 1, this.cursor + halfFrames);
+        // Cursor is outside cached range — no renderable data
+        if (from > to) return { entries: this.entries, startIdx: 0, count: 0, centerTime: this.simTimeMs(this.cursor) };
         const localFrom = from - this.startFrame;
         const localTo = to - this.startFrame;
         return {
