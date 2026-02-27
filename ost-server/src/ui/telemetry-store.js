@@ -268,20 +268,21 @@ class ReplayBuffer {
         // Await cursor chunk so UI can render immediately
         await this._fetchChunk(cursorChunk, fields, signal);
 
-        // During active scrubbing, skip prefetches to minimize blocking
-        if (this.scrubbing) return;
-
         const maxChunk = this._chunkIndex(this.totalFrames - 1);
-        // Prefetch behind: cover half the largest graph time window (60s) = 30s behind
-        const behindFrames = this.tickRate * 30;
-        const behindChunks = Math.ceil(behindFrames / this._chunkSize);
-        for (let i = 1; i <= behindChunks; i++) {
+
+        // Always fetch the visible viewport (~35s each side of cursor)
+        // During playback, also prefetch 60s ahead for smooth scrolling
+        const viewportSecs = 35;
+        const viewportChunks = Math.ceil((this.tickRate * viewportSecs) / this._chunkSize);
+
+        for (let i = 1; i <= viewportChunks; i++) {
             const behind = cursorChunk - i;
             if (behind >= 0) this._fetchChunk(behind, fields, signal);
         }
-        // Prefetch ahead: 60s beyond the visible window edge
-        const aheadFrames = this.tickRate * 60;
-        const aheadChunks = Math.ceil(aheadFrames / this._chunkSize);
+
+        const aheadChunks = this.scrubbing
+            ? viewportChunks
+            : viewportChunks + Math.ceil((this.tickRate * 60) / this._chunkSize);
         for (let i = 1; i <= aheadChunks; i++) {
             const ahead = cursorChunk + i;
             if (ahead <= maxChunk) this._fetchChunk(ahead, fields, signal);
