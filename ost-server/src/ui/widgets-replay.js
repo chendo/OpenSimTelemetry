@@ -6,8 +6,6 @@ class ReplayPlayer {
         this.seeking = false;
         this.currentSpeed = 1;
         this.buf = replayBuf;
-        // Cache the max graph window for fetch sizing (2x for prefetch margin)
-        this._fetchFrames = 7200;
 
         this.badge = document.getElementById('mode-badge');
         this.bar = document.getElementById('replay-bar');
@@ -71,12 +69,13 @@ class ReplayPlayer {
             // Initialize replay buffer (restore position from server state)
             this.buf.totalFrames = this.info.total_frames;
             this.buf.tickRate = this.info.tick_rate;
+            this.buf._chunkSize = this.info.tick_rate * 5;
+            this.buf._maxCacheFrames = this.info.tick_rate * 120;
             this.buf.cursor = this.info.current_frame || 0;
             this.buf.playing = this.info.playing !== false;
             this.buf.playbackSpeed = this.currentSpeed;
-            // Fetch initial window of frames (filtered to graph-needed sections)
-            const fields = typeof getGraphFieldSections === 'function' ? getGraphFieldSections() : null;
-            await this.buf.fetchWindow(this._fetchFrames, fields);
+            // Fetch initial chunks around cursor (no field filter — all widgets need full frames)
+            await this.buf.ensureLoaded(null);
         }
         this.updateSpeedButtons();
         this.updateControlsFromBuf();
@@ -144,11 +143,8 @@ class ReplayPlayer {
             const currentTime = (frame / this.info.total_frames) * this.info.duration_secs;
             this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(this.info.duration_secs)}`;
         }
-        // If outside cache, debounce fetch (for rapid scrubbing)
-        if (this.buf.needsFetch()) {
-            const fields = typeof getGraphFieldSections === 'function' ? getGraphFieldSections() : null;
-            this.buf.fetchWindowDebounced(this._fetchFrames, 200, fields);
-        }
+        // Debounce chunk fetch for rapid scrubbing
+        this.buf.ensureLoadedDebounced(200, null);
         this.playPauseBtn.innerHTML = '&#9654;';
         requestRedraw();
     }
@@ -164,11 +160,8 @@ class ReplayPlayer {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'seek', value: frame })
         }).catch(() => {});
-        // Ensure cache covers this position (non-blocking)
-        if (this.buf.needsFetch()) {
-            const fields = typeof getGraphFieldSections === 'function' ? getGraphFieldSections() : null;
-            this.buf.fetchWindowDebounced(this._fetchFrames, 50, fields);
-        }
+        // Ensure cache covers this position
+        this.buf.ensureLoadedDebounced(50, null);
         requestRedraw();
     }
 

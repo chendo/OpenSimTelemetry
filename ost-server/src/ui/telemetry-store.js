@@ -51,7 +51,7 @@ class TelemetryStore {
 }
 
 /* ==================== ReplayBuffer ==================== */
-// Client-side cache for replay frames, enabling instant scrubbing and centered graph windows.
+// Client-side cache for replay frames using 5-second chunk fetching.
 class ReplayBuffer {
     constructor() {
         this.entries = [];       // Processed entries (same format as ring: t, speed, rpm, ..., _frame)
@@ -62,7 +62,9 @@ class ReplayBuffer {
         this.cursor = 0;         // Current frame index (absolute)
         this.playing = false;
         this.playbackSpeed = 1;
-        this._fetching = false;
+        this._chunkSize = 300;       // frames per chunk (tickRate * 5, set in enterReplayMode)
+        this._maxCacheFrames = 7200; // max cached frames (tickRate * 120, set in enterReplayMode)
+        this._fetchingChunks = new Set(); // in-flight chunk indices
         this._fetchDebounce = null;
         this._dirty = false;
         this._lastPlayTick = null;
@@ -99,52 +101,138 @@ class ReplayBuffer {
         return entry;
     }
 
-    // Load fetched frames into the cache
-    loadFrames(serverFrames) {
-        if (serverFrames.length === 0) return;
-        this.startFrame = serverFrames[0].i;
-        this.entries = serverFrames.map(sf => this._processFrame(sf.f, sf.i));
-        this.count = this.entries.length;
-        this._dirty = true;
+    // Chunk index for a given frame
+    _chunkIndex(frame) { return Math.floor(frame / this._chunkSize); }
+
+    // Check if a chunk is fully within the cache
+    _hasChunk(chunkIdx) {
+        const chunkStart = chunkIdx * this._chunkSize;
+        const chunkEnd = Math.min(chunkStart + this._chunkSize, this.totalFrames);
+        return chunkStart >= this.startFrame && chunkEnd <= this.startFrame + this.count;
     }
 
-    // Fetch a window of frames centered on the cursor
-    async fetchWindow(windowFrames, fields) {
-        if (this._fetching) return;
-        const half = Math.floor(windowFrames / 2);
-        const start = Math.max(0, this.cursor - half);
-        const count = Math.min(windowFrames, this.totalFrames - start);
-        this._fetching = true;
+    // Fetch a single chunk, merge into cache
+    async _fetchChunk(chunkIdx, fields) {
+        if (this._hasChunk(chunkIdx) || this._fetchingChunks.has(chunkIdx)) return;
+        const start = chunkIdx * this._chunkSize;
+        if (start >= this.totalFrames) return;
+        const count = Math.min(this._chunkSize, this.totalFrames - start);
+        this._fetchingChunks.add(chunkIdx);
         try {
             let url = `/api/replay/frames?start=${start}&count=${count}`;
             if (fields) url += `&fields=${encodeURIComponent(fields)}`;
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(await resp.text());
             const frames = await resp.json();
-            this.loadFrames(frames);
+            this._mergeFrames(frames);
         } catch (e) {
-            console.error('Failed to fetch replay frames:', e);
+            console.error(`Failed to fetch chunk ${chunkIdx}:`, e);
         } finally {
-            this._fetching = false;
-            // If cursor moved past the newly loaded data (e.g. seek during fetch), retry
-            if (this.needsFetch()) {
-                this.fetchWindowDebounced(windowFrames, 50, fields);
+            this._fetchingChunks.delete(chunkIdx);
+        }
+    }
+
+    // Merge fetched frames into the contiguous cache
+    _mergeFrames(serverFrames) {
+        if (serverFrames.length === 0) return;
+        const newStart = serverFrames[0].i;
+        const newEnd = newStart + serverFrames.length;
+        const processed = serverFrames.map(sf => this._processFrame(sf.f, sf.i));
+
+        if (this.count === 0) {
+            // Empty cache — just set it
+            this.startFrame = newStart;
+            this.entries = processed;
+            this.count = processed.length;
+        } else {
+            const cacheEnd = this.startFrame + this.count;
+            // Check if new data is adjacent or overlapping with existing cache
+            if (newStart <= cacheEnd && newEnd >= this.startFrame) {
+                // Merge: compute union range
+                const mergedStart = Math.min(this.startFrame, newStart);
+                const mergedEnd = Math.max(cacheEnd, newEnd);
+                const mergedLen = mergedEnd - mergedStart;
+                const merged = new Array(mergedLen);
+                // Copy existing entries
+                for (let i = 0; i < this.count; i++) {
+                    merged[this.startFrame - mergedStart + i] = this.entries[i];
+                }
+                // Overlay new entries (overwrites overlapping region)
+                for (let i = 0; i < processed.length; i++) {
+                    merged[newStart - mergedStart + i] = processed[i];
+                }
+                this.startFrame = mergedStart;
+                this.entries = merged;
+                this.count = mergedLen;
+            } else {
+                // Non-adjacent — check if new data is closer to cursor
+                const cursorDistOld = Math.abs(this.cursor - (this.startFrame + this.count / 2));
+                const cursorDistNew = Math.abs(this.cursor - (newStart + processed.length / 2));
+                if (cursorDistNew < cursorDistOld) {
+                    // Replace cache with new data (cursor moved far away)
+                    this.startFrame = newStart;
+                    this.entries = processed;
+                    this.count = processed.length;
+                }
+                // else: stale fetch from old position, ignore
+            }
+        }
+        this._trimCache();
+        this._dirty = true;
+    }
+
+    // Trim cache to _maxCacheFrames, keeping data centered on cursor
+    _trimCache() {
+        if (this.count <= this._maxCacheFrames) return;
+        const excess = this.count - this._maxCacheFrames;
+        const cursorLocal = this.cursor - this.startFrame;
+        // Determine how much to trim from each end
+        const distToStart = cursorLocal;
+        const distToEnd = this.count - 1 - cursorLocal;
+        if (distToStart > distToEnd) {
+            // Trim from start
+            const trim = Math.min(excess, distToStart - Math.floor(this._maxCacheFrames / 2));
+            if (trim > 0) {
+                this.entries = this.entries.slice(trim);
+                this.startFrame += trim;
+                this.count -= trim;
+            }
+        }
+        if (this.count > this._maxCacheFrames) {
+            // Trim from end
+            const trim = this.count - this._maxCacheFrames;
+            this.entries.length = this._maxCacheFrames;
+            this.count = this._maxCacheFrames;
+        }
+    }
+
+    // Main entry point: ensure cursor's region is loaded, prefetch adjacent chunks
+    async ensureLoaded(fields) {
+        const cursorChunk = this._chunkIndex(this.cursor);
+        // Await cursor chunk so UI can render immediately
+        await this._fetchChunk(cursorChunk, fields);
+        // Fire-and-forget: adjacent chunks
+        if (cursorChunk > 0) this._fetchChunk(cursorChunk - 1, fields);
+        const maxChunk = this._chunkIndex(this.totalFrames - 1);
+        if (cursorChunk < maxChunk) this._fetchChunk(cursorChunk + 1, fields);
+        // During playback, prefetch further ahead
+        if (this.playing) {
+            for (let i = 2; i <= 4; i++) {
+                const ahead = cursorChunk + i;
+                if (ahead <= maxChunk) this._fetchChunk(ahead, fields);
             }
         }
     }
 
-    // Debounced fetch for rapid scrubbing
-    fetchWindowDebounced(windowFrames, delayMs = 200, fields) {
+    // Debounced ensureLoaded for rapid scrubbing
+    ensureLoadedDebounced(delayMs = 200, fields) {
         clearTimeout(this._fetchDebounce);
-        this._fetchDebounce = setTimeout(() => this.fetchWindow(windowFrames, fields), delayMs);
+        this._fetchDebounce = setTimeout(() => this.ensureLoaded(fields), delayMs);
     }
 
-    // Check if cursor is near cache boundary and needs re-fetch
-    needsFetch(marginFrames = 300) {
-        if (this.count === 0) return true;
-        if (this.cursor < this.startFrame + marginFrames) return true;
-        if (this.cursor > this.startFrame + this.count - marginFrames) return true;
-        return false;
+    // Check if cursor is near cache boundary and needs fetch
+    needsFetch() {
+        return !this._hasChunk(this._chunkIndex(this.cursor));
     }
 
     // Get entries for a centered time window around cursor.

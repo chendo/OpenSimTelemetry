@@ -2,60 +2,67 @@
 //!
 //! This module provides newtype wrappers around f32/f64 to ensure
 //! type safety and prevent unit confusion.
+//!
+//! All unit types serialize with 4 decimal places to reduce JSON payload size.
 
 use serde::{Deserialize, Serialize};
 
+/// Round f32 to 4 decimal places for compact JSON serialization
+fn round4<S: serde::Serializer>(val: &f32, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_f32((*val * 10000.0).round() / 10000.0)
+}
+
 /// Meters
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Meters(pub f32);
+pub struct Meters(#[serde(serialize_with = "round4")] pub f32);
 
 /// Meters per second
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct MetersPerSecond(pub f32);
+pub struct MetersPerSecond(#[serde(serialize_with = "round4")] pub f32);
 
 /// Meters per second squared (acceleration)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct MetersPerSecondSquared(pub f32);
+pub struct MetersPerSecondSquared(#[serde(serialize_with = "round4")] pub f32);
 
 /// Radians
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Radians(pub f32);
+pub struct Radians(#[serde(serialize_with = "round4")] pub f32);
 
 /// Radians per second
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct RadiansPerSecond(pub f32);
+pub struct RadiansPerSecond(#[serde(serialize_with = "round4")] pub f32);
 
 /// Radians per second squared
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct RadiansPerSecondSquared(pub f32);
+pub struct RadiansPerSecondSquared(#[serde(serialize_with = "round4")] pub f32);
 
 /// Revolutions per minute
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Rpm(pub f32);
+pub struct Rpm(#[serde(serialize_with = "round4")] pub f32);
 
 /// Kilograms
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Kilograms(pub f32);
+pub struct Kilograms(#[serde(serialize_with = "round4")] pub f32);
 
 /// Newtons
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Newtons(pub f32);
+pub struct Newtons(#[serde(serialize_with = "round4")] pub f32);
 
 /// Celsius
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Celsius(pub f32);
+pub struct Celsius(#[serde(serialize_with = "round4")] pub f32);
 
 /// Pascals (pressure)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Pascals(pub f32);
+pub struct Pascals(#[serde(serialize_with = "round4")] pub f32);
 
 /// Kilopascals (pressure)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Kilopascals(pub f32);
+pub struct Kilopascals(#[serde(serialize_with = "round4")] pub f32);
 
 /// Percentage (0.0 to 1.0)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Percentage(pub f32);
+pub struct Percentage(#[serde(serialize_with = "round4")] pub f32);
 
 impl Percentage {
     /// Create a new percentage, clamping to [0.0, 1.0]
@@ -71,11 +78,11 @@ impl Percentage {
 
 /// Seconds (timestamps, durations)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Seconds(pub f32);
+pub struct Seconds(#[serde(serialize_with = "round4")] pub f32);
 
 /// G-force (multiples of gravitational acceleration)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct GForce(pub f32);
+pub struct GForce(#[serde(serialize_with = "round4")] pub f32);
 
 impl GForce {
     pub fn from_acceleration(accel: MetersPerSecondSquared) -> Self {
@@ -86,24 +93,24 @@ impl GForce {
 
 /// Liters (volume, primarily for fuel)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Liters(pub f32);
+pub struct Liters(#[serde(serialize_with = "round4")] pub f32);
 
 /// Liters per hour (fuel consumption rate)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct LitersPerHour(pub f32);
+pub struct LitersPerHour(#[serde(serialize_with = "round4")] pub f32);
 
 /// Volts (electrical)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Volts(pub f32);
+pub struct Volts(#[serde(serialize_with = "round4")] pub f32);
 
 /// Bar (pressure, typically manifold pressure)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Bar(pub f32);
+pub struct Bar(#[serde(serialize_with = "round4")] pub f32);
 
 /// Newton-meters (torque)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct NewtonMeters(pub f32);
+pub struct NewtonMeters(#[serde(serialize_with = "round4")] pub f32);
 
 /// Kilograms per cubic meter (density)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct KilogramsPerCubicMeter(pub f32);
+pub struct KilogramsPerCubicMeter(#[serde(serialize_with = "round4")] pub f32);
