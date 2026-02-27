@@ -1315,6 +1315,40 @@ body {
 .replay-lap-num { white-space: nowrap; }
 .replay-lap-time { font-family: var(--font-mono); white-space: nowrap; }
 
+/* Loop controls */
+.replay-loop-group {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+}
+.replay-loop-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    padding: 2px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.65rem;
+    font-weight: 600;
+}
+.replay-loop-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.replay-loop-btn.active { border-color: var(--accent); color: var(--accent); }
+.replay-loop-btn.loop-on { background: var(--accent); border-color: var(--accent); color: #000; }
+
+/* Loop region overlay on seek slider */
+.replay-loop-region {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 8px;
+    background: rgba(0, 214, 143, 0.2);
+    border-left: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+    pointer-events: none;
+    z-index: 1;
+    border-radius: 2px;
+}
+
 /* Slider lap tick marks */
 .replay-lap-tick {
     position: absolute;

@@ -9,6 +9,12 @@ class ReplayPlayer {
         this.laps = [];
         this._currentLapIdx = -1;
 
+        // Loop state
+        this.loopStart = null;
+        this.loopEnd = null;
+        this.loopEnabled = false;
+        this._loopRegionEl = null;
+
         this.badge = document.getElementById('mode-badge');
         this.bar = document.getElementById('replay-bar');
         this.trackEl = document.getElementById('replay-track');
@@ -21,6 +27,9 @@ class ReplayPlayer {
         this.lapGroup = document.getElementById('replay-lap-group');
         this.lapBtn = document.getElementById('replay-lap-btn');
         this.lapMenu = document.getElementById('replay-lap-menu');
+        this.loopStartBtn = document.getElementById('replay-loop-start');
+        this.loopEndBtn = document.getElementById('replay-loop-end');
+        this.loopToggleBtn = document.getElementById('replay-loop-toggle');
 
         this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
         this.seekSlider.addEventListener('input', (e) => this.onSeekInput(e.target.value));
@@ -29,6 +38,9 @@ class ReplayPlayer {
         this.lapBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleLapMenu(); });
         document.addEventListener('click', () => this.closeLapMenu());
         this.lapMenu.addEventListener('click', (e) => e.stopPropagation());
+        this.loopStartBtn.addEventListener('click', () => this.setLoopStart());
+        this.loopEndBtn.addEventListener('click', () => this.setLoopEnd());
+        this.loopToggleBtn.addEventListener('click', () => this.toggleLoop());
 
         document.querySelectorAll('.speed-btn').forEach(btn => {
             btn.addEventListener('click', () => this.setSpeed(parseFloat(btn.dataset.speed)));
@@ -90,6 +102,7 @@ class ReplayPlayer {
             // Fetch initial chunks around cursor with field mask
             await this.buf.ensureLoaded(buildReplayFieldMask());
         }
+        this.clearLoop();
         this.updateSpeedButtons();
         this.updateControlsFromBuf();
         if (typeof updateStatus === 'function') updateStatus();
@@ -197,6 +210,84 @@ class ReplayPlayer {
         if (cur) cur.scrollIntoView({ block: 'nearest' });
     }
 
+    // Loop marker controls
+    setLoopStart() {
+        if (this.loopStart === this.buf.cursor) {
+            this.loopStart = null;
+            if (this.loopEnabled) this.loopEnabled = false;
+        } else {
+            this.loopStart = this.buf.cursor;
+            // Auto-swap if start >= end
+            if (this.loopEnd != null && this.loopStart >= this.loopEnd) {
+                [this.loopStart, this.loopEnd] = [this.loopEnd, this.loopStart];
+            }
+        }
+        this._syncLoopToBuf();
+        this.updateLoopUI();
+    }
+
+    setLoopEnd() {
+        if (this.loopEnd === this.buf.cursor) {
+            this.loopEnd = null;
+            if (this.loopEnabled) this.loopEnabled = false;
+        } else {
+            this.loopEnd = this.buf.cursor;
+            // Auto-swap if start >= end
+            if (this.loopStart != null && this.loopStart >= this.loopEnd) {
+                [this.loopStart, this.loopEnd] = [this.loopEnd, this.loopStart];
+            }
+        }
+        this._syncLoopToBuf();
+        this.updateLoopUI();
+    }
+
+    toggleLoop() {
+        if (this.loopStart == null || this.loopEnd == null) return;
+        this.loopEnabled = !this.loopEnabled;
+        this._syncLoopToBuf();
+        this.updateLoopUI();
+    }
+
+    _syncLoopToBuf() {
+        this.buf.loopStart = this.loopStart;
+        this.buf.loopEnd = this.loopEnd;
+        this.buf.loopEnabled = this.loopEnabled;
+    }
+
+    clearLoop() {
+        this.loopStart = null;
+        this.loopEnd = null;
+        this.loopEnabled = false;
+        this._syncLoopToBuf();
+        this.updateLoopUI();
+    }
+
+    updateLoopUI() {
+        const hasStart = this.loopStart != null;
+        const hasEnd = this.loopEnd != null;
+        this.loopStartBtn.classList.toggle('active', hasStart);
+        this.loopEndBtn.classList.toggle('active', hasEnd);
+        this.loopToggleBtn.classList.toggle('loop-on', this.loopEnabled);
+        this.loopToggleBtn.style.opacity = (hasStart && hasEnd) ? '' : '0.4';
+
+        // Update or remove slider overlay
+        if (hasStart && hasEnd && this.info) {
+            const total = this.info.total_frames;
+            const leftPct = (this.loopStart / total) * 100;
+            const rightPct = (this.loopEnd / total) * 100;
+            if (!this._loopRegionEl) {
+                this._loopRegionEl = document.createElement('div');
+                this._loopRegionEl.className = 'replay-loop-region';
+                this.seekWrap.appendChild(this._loopRegionEl);
+            }
+            this._loopRegionEl.style.left = leftPct + '%';
+            this._loopRegionEl.style.width = (rightPct - leftPct) + '%';
+        } else if (this._loopRegionEl) {
+            this._loopRegionEl.remove();
+            this._loopRegionEl = null;
+        }
+    }
+
     exitReplayMode() {
         this.badge.style.display = 'none';
         this.bar.classList.remove('active');
@@ -204,6 +295,7 @@ class ReplayPlayer {
         this.info = null;
         this.laps = [];
         this.lapGroup.style.display = 'none';
+        this.clearLoop();
         this.buf.reset();
         // Clean up tick marks
         this.seekWrap.querySelectorAll('.replay-lap-tick').forEach(t => t.remove());

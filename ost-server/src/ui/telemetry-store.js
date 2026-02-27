@@ -112,6 +112,9 @@ class ReplayBuffer {
         this._abortController = null; // AbortController for cancelling stale fetches
         this.scrubbing = false;       // True during active slider drag
         this.replayId = null;         // Replay ID for cache-busted URLs
+        this.loopStart = null;        // Loop start frame (null = not set)
+        this.loopEnd = null;          // Loop end frame (null = not set)
+        this.loopEnabled = false;     // Whether loop playback is active
     }
 
     // Sim-time in ms for a frame index
@@ -332,7 +335,17 @@ class ReplayBuffer {
             Math.round(this.cursor + framesToAdvance),
             this.totalFrames - 1
         );
-        if (this.cursor >= this.totalFrames - 1) {
+        // Loop wrap: when cursor passes loop end, jump back to loop start
+        if (this.loopEnabled && this.loopEnd != null && this.cursor >= this.loopEnd) {
+            this.cursor = this.loopStart || 0;
+            this._lastPlayTick = null; // prevent frame burst after seek
+            // Sync server position (fire-and-forget)
+            fetch('/api/replay/control', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'seek', value: this.cursor })
+            }).catch(() => {});
+        } else if (this.cursor >= this.totalFrames - 1) {
             this.playing = false;
         }
         this._dirty = true;
@@ -349,6 +362,9 @@ class ReplayBuffer {
         if (this._abortController) { this._abortController.abort(); this._abortController = null; }
         this.scrubbing = false;
         this.replayId = null;
+        this.loopStart = null;
+        this.loopEnd = null;
+        this.loopEnabled = false;
     }
 }
 
