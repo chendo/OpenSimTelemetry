@@ -20,5 +20,8 @@ Cargo.lock
 .env
 .env.local
 
+# Generated UI (built from ost-server/src/ui/ source files by build.rs)
+ost-server/src/ui.html
+
 # Temporary cloned repos
 .iracing-rs/

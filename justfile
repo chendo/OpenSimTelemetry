@@ -1,5 +1,7 @@
 # OpenSimTelemetry build recipes
 
+export PATH := env("HOME") + "/.cargo/bin:" + env("PATH")
+
 # Default: list available recipes
 default:
     @just --list

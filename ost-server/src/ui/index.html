@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenSimTelemetry</title>
+    <link href="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack.min.css" rel="stylesheet"/>
+    <script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
+    <style>
+/* __STYLES__ */
+    </style>
+</head>
+<body>
+    <!-- Drop overlay (shown when dragging .ibt over page) -->
+    <div class="drop-overlay" id="drop-overlay">
+        <div class="drop-overlay-content">
+            <div class="drop-overlay-icon">&#128190;</div>
+            <div class="drop-overlay-text">Drop .ibt file to start replay</div>
+            <div class="drop-overlay-hint">iRacing telemetry files supported</div>
+        </div>
+    </div>
+
+    <!-- Upload progress overlay -->
+    <div class="upload-overlay" id="upload-overlay">
+        <div class="upload-progress">
+            <div class="upload-spinner"></div>
+            <div id="upload-status">Uploading .ibt file...</div>
+        </div>
+    </div>
+
+    <header class="header-bar">
+        <span class="header-logo">
+            <span class="logo-open">OPEN</span><span class="logo-sim">SIM</span><span class="logo-tel">TELEMETRY</span>
+            <span class="mode-badge mode-live" id="mode-badge">LIVE</span>
+        </span>
+        <div class="header-right">
+            <span class="header-conn" id="header-conn">
+                <span class="status-dot dot-inactive"></span>
+                <span>Connecting</span>
+            </span>
+            <div class="header-adapters" id="header-adapters"></div>
+            <button class="header-reset-btn" id="header-pause-btn">Pause</button>
+            <button class="header-reset-btn" id="header-add-graph">+ Add Graph</button>
+            <button class="header-reset-btn" id="header-reset-layout">Reset Layout</button>
+        </div>
+    </header>
+
+    <!-- Replay controls bar (hidden unless replay active) -->
+    <div class="replay-bar" id="replay-bar">
+        <div class="replay-track-info">
+            <strong id="replay-track">--</strong>
+            <span> | </span>
+            <span id="replay-car">--</span>
+        </div>
+        <button class="replay-btn" id="replay-play-pause" title="Play/Pause">&#9654;</button>
+        <input type="range" class="replay-seek" id="replay-seek" min="0" max="1000" value="0">
+        <div class="replay-time" id="replay-time">0:00.0 / 0:00.0</div>
+        <div class="replay-speed-group">
+            <button class="speed-btn" data-speed="0.25">0.25x</button>
+            <button class="speed-btn" data-speed="0.5">0.5x</button>
+            <button class="speed-btn active" data-speed="1">1x</button>
+            <button class="speed-btn" data-speed="2">2x</button>
+            <button class="speed-btn" data-speed="4">4x</button>
+        </div>
+        <button class="replay-exit-btn" id="replay-exit">EXIT REPLAY</button>
+    </div>
+
+    <div id="dashboard-grid" class="grid-stack"></div>
+
+    <script>
+/* __SCRIPTS__ */
+    </script>
+</body>
+</html>
