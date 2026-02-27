@@ -22,6 +22,32 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
 
+/// Round all floating-point numbers in a JSON value tree to 5 decimal places.
+fn round_json_floats(val: &mut serde_json::Value) {
+    match val {
+        serde_json::Value::Number(n) => {
+            if let Some(f) = n.as_f64() {
+                // Only round actual floats (skip integers)
+                if n.is_f64() {
+                    let rounded = (f * 100_000.0).round() / 100_000.0;
+                    *val = serde_json::json!(rounded);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                round_json_floats(item);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (_, v) in map.iter_mut() {
+                round_json_floats(v);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Create the main application router
 pub fn create_router(state: AppState) -> Router {
     Router::new()
@@ -522,12 +548,13 @@ async fn replay_frames(
     let json_frames: Vec<serde_json::Value> = frames
         .into_iter()
         .map(|(idx, frame)| {
-            let f_val = if let Some(ref mask) = field_mask {
+            let mut f_val = if let Some(ref mask) = field_mask {
                 let json_str = frame.to_json_filtered(Some(mask)).unwrap_or_default();
                 serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null)
             } else {
                 serde_json::to_value(&frame).unwrap_or(serde_json::Value::Null)
             };
+            round_json_floats(&mut f_val);
             serde_json::json!({
                 "i": idx,
                 "f": f_val
