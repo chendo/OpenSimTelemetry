@@ -1,5 +1,6 @@
 /* ==================== Initialization ==================== */
 const store = new TelemetryStore();
+const computedMetrics = new ComputedMetricsManager();
 const replayBuf = new ReplayBuffer();
 const historyBuf = new ReplayBuffer();
 let historyMode = false;
@@ -201,6 +202,9 @@ pauseBtn.addEventListener('click', () => {
 
 // Reset layout button
 document.getElementById('header-reset-layout').addEventListener('click', () => grid.resetLayout());
+
+// Computed metrics button
+document.getElementById('header-computed-metrics').addEventListener('click', () => computedMetrics.openListModal());
 
 // Load .ibt button
 const ibtFileInput = document.getElementById('ibt-file-input');

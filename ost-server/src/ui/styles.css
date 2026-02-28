@@ -1593,3 +1593,155 @@ body {
     flex-shrink: 0;
 }
 .replay-exit-btn:hover { background: #ef4444; }
+
+/* ==================== Computed Metrics Modal ==================== */
+.cm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 500;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.cm-modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 20px 24px;
+    width: 420px;
+    max-width: 90vw;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.cm-modal-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.cm-form-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+.cm-form-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    min-width: 48px;
+    flex-shrink: 0;
+    margin-bottom: 4px;
+}
+.cm-form-input {
+    flex: 1;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-family: var(--font-family);
+}
+.cm-form-input:focus { outline: none; border-color: var(--accent); }
+.cm-color-input {
+    width: 40px;
+    height: 28px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+}
+.cm-code-input {
+    width: 100%;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    resize: vertical;
+    margin-bottom: 6px;
+}
+.cm-code-input:focus { outline: none; border-color: var(--accent); }
+.cm-error {
+    font-size: 0.7rem;
+    color: #ff4757;
+    min-height: 18px;
+    margin-bottom: 4px;
+}
+.cm-test-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.cm-test-result {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--accent);
+}
+.cm-btn-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.cm-btn {
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: none;
+}
+.cm-btn-cancel { background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); }
+.cm-btn-cancel:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+.cm-btn-save { background: var(--accent); color: var(--bg-primary); }
+.cm-btn-save:hover { opacity: 0.85; }
+.cm-btn-test { background: var(--bg-inset); border: 1px solid var(--border-color); color: var(--text-secondary); }
+.cm-btn-test:hover { border-color: var(--accent); color: var(--accent); }
+.cm-btn-edit { background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); padding: 3px 8px; font-size: 0.6rem; }
+.cm-btn-edit:hover { border-color: var(--accent); color: var(--accent); }
+.cm-btn-del { background: transparent; border: 1px solid #ff4757; color: #ff4757; padding: 3px 8px; font-size: 0.6rem; }
+.cm-btn-del:hover { background: #ff4757; color: white; }
+
+/* Computed metrics list */
+.cm-list {
+    margin-bottom: 12px;
+}
+.cm-list-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--bg-inset);
+    border-radius: 4px;
+    margin-bottom: 4px;
+}
+.cm-list-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.cm-list-name {
+    flex: 1;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.cm-list-unit {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    min-width: 30px;
+}

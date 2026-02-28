@@ -311,8 +311,38 @@ class GraphWidget extends Widget {
             list.innerHTML = '';
             const hasPattern = filter && isPatternFilter(filter);
 
-            // Preset metrics section (show un-enabled presets)
-            const presetEntries = Object.entries(GRAPH_METRICS).filter(([key]) => !alreadyAdded.has(key));
+            // Computed metrics section
+            const computedEntries = Object.entries(GRAPH_METRICS).filter(([key]) => key.startsWith('computed:'));
+            const filteredComputed = filter
+                ? computedEntries.filter(([key, m]) => matchMetricFilter(key, filter) || matchMetricFilter(m.label, filter))
+                : computedEntries;
+            if (filteredComputed.length > 0) {
+                const hdr = document.createElement('div');
+                hdr.className = 'metric-picker-section';
+                hdr.textContent = 'Computed';
+                list.appendChild(hdr);
+                for (const [key, metric] of filteredComputed) {
+                    const added = alreadyAdded.has(key);
+                    const item = document.createElement('div');
+                    item.className = 'metric-picker-item' + (added ? ' dimmed' : '');
+                    let valHtml = '';
+                    try {
+                        const extract = metric.extract(frame);
+                        if (extract != null && typeof extract === 'number') {
+                            const val = Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2);
+                            valHtml = `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>`;
+                        }
+                    } catch (e) { /* ignore runtime errors */ }
+                    item.innerHTML = `<span class="metric-picker-path">${metric.label}</span>${valHtml}`;
+                    if (!added) {
+                        item.addEventListener('click', () => { this.addCustomMetric(key); this.closeMetricPicker(); });
+                    }
+                    list.appendChild(item);
+                }
+            }
+
+            // Preset metrics section (show un-enabled presets, excluding computed)
+            const presetEntries = Object.entries(GRAPH_METRICS).filter(([key]) => !key.startsWith('computed:') && !alreadyAdded.has(key));
             const filteredPresets = filter ? presetEntries.filter(([key, m]) => matchMetricFilter(key, filter) || matchMetricFilter(m.label, filter)) : presetEntries;
             if (filteredPresets.length > 0) {
                 const hdr = document.createElement('div');

@@ -14,6 +14,7 @@ fn main() {
     let css = fs::read_to_string(ui_dir.join("styles.css")).unwrap();
     let js_files = [
         "constants.js",
+        "computed-metrics.js",
         "telemetry-store.js",
         "widgets-base.js",
         "widgets-vehicle.js",
