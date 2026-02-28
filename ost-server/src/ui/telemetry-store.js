@@ -110,6 +110,7 @@ class ReplayBuffer {
         this._chunkSize = 300;        // frames per chunk (tickRate * 5, set in enterReplayMode)
         this._maxCacheFrames = 10800; // max cached frames (tickRate * 180, set in enterReplayMode)
         this._fetchingChunks = new Set(); // in-flight chunk indices
+        this._ensureLoadedRunning = false; // reentrant guard for ensureLoaded
         this._fetchDebounce = null;
         this._dirty = false;
         this._lastPlayTick = null;
@@ -253,34 +254,42 @@ class ReplayBuffer {
 
     // Main entry point: ensure cursor's region is loaded, prefetch adjacent chunks
     async ensureLoaded(metrics) {
-        // Create a fresh controller if none exists or previous was aborted
-        if (!this._abortController || this._abortController.signal.aborted) {
-            this._abortController = new AbortController();
-        }
-        const signal = this._abortController.signal;
+        // Reentrant guard: renderLoop calls this every frame without awaiting,
+        // so prevent concurrent executions from piling up requests.
+        if (this._ensureLoadedRunning) return;
+        this._ensureLoadedRunning = true;
+        try {
+            // Create a fresh controller if none exists or previous was aborted
+            if (!this._abortController || this._abortController.signal.aborted) {
+                this._abortController = new AbortController();
+            }
+            const signal = this._abortController.signal;
 
-        const cursorChunk = this._chunkIndex(this.cursor);
-        // Await cursor chunk so UI can render immediately
-        await this._fetchChunk(cursorChunk, metrics, signal);
+            const cursorChunk = this._chunkIndex(this.cursor);
+            // Await cursor chunk so UI can render immediately
+            await this._fetchChunk(cursorChunk, metrics, signal);
 
-        const maxChunk = this._chunkIndex(this.totalFrames - 1);
+            const maxChunk = this._chunkIndex(this.totalFrames - 1);
 
-        // Always fetch the visible viewport (~35s each side of cursor)
-        // During playback, also prefetch 60s ahead for smooth scrolling
-        const viewportSecs = 35;
-        const viewportChunks = Math.ceil((this.tickRate * viewportSecs) / this._chunkSize);
+            // Always fetch the visible viewport (~35s each side of cursor)
+            // During playback, also prefetch 60s ahead for smooth scrolling
+            const viewportSecs = 35;
+            const viewportChunks = Math.ceil((this.tickRate * viewportSecs) / this._chunkSize);
 
-        for (let i = 1; i <= viewportChunks; i++) {
-            const behind = cursorChunk - i;
-            if (behind >= 0) this._fetchChunk(behind, metrics, signal);
-        }
+            for (let i = 1; i <= viewportChunks; i++) {
+                const behind = cursorChunk - i;
+                if (behind >= 0) this._fetchChunk(behind, metrics, signal);
+            }
 
-        const aheadChunks = this.scrubbing
-            ? viewportChunks
-            : viewportChunks + Math.ceil((this.tickRate * 60) / this._chunkSize);
-        for (let i = 1; i <= aheadChunks; i++) {
-            const ahead = cursorChunk + i;
-            if (ahead <= maxChunk) this._fetchChunk(ahead, metrics, signal);
+            const aheadChunks = this.scrubbing
+                ? viewportChunks
+                : viewportChunks + Math.ceil((this.tickRate * 60) / this._chunkSize);
+            for (let i = 1; i <= aheadChunks; i++) {
+                const ahead = cursorChunk + i;
+                if (ahead <= maxChunk) this._fetchChunk(ahead, metrics, signal);
+            }
+        } finally {
+            this._ensureLoadedRunning = false;
         }
     }
 
@@ -355,6 +364,7 @@ class ReplayBuffer {
         this.playing = false;
         this._lastPlayTick = null;
         this._dirty = false;
+        this._ensureLoadedRunning = false;
         if (this._abortController) { this._abortController.abort(); this._abortController = null; }
         this.scrubbing = false;
         this.replayId = null;
