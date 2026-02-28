@@ -633,6 +633,13 @@ body {
     margin-left: 2px;
 }
 
+.gforce-max {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    margin-left: 6px;
+    font-weight: 400;
+}
+
 /* ==================== Graph Widget ==================== */
 .graph-layout {
     display: flex;

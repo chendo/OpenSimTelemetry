@@ -180,6 +180,11 @@ class GForceWidget extends Widget {
         this._trailHead = 0;
         this._trailCount = 0;
         this.gScale = 2.0;
+        this._history = [];
+        this._maxLat = 0;
+        this._maxLong = 0;
+        this._maxLatPt = null;
+        this._maxLongPt = null;
     }
 
     buildContent(c) {
@@ -187,15 +192,16 @@ class GForceWidget extends Widget {
             <div class="gforce-layout">
                 <div class="gforce-canvas-wrap"><canvas id="gf-canvas"></canvas></div>
                 <div class="gforce-readouts">
-                    <div class="gforce-cell"><div class="metric-label">LAT G</div><div class="gforce-val"><span id="gf-lat-num">0.00</span><span class="gforce-val-unit">G</span></div></div>
-                    <div class="gforce-cell"><div class="metric-label">LONG G</div><div class="gforce-val"><span id="gf-long-num">0.00</span><span class="gforce-val-unit">G</span></div></div>
+                    <div class="gforce-cell"><div class="metric-label">LAT G</div><div class="gforce-val"><span id="gf-lat-num">0.00</span><span class="gforce-val-unit">G</span><span class="gforce-max" id="gf-lat-max">--</span></div></div>
+                    <div class="gforce-cell"><div class="metric-label">LONG G</div><div class="gforce-val"><span id="gf-long-num">0.00</span><span class="gforce-val-unit">G</span><span class="gforce-max" id="gf-long-max">--</span></div></div>
                     <div class="gforce-cell"><div class="metric-label">VERT G</div><div class="gforce-val"><span id="gf-vert-num">0.00</span><span class="gforce-val-unit">G</span></div></div>
                     <div class="gforce-cell"><div class="metric-label">YAW RATE</div><div class="gforce-val"><span id="gf-yaw-num">0.0</span><span class="gforce-val-unit">&deg;/s</span></div></div>
                 </div>
             </div>`;
         this.canvas = c.querySelector('#gf-canvas');
         this.ctx = this.canvas.getContext('2d');
-        this._cache(c, { lat: '#gf-lat-num', long: '#gf-long-num', vert: '#gf-vert-num', yaw: '#gf-yaw-num' });
+        this._cache(c, { lat: '#gf-lat-num', long: '#gf-long-num', vert: '#gf-vert-num', yaw: '#gf-yaw-num',
+            latMax: '#gf-lat-max', longMax: '#gf-long-max' });
     }
 
     _cache(c, map) { this.valEls = {}; for (const [k, sel] of Object.entries(map)) this.valEls[k] = c.querySelector(sel); }
@@ -209,9 +215,27 @@ class GForceWidget extends Widget {
         this._trailHead = (this._trailHead + 1) % this.trailMax;
         if (this._trailCount < this.trailMax) this._trailCount++;
 
+        // 60s max tracking
+        this._history.push({ t: now, lat: gx, long: gz });
+        const cutoff = now - 60000;
+        while (this._history.length > 0 && this._history[0].t < cutoff) this._history.shift();
+        let maxLat = 0, maxLong = 0, maxLatPt = null, maxLongPt = null;
+        for (const h of this._history) {
+            const aLat = Math.abs(h.lat);
+            if (aLat > maxLat) { maxLat = aLat; maxLatPt = { x: h.lat, y: h.long }; }
+            const aLong = Math.abs(h.long);
+            if (aLong > maxLong) { maxLong = aLong; maxLongPt = { x: h.lat, y: h.long }; }
+        }
+        this._maxLat = maxLat;
+        this._maxLong = maxLong;
+        this._maxLatPt = maxLatPt;
+        this._maxLongPt = maxLongPt;
+
         this.valEls.lat.textContent = gx.toFixed(2);
         this.valEls.long.textContent = gz.toFixed(2);
         this.valEls.vert.textContent = gy.toFixed(2);
+        this.valEls.latMax.textContent = maxLat > 0 ? 'max ' + maxLat.toFixed(2) : '--';
+        this.valEls.longMax.textContent = maxLong > 0 ? 'max ' + maxLong.toFixed(2) : '--';
         const yawRate = (f.motion?.angular_velocity?.y ?? 0) * RAD2DEG;
         this.valEls.yaw.textContent = yawRate.toFixed(1);
 
@@ -274,6 +298,21 @@ class GForceWidget extends Widget {
             ctx.fillStyle = 'rgba(0,214,143,0.3)'; ctx.fill();
             ctx.beginPath(); ctx.arc(p.px, p.py, 4, 0, Math.PI * 2);
             ctx.fillStyle = '#00d68f'; ctx.fill();
+        }
+
+        // Max G markers (orange hollow circles)
+        const drawMaxMarker = (pt) => {
+            if (!pt) return;
+            const p = toP(pt.x, pt.y);
+            ctx.beginPath(); ctx.arc(p.px, p.py, 4, 0, Math.PI * 2);
+            ctx.strokeStyle = '#ffa502'; ctx.lineWidth = 1.5; ctx.stroke();
+        };
+        if (this._maxLatPt && this._maxLongPt &&
+            this._maxLatPt.x === this._maxLongPt.x && this._maxLatPt.y === this._maxLongPt.y) {
+            drawMaxMarker(this._maxLatPt);
+        } else {
+            drawMaxMarker(this._maxLatPt);
+            drawMaxMarker(this._maxLongPt);
         }
     }
 }
