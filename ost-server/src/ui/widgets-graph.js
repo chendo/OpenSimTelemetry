@@ -502,11 +502,13 @@ class GraphWidget extends Widget {
         }
         if (traces.length === 0 && boolTraces.length === 0) { ctx.clearRect(0, 0, w, h); return; }
 
-        // Compute time range — for replay, derive from frame indices (entries may be null)
+        // Compute time range — for replay, always use the full desired window
+        // centered on cursor so the timescale doesn't shrink at boundaries
         let tMin, tMax;
         if (isReplay && replayBuf) {
-            tMin = replayBuf.simTimeMs(windowFrom);
-            tMax = replayBuf.simTimeMs(windowFrom + dataCount - 1);
+            const centerTime = replayBuf.simTimeMs(replayBuf.cursor);
+            tMin = centerTime - this.timeWindowMs / 2;
+            tMax = centerTime + this.timeWindowMs / 2;
         } else {
             tMin = getEntry(0).t;
             tMax = getEntry(dataCount - 1).t;
