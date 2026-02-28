@@ -70,9 +70,13 @@ const GRAPH_METRIC_PATHS = {};
 function buildReplayMetricMask() {
     const metrics = new Set();
     // Static widgets
-    metrics.add('vehicle');  // VehicleWidget needs the whole section
-    metrics.add('motion');   // GForceWidget needs the whole section
-    metrics.add('timing');   // LapTimingWidget needs the whole section
+    metrics.add('vehicle');      // VehicleWidget
+    metrics.add('motion');       // GForceWidget
+    metrics.add('wheels');       // WheelsWidget
+    metrics.add('timing');       // LapTimingWidget
+    metrics.add('session');      // SessionWidget
+    metrics.add('weather');      // SessionWidget (track_temp, air_temp)
+    metrics.add('electronics');  // (ABS active, etc.)
     // Collect individual paths from graph widgets
     if (typeof grid !== 'undefined') {
         for (const w of grid.widgets.values()) {
