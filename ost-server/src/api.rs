@@ -60,26 +60,41 @@ fn round_json_floats(val: &mut serde_json::Value) {
     }
 }
 
-/// Auth middleware: checks token on /api/ routes when auth is configured.
+/// Check if a Basic auth header matches the token (password field).
+fn check_basic_auth(auth_header: &str, token: &str) -> bool {
+    if let Some(encoded) = auth_header.strip_prefix("Basic ") {
+        use base64::Engine;
+        if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(encoded) {
+            if let Ok(credentials) = std::str::from_utf8(&decoded) {
+                // Format is "username:password" — we only check the password
+                if let Some(password) = credentials.split_once(':').map(|(_, p)| p) {
+                    return password == token;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Auth middleware: checks token on all routes when auth is configured.
+/// Supports Bearer token, Basic auth, and ?token= query parameter.
+/// The UI page (/) triggers a browser Basic auth prompt on 401.
 async fn auth_middleware(
     State(state): State<AppState>,
     req: axum::http::Request<axum::body::Body>,
     next: Next,
-) -> Result<axum::response::Response, StatusCode> {
+) -> Result<axum::response::Response, axum::response::Response> {
     let token = match &state.auth_token {
         Some(t) => t,
         None => return Ok(next.run(req).await),
     };
 
-    // Skip auth for the UI page itself
-    if req.uri().path() == "/" {
-        return Ok(next.run(req).await);
-    }
-
-    // Check Authorization header
+    // Check Authorization header (Bearer or Basic)
     if let Some(auth) = req.headers().get(header::AUTHORIZATION) {
         if let Ok(val) = auth.to_str() {
-            if val.strip_prefix("Bearer ").is_some_and(|t| t == token) {
+            if val.strip_prefix("Bearer ").is_some_and(|t| t == token)
+                || check_basic_auth(val, token)
+            {
                 return Ok(next.run(req).await);
             }
         }
@@ -96,7 +111,12 @@ async fn auth_middleware(
         }
     }
 
-    Err(StatusCode::UNAUTHORIZED)
+    // Return 401 with WWW-Authenticate header to trigger browser Basic auth prompt
+    Err((
+        StatusCode::UNAUTHORIZED,
+        [(header::WWW_AUTHENTICATE, "Basic realm=\"OpenSimTelemetry\"")],
+    )
+        .into_response())
 }
 
 /// Create the main application router

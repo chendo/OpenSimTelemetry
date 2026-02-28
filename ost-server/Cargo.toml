@@ -36,6 +36,9 @@ tokio-util = "0.7"
 zstd = "0.13"
 dirs = { workspace = true }
 
+# For HTTP Basic auth decoding
+base64 = "0.22"
+
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
