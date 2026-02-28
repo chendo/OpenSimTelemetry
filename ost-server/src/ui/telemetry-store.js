@@ -266,27 +266,28 @@ class ReplayBuffer {
             const signal = this._abortController.signal;
 
             const cursorChunk = this._chunkIndex(this.cursor);
-            // Await cursor chunk so UI can render immediately
-            await this._fetchChunk(cursorChunk, metrics, signal);
-
             const maxChunk = this._chunkIndex(this.totalFrames - 1);
 
-            // Always fetch the visible viewport (~35s each side of cursor)
-            // During playback, also prefetch 60s ahead for smooth scrolling
+            // Await all viewport chunks in parallel so graph has full data
+            // before rendering (cached chunks return instantly from _fetchChunk)
             const viewportSecs = 35;
             const viewportChunks = Math.ceil((this.tickRate * viewportSecs) / this._chunkSize);
-
+            const viewportPromises = [this._fetchChunk(cursorChunk, metrics, signal)];
             for (let i = 1; i <= viewportChunks; i++) {
-                const behind = cursorChunk - i;
-                if (behind >= 0) this._fetchChunk(behind, metrics, signal);
+                if (cursorChunk - i >= 0)
+                    viewportPromises.push(this._fetchChunk(cursorChunk - i, metrics, signal));
+                if (cursorChunk + i <= maxChunk)
+                    viewportPromises.push(this._fetchChunk(cursorChunk + i, metrics, signal));
             }
+            await Promise.all(viewportPromises);
 
-            const aheadChunks = this.scrubbing
-                ? viewportChunks
-                : viewportChunks + Math.ceil((this.tickRate * 60) / this._chunkSize);
-            for (let i = 1; i <= aheadChunks; i++) {
-                const ahead = cursorChunk + i;
-                if (ahead <= maxChunk) this._fetchChunk(ahead, metrics, signal);
+            // Fire-and-forget: prefetch 60s ahead during playback for smooth scrolling
+            if (!this.scrubbing) {
+                const extraAhead = Math.ceil((this.tickRate * 60) / this._chunkSize);
+                for (let i = viewportChunks + 1; i <= viewportChunks + extraAhead; i++) {
+                    if (cursorChunk + i <= maxChunk)
+                        this._fetchChunk(cursorChunk + i, metrics, signal);
+                }
             }
         } finally {
             this._ensureLoadedRunning = false;
