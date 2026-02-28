@@ -394,7 +394,8 @@ class WheelsWidget extends Widget {
                 </div>`;
                 }).join('')}
                 <div class="wheel-car-shape"></div>
-            </div>`;
+            </div>
+            <div class="wheel-warning">Not all sims provide data for every metric shown here</div>`;
 
         this.wEls = {};
         for (const w of corners) {
