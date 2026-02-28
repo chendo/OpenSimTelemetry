@@ -8,7 +8,7 @@ use hyper::Request;
 use ost_core::TelemetryAdapter;
 use ost_server::{
     api::create_router,
-    state::{AppState, SinkConfig, SinkType},
+    state::{AppState, SinkConfig},
 };
 use tower::ServiceExt;
 
@@ -158,10 +158,9 @@ async fn test_create_sink_returns_201() {
 
     let sink_json = serde_json::json!({
         "id": "test-sink-1",
-        "sink_type": {
-            "type": "http",
-            "url": "http://localhost:8080/telemetry"
-        },
+        "host": "127.0.0.1",
+        "port": 9200,
+        "update_rate_hz": 60.0,
         "metric_mask": null
     });
 
@@ -194,11 +193,9 @@ async fn test_create_sink_generates_id_when_empty() {
 
     let sink_json = serde_json::json!({
         "id": "",
-        "sink_type": {
-            "type": "udp",
-            "host": "127.0.0.1",
-            "port": 9200
-        },
+        "host": "127.0.0.1",
+        "port": 9200,
+        "update_rate_hz": 30.0,
         "metric_mask": null
     });
 
@@ -238,9 +235,9 @@ async fn test_create_then_list_sinks() {
         let mut sinks = state.sinks.write().await;
         sinks.push(SinkConfig {
             id: "test-sink-1".to_string(),
-            sink_type: SinkType::Http {
-                url: "http://localhost:8080/telemetry".to_string(),
-            },
+            host: "127.0.0.1".to_string(),
+            port: 9200,
+            update_rate_hz: Some(60.0),
             metric_mask: None,
         });
     }
@@ -277,9 +274,9 @@ async fn test_delete_sink_returns_204() {
         let mut sinks = state.sinks.write().await;
         sinks.push(SinkConfig {
             id: "to-delete".to_string(),
-            sink_type: SinkType::Http {
-                url: "http://localhost:8080".to_string(),
-            },
+            host: "127.0.0.1".to_string(),
+            port: 9200,
+            update_rate_hz: Some(60.0),
             metric_mask: None,
         });
     }

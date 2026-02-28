@@ -51,16 +51,10 @@ pub struct AppState {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SinkConfig {
     pub id: String,
-    pub sink_type: SinkType,
+    pub host: String,
+    pub port: u16,
+    pub update_rate_hz: Option<f64>,
     pub metric_mask: Option<String>, // Comma-separated metric names
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum SinkType {
-    Http { url: String },
-    Udp { host: String, port: u16 },
-    File { path: String },
 }
 
 impl AppState {

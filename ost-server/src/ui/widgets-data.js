@@ -223,36 +223,28 @@ class OutputSinksWidget extends Widget {
     buildContent(c) {
         c.innerHTML = `
             <div id="sk-list" class="sink-list"><div class="no-data">No sinks configured</div></div>
-            <div class="section-label-inline">ADD SINK</div>
+            <div class="section-label-inline">ADD UDP SINK</div>
             <form id="sk-form" class="sink-form">
-                <div class="sink-form-group"><div class="sink-form-label">Type</div><select id="sk-type"><option value="http">HTTP POST</option><option value="udp">UDP</option><option value="file">File (NDJSON)</option></select></div>
-                <div id="sk-type-fields"></div>
+                <div class="sink-form-group"><div class="sink-form-label">Host</div><input type="text" id="sk-host" placeholder="127.0.0.1" required></div>
+                <div class="sink-form-group"><div class="sink-form-label">Port</div><input type="number" id="sk-port" placeholder="9200" required></div>
+                <div class="sink-form-group"><div class="sink-form-label">Update Rate</div><select id="sk-rate"><option value="60">60 Hz</option><option value="30">30 Hz</option><option value="10">10 Hz</option><option value="1">1 Hz</option></select></div>
                 <div class="sink-form-group"><div class="sink-form-label">Metric Filter</div><input type="text" id="sk-mask" placeholder="e.g. rpm,speed,gear"></div>
                 <button type="submit" class="btn-add">Add</button>
             </form>`;
 
         this.listEl = c.querySelector('#sk-list');
-        this.typeFieldsEl = c.querySelector('#sk-type-fields');
-        const typeSelect = c.querySelector('#sk-type');
-        typeSelect.addEventListener('change', () => this.updateTypeFields(typeSelect.value));
-        this.updateTypeFields('http');
 
         c.querySelector('#sk-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const sinkType = typeSelect.value;
-            const config = { id: '', sink_type: { type: sinkType }, metric_mask: c.querySelector('#sk-mask').value.trim() || null };
-            if (sinkType === 'http') config.sink_type.url = c.querySelector('#sk-url')?.value;
-            else if (sinkType === 'udp') { config.sink_type.host = c.querySelector('#sk-host')?.value; config.sink_type.port = parseInt(c.querySelector('#sk-port')?.value); }
-            else if (sinkType === 'file') config.sink_type.path = c.querySelector('#sk-path')?.value;
+            const config = {
+                id: '',
+                host: c.querySelector('#sk-host').value,
+                port: parseInt(c.querySelector('#sk-port').value),
+                update_rate_hz: parseFloat(c.querySelector('#sk-rate').value),
+                metric_mask: c.querySelector('#sk-mask').value.trim() || null,
+            };
             try { await fetch('/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); } catch(e) { console.error(e); }
         });
-    }
-
-    updateTypeFields(type) {
-        const tf = this.typeFieldsEl;
-        if (type === 'http') tf.innerHTML = '<div class="sink-form-group"><div class="sink-form-label">URL</div><input type="url" id="sk-url" placeholder="http://localhost:8080/telemetry" required></div>';
-        else if (type === 'udp') tf.innerHTML = '<div class="sink-form-group"><div class="sink-form-label">Host</div><input type="text" id="sk-host" placeholder="127.0.0.1" required></div><div class="sink-form-group"><div class="sink-form-label">Port</div><input type="number" id="sk-port" placeholder="9200" required></div>';
-        else if (type === 'file') tf.innerHTML = '<div class="sink-form-group"><div class="sink-form-label">Path</div><input type="text" id="sk-path" placeholder="/tmp/telemetry.ndjson" required></div>';
     }
 
     update(store) {
@@ -263,8 +255,8 @@ class OutputSinksWidget extends Widget {
                 this.listEl.innerHTML = '<div class="no-data">No sinks configured</div>';
             } else {
                 this.listEl.innerHTML = store.sinks.map(s => {
-                    const desc = s.sink_type.type === 'http' ? s.sink_type.url : s.sink_type.type === 'udp' ? `${s.sink_type.host}:${s.sink_type.port}` : s.sink_type.path;
-                    return `<div class="sink-item"><div><strong>${s.sink_type.type.toUpperCase()}</strong> ${desc}${s.metric_mask ? `<br><span style="color:var(--text-muted);font-size:0.6rem">Metrics: ${s.metric_mask}</span>` : ''}</div><button class="btn-delete" data-id="${s.id}">Delete</button></div>`;
+                    const rate = s.update_rate_hz || 60;
+                    return `<div class="sink-item"><div><strong>UDP</strong> ${s.host}:${s.port} <span style="color:var(--text-muted);font-size:0.6rem">@ ${rate} Hz</span>${s.metric_mask ? `<br><span style="color:var(--text-muted);font-size:0.6rem">Metrics: ${s.metric_mask}</span>` : ''}</div><button class="btn-delete" data-id="${s.id}">Delete</button></div>`;
                 }).join('');
                 this.listEl.querySelectorAll('.btn-delete').forEach(btn => {
                     btn.addEventListener('click', async () => {
