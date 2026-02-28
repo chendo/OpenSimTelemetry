@@ -625,6 +625,9 @@ impl IbtFile {
         "YawRate",
         "RollRate",
         "Speed",
+        "Lat",
+        "Lon",
+        "Alt",
         // Vehicle
         "RPM",
         "Gear",
@@ -664,6 +667,9 @@ impl IbtFile {
         "LFtempM",
         "LFtempR",
         "LFwear",
+        "LFwearL",
+        "LFwearM",
+        "LFwearR",
         "LFspeed",
         "LFbrakeLinePress",
         // Wheels - RF
@@ -681,6 +687,9 @@ impl IbtFile {
         "RFtempM",
         "RFtempR",
         "RFwear",
+        "RFwearL",
+        "RFwearM",
+        "RFwearR",
         "RFspeed",
         "RFbrakeLinePress",
         // Wheels - LR
@@ -698,6 +707,9 @@ impl IbtFile {
         "LRtempM",
         "LRtempR",
         "LRwear",
+        "LRwearL",
+        "LRwearM",
+        "LRwearR",
         "LRspeed",
         "LRbrakeLinePress",
         // Wheels - RR
@@ -715,6 +727,9 @@ impl IbtFile {
         "RRtempM",
         "RRtempR",
         "RRwear",
+        "RRwearL",
+        "RRwearM",
+        "RRwearR",
         "RRspeed",
         "RRbrakeLinePress",
         // Timing
@@ -747,6 +762,7 @@ impl IbtFile {
         // Weather
         "AirTemp",
         "TrackTempCrew",
+        "TrackTemp",
         "AirPressure",
         "AirDensity",
         "RelativeHumidity",
@@ -914,6 +930,9 @@ impl IbtFile {
             rotation,
             angular_velocity,
             angular_acceleration: None,
+            latitude: get_f64("Lat"),
+            longitude: get_f64("Lon"),
+            altitude: get_f32("Alt").map(Meters),
         });
 
         // =================================================================
@@ -1062,6 +1081,7 @@ impl IbtFile {
         let weather = Some(WeatherData {
             air_temp: get_f32("AirTemp").map(Celsius),
             track_temp: get_f32("TrackTempCrew").map(Celsius),
+            track_surface_temp: get_f32("TrackTemp").map(Celsius),
             air_pressure: get_f32("AirPressure").map(Pascals),
             air_density: get_f32("AirDensity").map(KilogramsPerCubicMeter),
             humidity: get_f32("RelativeHumidity").map(|h| Percentage::new(h / 100.0)),
@@ -1213,7 +1233,18 @@ impl IbtFile {
             carcass_temp_inner,
             carcass_temp_middle: get_f32("tempM").map(Celsius),
             carcass_temp_outer,
-            tyre_wear: get_f32("wearL").map(Percentage::new),
+            tyre_wear: get_f32("wear").map(Percentage::new),
+            tyre_wear_inner: if is_left_side {
+                get_f32("wearR").map(Percentage::new)
+            } else {
+                get_f32("wearL").map(Percentage::new)
+            },
+            tyre_wear_middle: get_f32("wearM").map(Percentage::new),
+            tyre_wear_outer: if is_left_side {
+                get_f32("wearL").map(Percentage::new)
+            } else {
+                get_f32("wearR").map(Percentage::new)
+            },
             wheel_speed: get_f32("speed").map(RadiansPerSecond),
             slip_ratio: None,
             slip_angle: None,

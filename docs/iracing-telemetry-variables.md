@@ -4,12 +4,12 @@ Reference of all telemetry variables available in iRacing .ibt files (267 total)
 Variables are either **mapped** to the normalized TelemetryFrame model or forwarded
 as **extras** with an `iracing/` prefix.
 
-## Mapped Variables (184)
+## Mapped Variables (203)
 
 These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 `ost-adapters/src/iracing.rs`.
 
-### Motion (13)
+### Motion (16)
 | iRacing Variable | Model Path | Notes |
 |---|---|---|
 | VelocityX | motion.velocity.x | m/s |
@@ -25,6 +25,9 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | YawRate | motion.angular_velocity.yaw | rad/s |
 | RollRate | motion.angular_velocity.roll | rad/s |
 | Speed | vehicle.speed | m/s |
+| Lat | motion.latitude | degrees, WGS84 |
+| Lon | motion.longitude | degrees, WGS84 |
+| Alt | motion.altitude | meters ASL |
 
 ### Vehicle (14)
 | iRacing Variable | Model Path | Notes |
@@ -60,7 +63,7 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | WaterLevel | engine.water_level | L, coolant level |
 | EngineWarnings | engine.warnings | bitfield |
 
-### Wheels — Front Left (16)
+### Wheels — Front Left (19)
 | iRacing Variable | Model Path | Notes |
 |---|---|---|
 | LFshockDefl | wheels.front_left.suspension_deflection | m |
@@ -77,10 +80,13 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | LFtempM | wheels.front_left.tyre_surface_temp_center | C (surface) |
 | LFtempR | wheels.front_left.tyre_surface_temp_right | C (surface) |
 | LFwear | wheels.front_left.tyre_wear | 0.0-1.0 |
+| LFwearL | wheels.front_left.tyre_wear_outer | 0.0-1.0 (L=outer for left) |
+| LFwearM | wheels.front_left.tyre_wear_middle | 0.0-1.0 |
+| LFwearR | wheels.front_left.tyre_wear_inner | 0.0-1.0 (R=inner for left) |
 | LFspeed | wheels.front_left.wheel_speed | m/s |
 | LFbrakeLinePress | wheels.front_left.brake_line_pressure | kPa |
 
-### Wheels — Front Right (16)
+### Wheels — Front Right (19)
 | iRacing Variable | Model Path | Notes |
 |---|---|---|
 | RFshockDefl | wheels.front_right.suspension_deflection | |
@@ -97,10 +103,13 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | RFtempM | wheels.front_right.tyre_surface_temp_center | |
 | RFtempR | wheels.front_right.tyre_surface_temp_right | |
 | RFwear | wheels.front_right.tyre_wear | |
+| RFwearL | wheels.front_right.tyre_wear_inner | L=inner for right |
+| RFwearM | wheels.front_right.tyre_wear_middle | |
+| RFwearR | wheels.front_right.tyre_wear_outer | R=outer for right |
 | RFspeed | wheels.front_right.wheel_speed | |
 | RFbrakeLinePress | wheels.front_right.brake_line_pressure | |
 
-### Wheels — Rear Left (16)
+### Wheels — Rear Left (19)
 | iRacing Variable | Model Path | Notes |
 |---|---|---|
 | LRshockDefl | wheels.rear_left.suspension_deflection | |
@@ -117,10 +126,13 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | LRtempM | wheels.rear_left.tyre_surface_temp_center | |
 | LRtempR | wheels.rear_left.tyre_surface_temp_right | |
 | LRwear | wheels.rear_left.tyre_wear | |
+| LRwearL | wheels.rear_left.tyre_wear_outer | L=outer for left |
+| LRwearM | wheels.rear_left.tyre_wear_middle | |
+| LRwearR | wheels.rear_left.tyre_wear_inner | R=inner for left |
 | LRspeed | wheels.rear_left.wheel_speed | |
 | LRbrakeLinePress | wheels.rear_left.brake_line_pressure | |
 
-### Wheels — Rear Right (16)
+### Wheels — Rear Right (19)
 | iRacing Variable | Model Path | Notes |
 |---|---|---|
 | RRshockDefl | wheels.rear_right.suspension_deflection | |
@@ -137,6 +149,9 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | RRtempM | wheels.rear_right.tyre_surface_temp_center | |
 | RRtempR | wheels.rear_right.tyre_surface_temp_right | |
 | RRwear | wheels.rear_right.tyre_wear | |
+| RRwearL | wheels.rear_right.tyre_wear_inner | L=inner for right |
+| RRwearM | wheels.rear_right.tyre_wear_middle | |
+| RRwearR | wheels.rear_right.tyre_wear_outer | R=outer for right |
 | RRspeed | wheels.rear_right.wheel_speed | |
 | RRbrakeLinePress | wheels.rear_right.brake_line_pressure | |
 
@@ -173,11 +188,12 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | SessionFlags | session.flags | bitfield |
 | SessionNum | session.number | |
 
-### Weather (12)
+### Weather (13)
 | iRacing Variable | Model Path | Notes |
 |---|---|---|
 | AirTemp | weather.air_temp | C |
-| TrackTempCrew | weather.track_temp | C |
+| TrackTempCrew | weather.track_temp | C, crew-reported |
+| TrackTemp | weather.track_surface_temp | C, measured surface |
 | AirPressure | weather.air_pressure | kPa |
 | AirDensity | weather.air_density | kg/m3 |
 | RelativeHumidity | weather.humidity | 0.0-1.0 |
@@ -248,7 +264,7 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 |---|---|---|
 | SessionTick | tick | server tick counter |
 
-## Unmapped Variables — Extras (127)
+## Unmapped Variables — Extras (108)
 
 These are forwarded to `extras` with an `iracing/` prefix. Categorized by
 likely purpose for future model promotion decisions.
@@ -272,15 +288,11 @@ likely purpose for future model promotion decisions.
 | ThrottleRaw | f32 | Raw throttle pedal position |
 | ClutchRaw | f32 | Raw clutch pedal position |
 
-### Extended Tire Data (per-wheel) (24)
+### Extended Tire Data (per-wheel) (8)
 | Variable | Type | Description |
 |---|---|---|
 | LFpressure / RFpressure / LRpressure / RRpressure | f32 | Current tire pressure (alternate reading) |
 | LFtempCM / RFtempCM / LRtempCM / RRtempCM | f32 | Carcass middle temperature |
-| LFwearL / LFwearM / LFwearR | f32 | LF tread wear left/mid/right |
-| RFwearL / RFwearM / RFwearR | f32 | RF tread wear left/mid/right |
-| LRwearL / LRwearM / LRwearR | f32 | LR tread wear left/mid/right |
-| RRwearL / RRwearM / RRwearR | f32 | RR tread wear left/mid/right |
 
 ### Tire Sets Management (12)
 | Variable | Type | Description |
@@ -360,17 +372,13 @@ likely purpose for future model promotion decisions.
 | PitSvTireCompound | i32 | Pit tire compound selection |
 | PitsOpen | bool | Pit lane is open |
 
-### Location / GPS (8)
+### Location / Misc Spatial (4)
 | Variable | Type | Description |
 |---|---|---|
-| Lat | f64 | Latitude (degrees) |
-| Lon | f64 | Longitude (degrees) |
-| Alt | f32 | Altitude (m) |
 | YawNorth | f32 | Yaw relative to true north (rad) |
 | SolarAltitude | f32 | Sun altitude angle (rad) |
 | SolarAzimuth | f32 | Sun azimuth angle (rad) |
 | CFSRrideHeight | f32 | Center front splitter ride height |
-| TrackTemp | f32 | Track surface temperature (C) |
 
 ### Session State (7)
 | Variable | Type | Description |

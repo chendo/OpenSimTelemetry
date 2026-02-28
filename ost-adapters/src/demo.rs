@@ -447,6 +447,9 @@ impl DemoAdapter {
                 carcass_temp_middle: Some(Celsius(heat_base + heat_offset * 0.7 + 5.0)),
                 carcass_temp_outer: Some(Celsius(heat_base + heat_offset * 0.7 + 2.0)),
                 tyre_wear: Some(Percentage::new((0.02 + elapsed * 0.0001).min(0.3))),
+                tyre_wear_inner: Some(Percentage::new((0.025 + elapsed * 0.00012).min(0.35))),
+                tyre_wear_middle: Some(Percentage::new((0.02 + elapsed * 0.0001).min(0.3))),
+                tyre_wear_outer: Some(Percentage::new((0.015 + elapsed * 0.00008).min(0.25))),
                 wheel_speed: Some(RadiansPerSecond(speed / 0.33 + jitter(n, 0.5))), // ~0.33m tyre radius
                 slip_ratio: Some(jitter(n * 3.0, 0.03 + brake * 0.05)),
                 slip_angle: Some(Radians(steering.abs() * 0.1 + jitter(n * 3.1, 0.005))),
@@ -498,6 +501,9 @@ impl DemoAdapter {
                 RadiansPerSecondSquared(0.0),
                 RadiansPerSecondSquared(0.0),
             )),
+            latitude: None,
+            longitude: None,
+            altitude: None,
         });
 
         // --- Vehicle ---
@@ -612,6 +618,7 @@ impl DemoAdapter {
         let weather = Some(WeatherData {
             air_temp: Some(Celsius(22.0 + jitter(n * 7.0, 0.1))),
             track_temp: Some(Celsius(28.0 + jitter(n * 7.1, 0.2))),
+            track_surface_temp: Some(Celsius(30.0 + jitter(n * 7.15, 0.3))),
             air_pressure: Some(Pascals(101325.0)),
             air_density: Some(KilogramsPerCubicMeter(1.225)),
             humidity: Some(Percentage::new(0.55)),

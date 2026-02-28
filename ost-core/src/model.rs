@@ -96,6 +96,15 @@ pub struct MotionData {
 
     /// Angular acceleration (rad/s²)
     pub angular_acceleration: Option<Vector3<RadiansPerSecondSquared>>,
+
+    /// GPS latitude (degrees, WGS84)
+    pub latitude: Option<f64>,
+
+    /// GPS longitude (degrees, WGS84)
+    pub longitude: Option<f64>,
+
+    /// Altitude above sea level (meters)
+    pub altitude: Option<Meters>,
 }
 
 // =============================================================================
@@ -346,6 +355,15 @@ pub struct WheelInfo {
     /// Tyre wear (0.0 = new, 1.0 = worn out)
     pub tyre_wear: Option<Percentage>,
 
+    /// Tyre wear at inner edge (toward car center)
+    pub tyre_wear_inner: Option<Percentage>,
+
+    /// Tyre wear at middle of tread
+    pub tyre_wear_middle: Option<Percentage>,
+
+    /// Tyre wear at outer edge (away from car center)
+    pub tyre_wear_outer: Option<Percentage>,
+
     /// Wheel rotation speed (rad/s)
     pub wheel_speed: Option<RadiansPerSecond>,
 
@@ -387,6 +405,9 @@ impl WheelInfo {
             carcass_temp_middle: None,
             carcass_temp_outer: None,
             tyre_wear: None,
+            tyre_wear_inner: None,
+            tyre_wear_middle: None,
+            tyre_wear_outer: None,
             wheel_speed: None,
             slip_ratio: None,
             slip_angle: None,
@@ -663,8 +684,11 @@ pub struct WeatherData {
     /// Air temperature
     pub air_temp: Option<Celsius>,
 
-    /// Track surface temperature
+    /// Track surface temperature (crew-reported or estimated)
     pub track_temp: Option<Celsius>,
+
+    /// Measured track surface temperature (direct sensor reading)
+    pub track_surface_temp: Option<Celsius>,
 
     /// Atmospheric pressure
     pub air_pressure: Option<Pascals>,
@@ -1248,6 +1272,9 @@ mod tests {
                 rotation: None,
                 angular_velocity: None,
                 angular_acceleration: None,
+                latitude: None,
+                longitude: None,
+                altitude: None,
             }),
             vehicle: Some(VehicleData {
                 speed: Some(MetersPerSecond(30.0)),
