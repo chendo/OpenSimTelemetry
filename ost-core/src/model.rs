@@ -88,14 +88,14 @@ pub struct MotionData {
     /// G-forces experienced (derived from acceleration)
     pub g_force: Option<Vector3<GForce>>,
 
-    /// Rotation (pitch, yaw, roll) in radians
-    pub rotation: Option<Vector3<Radians>>,
+    /// Rotation (pitch, yaw, roll) in degrees
+    pub rotation: Option<Vector3<Degrees>>,
 
-    /// Angular velocity (rad/s)
-    pub angular_velocity: Option<Vector3<RadiansPerSecond>>,
+    /// Angular velocity (deg/s)
+    pub angular_velocity: Option<Vector3<DegreesPerSecond>>,
 
-    /// Angular acceleration (rad/s²)
-    pub angular_acceleration: Option<Vector3<RadiansPerSecondSquared>>,
+    /// Angular acceleration (deg/s²)
+    pub angular_acceleration: Option<Vector3<DegreesPerSecondSquared>>,
 
     /// GPS latitude (degrees, WGS84)
     pub latitude: Option<f64>,
@@ -141,8 +141,8 @@ pub struct VehicleData {
     /// Clutch input (0.0 = engaged, 1.0 = disengaged)
     pub clutch: Option<Percentage>,
 
-    /// Steering wheel angle in radians
-    pub steering_angle: Option<Radians>,
+    /// Steering wheel angle in degrees
+    pub steering_angle: Option<Degrees>,
 
     /// Steering wheel torque
     pub steering_torque: Option<NewtonMeters>,
@@ -157,7 +157,7 @@ pub struct VehicleData {
     pub shift_indicator: Option<Percentage>,
 
     /// Maximum steering lock angle (for scaling wheel visualizations)
-    pub steering_angle_max: Option<Radians>,
+    pub steering_angle_max: Option<Degrees>,
 
     /// Whether the car is on the track
     pub on_track: Option<bool>,
@@ -364,14 +364,14 @@ pub struct WheelInfo {
     /// Tyre wear at outer edge (away from car center)
     pub tyre_wear_outer: Option<Percentage>,
 
-    /// Wheel rotation speed (rad/s)
-    pub wheel_speed: Option<RadiansPerSecond>,
+    /// Wheel rotation speed (deg/s)
+    pub wheel_speed: Option<DegreesPerSecond>,
 
     /// Longitudinal slip ratio
     pub slip_ratio: Option<f32>,
 
-    /// Lateral slip angle (radians)
-    pub slip_angle: Option<Radians>,
+    /// Lateral slip angle (degrees)
+    pub slip_angle: Option<Degrees>,
 
     /// Vertical load on tyre (Newtons)
     pub load: Option<Newtons>,
@@ -702,8 +702,8 @@ pub struct WeatherData {
     /// Wind speed
     pub wind_speed: Option<MetersPerSecond>,
 
-    /// Wind direction (radians, relative to north)
-    pub wind_direction: Option<Radians>,
+    /// Wind direction (degrees, relative to north)
+    pub wind_direction: Option<Degrees>,
 
     /// Fog level (0.0 to 1.0)
     pub fog_level: Option<Percentage>,
@@ -926,7 +926,7 @@ pub struct CompetitorData {
     pub rpm: Option<Rpm>,
 
     /// Steering angle
-    pub steering: Option<Radians>,
+    pub steering: Option<Degrees>,
 }
 
 // =============================================================================
@@ -1289,7 +1289,7 @@ mod tests {
                 handbrake: None,
                 shift_indicator: None,
                 steering_angle_max: None,
-                steering_angle: Some(Radians(0.1)),
+                steering_angle: Some(Degrees(0.1)),
                 steering_torque: None,
                 steering_torque_pct: None,
                 on_track: None,

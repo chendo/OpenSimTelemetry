@@ -450,9 +450,13 @@ impl DemoAdapter {
                 tyre_wear_inner: Some(Percentage::new((0.025 + elapsed * 0.00012).min(0.35))),
                 tyre_wear_middle: Some(Percentage::new((0.02 + elapsed * 0.0001).min(0.3))),
                 tyre_wear_outer: Some(Percentage::new((0.015 + elapsed * 0.00008).min(0.25))),
-                wheel_speed: Some(RadiansPerSecond(speed / 0.33 + jitter(n, 0.5))), // ~0.33m tyre radius
+                wheel_speed: Some(DegreesPerSecond::from_radians(
+                    speed / 0.33 + jitter(n, 0.5),
+                )), // ~0.33m tyre radius
                 slip_ratio: Some(jitter(n * 3.0, 0.03 + brake * 0.05)),
-                slip_angle: Some(Radians(steering.abs() * 0.1 + jitter(n * 3.1, 0.005))),
+                slip_angle: Some(Degrees::from_radians(
+                    steering.abs() * 0.1 + jitter(n * 3.1, 0.005),
+                )),
                 load: Some(Newtons(
                     2500.0 + (lat_load + long_load) * 800.0 + jitter(n * 3.2, 50.0),
                 )),
@@ -487,19 +491,19 @@ impl DemoAdapter {
                 GForce(long_g),
             )),
             rotation: Some(Vector3::new(
-                Radians(pitch),
-                Radians(0.0), // yaw is absolute, not useful for demo
-                Radians(roll),
+                Degrees::from_radians(pitch),
+                Degrees(0.0), // yaw is absolute, not useful for demo
+                Degrees::from_radians(roll),
             )),
             angular_velocity: Some(Vector3::new(
-                RadiansPerSecond(jitter(n * 4.1, 0.01)),
-                RadiansPerSecond(steering * speed * 0.02), // yaw rate from steering + speed
-                RadiansPerSecond(jitter(n * 4.2, 0.01)),
+                DegreesPerSecond::from_radians(jitter(n * 4.1, 0.01)),
+                DegreesPerSecond::from_radians(steering * speed * 0.02), // yaw rate from steering + speed
+                DegreesPerSecond::from_radians(jitter(n * 4.2, 0.01)),
             )),
             angular_acceleration: Some(Vector3::new(
-                RadiansPerSecondSquared(0.0),
-                RadiansPerSecondSquared(0.0),
-                RadiansPerSecondSquared(0.0),
+                DegreesPerSecondSquared(0.0),
+                DegreesPerSecondSquared(0.0),
+                DegreesPerSecondSquared(0.0),
             )),
             latitude: None,
             longitude: None,
@@ -517,7 +521,7 @@ impl DemoAdapter {
             throttle: Some(Percentage::new(throttle)),
             brake: Some(Percentage::new(brake)),
             clutch: Some(Percentage::new(0.0)),
-            steering_angle: Some(Radians(steering)),
+            steering_angle: Some(Degrees::from_radians(steering)),
             steering_torque: Some(NewtonMeters(steering * 15.0 + lat_g * 3.0)),
             steering_torque_pct: Some(Percentage::new((steering.abs() * 2.0).min(1.0))),
             handbrake: None,
@@ -526,7 +530,7 @@ impl DemoAdapter {
             } else {
                 0.0
             })),
-            steering_angle_max: Some(Radians(7.33)), // ~420 degrees lock
+            steering_angle_max: Some(Degrees(420.0)),
             on_track: Some(true),
             in_garage: Some(false),
             track_surface: Some(TrackSurface::Asphalt),
@@ -623,7 +627,7 @@ impl DemoAdapter {
             air_density: Some(KilogramsPerCubicMeter(1.225)),
             humidity: Some(Percentage::new(0.55)),
             wind_speed: Some(MetersPerSecond(3.5 + jitter(n * 7.2, 0.3))),
-            wind_direction: Some(Radians(1.2 + jitter(n * 7.3, 0.05))),
+            wind_direction: Some(Degrees::from_radians(1.2 + jitter(n * 7.3, 0.05))),
             fog_level: Some(Percentage::new(0.0)),
             precipitation: Some(Percentage::new(0.0)),
             track_wetness: Some(TrackWetness::Dry),
@@ -705,7 +709,7 @@ impl DemoAdapter {
                 estimated_time: Some(Seconds(self.lap_duration - 1.0)),
                 gear: Some(4),
                 rpm: Some(Rpm(6200.0)),
-                steering: Some(Radians(0.05)),
+                steering: Some(Degrees::from_radians(0.05)),
             },
             CompetitorData {
                 car_index: 2,
@@ -726,7 +730,7 @@ impl DemoAdapter {
                 estimated_time: Some(Seconds(self.lap_duration + 0.5)),
                 gear: Some(5),
                 rpm: Some(Rpm(5800.0)),
-                steering: Some(Radians(-0.03)),
+                steering: Some(Degrees::from_radians(-0.03)),
             },
         ]);
 

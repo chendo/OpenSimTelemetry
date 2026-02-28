@@ -24,17 +24,35 @@ pub struct MetersPerSecond(#[serde(serialize_with = "round4")] pub f32);
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MetersPerSecondSquared(#[serde(serialize_with = "round4")] pub f32);
 
-/// Radians
+/// Degrees
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Radians(#[serde(serialize_with = "round4")] pub f32);
+pub struct Degrees(#[serde(serialize_with = "round4")] pub f32);
 
-/// Radians per second
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct RadiansPerSecond(#[serde(serialize_with = "round4")] pub f32);
+impl Degrees {
+    pub fn from_radians(rad: f32) -> Self {
+        Self(rad * (180.0 / std::f32::consts::PI))
+    }
+}
 
-/// Radians per second squared
+/// Degrees per second
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct RadiansPerSecondSquared(#[serde(serialize_with = "round4")] pub f32);
+pub struct DegreesPerSecond(#[serde(serialize_with = "round4")] pub f32);
+
+impl DegreesPerSecond {
+    pub fn from_radians(rad: f32) -> Self {
+        Self(rad * (180.0 / std::f32::consts::PI))
+    }
+}
+
+/// Degrees per second squared
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DegreesPerSecondSquared(#[serde(serialize_with = "round4")] pub f32);
+
+impl DegreesPerSecondSquared {
+    pub fn from_radians(rad: f32) -> Self {
+        Self(rad * (180.0 / std::f32::consts::PI))
+    }
+}
 
 /// Revolutions per minute
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

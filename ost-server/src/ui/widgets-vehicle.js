@@ -72,7 +72,7 @@ class VehicleWidget extends Widget {
         this.els.cltBar.style.height = clt + '%';
         this.els.cltPct.textContent = Math.round(clt);
 
-        this._steerAngle = v?.steering_angle ?? 0;
+        this._steerAngle = (v?.steering_angle ?? 0) * Math.PI / 180;  // convert degrees to radians for canvas
         this.renderWheel();
     }
 
@@ -236,7 +236,7 @@ class GForceWidget extends Widget {
         this.valEls.vert.textContent = gy.toFixed(2);
         this.valEls.latMax.textContent = maxLat > 0 ? 'max ' + maxLat.toFixed(2) : '--';
         this.valEls.longMax.textContent = maxLong > 0 ? 'max ' + maxLong.toFixed(2) : '--';
-        const yawRate = (f.motion?.angular_velocity?.y ?? 0) * RAD2DEG;
+        const yawRate = f.motion?.angular_velocity?.y ?? 0;
         this.valEls.yaw.textContent = yawRate.toFixed(1);
 
         this.renderCanvas();

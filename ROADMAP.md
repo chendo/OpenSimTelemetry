@@ -2,7 +2,6 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Data model: All angles returned in the API and displayed should be in degrees
 * Interface: First graph shows speed, rpm, throttle, brake, clutch, yaw rate, ABS active, steering angle
 * Data model: Add Computed Metrics, which takes JS/TS that can fetch metrics and process them, to return new metrics. The JS ideally is compiled or something so it's very fast.
 * API: Add authentication via Authorization header or query param. Defaults to no authentication

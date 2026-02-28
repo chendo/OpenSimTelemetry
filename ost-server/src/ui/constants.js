@@ -3,7 +3,6 @@ const LAYOUT_KEY = 'ost-dashboard-layout';
 const LAYOUT_VERSION_KEY = 'ost-dashboard-version';
 const GRAPHS_KEY = 'ost-dashboard-graphs';
 const LAYOUT_VERSION = '7'; // Rearrange default layout: Vehicle/GForce/Wheels top row
-const RAD2DEG = 180 / Math.PI;
 const BUFFER_MAX = 3600;
 
 // History buffer settings
@@ -33,9 +32,9 @@ const GRAPH_METRICS = {
     lat_g:       { label: 'Lateral G',  color: '#a855f6', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.x ?? 0 },
     long_g:      { label: 'Long G',     color: '#ec4899', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.z ?? 0 },
     vert_g:      { label: 'Vert G',     color: '#6366f1', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.y ?? 0 },
-    pitch:       { label: 'Pitch',      color: '#f97316', unit: 'deg',   norm: 'centered',  extract: f => (f.motion?.rotation?.x ?? 0) * RAD2DEG },
-    yaw_rate:    { label: 'Yaw Rate',   color: '#eab308', unit: 'deg/s', norm: 'centered',  extract: f => (f.motion?.angular_velocity?.y ?? 0) * RAD2DEG },
-    roll:        { label: 'Roll',       color: '#14b8a6', unit: 'deg',   norm: 'centered',  extract: f => (f.motion?.rotation?.z ?? 0) * RAD2DEG },
+    pitch:       { label: 'Pitch',      color: '#f97316', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.rotation?.x ?? 0 },
+    yaw_rate:    { label: 'Yaw Rate',   color: '#eab308', unit: '\u00B0/s',  norm: 'centered',  extract: f => f.motion?.angular_velocity?.y ?? 0 },
+    roll:        { label: 'Roll',       color: '#14b8a6', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.rotation?.z ?? 0 },
 };
 const GRAPH_METRIC_KEYS = Object.keys(GRAPH_METRICS);
 
@@ -67,7 +66,7 @@ const METRIC_UNIT_MAP = {
     '*.brake':                { unit: '%',    norm: 'pct' },
     '*.clutch':               { unit: '%',    norm: 'pct' },
     '*.handbrake':            { unit: '%',    norm: 'pct' },
-    '*.steering_angle':       { unit: 'rad',  norm: 'centered' },
+    '*.steering_angle':       { unit: '\u00B0',  norm: 'centered' },
     '*.steering_torque':      { unit: 'Nm',   norm: 'centered' },
     '*.steering_torque_pct':  { unit: '%',    norm: 'pct' },
     // Temperatures
@@ -99,22 +98,22 @@ const METRIC_UNIT_MAP = {
     '*.shock_velocity':        { unit: 'm/s', norm: 'centered' },
     '*.shock_velocity_avg':    { unit: 'm/s', norm: 'centered' },
     '*.wind_speed':            { unit: 'm/s', norm: 'autoscale' },
-    '*.wheel_speed':           { unit: 'rad/s', norm: 'autoscale' },
+    '*.wheel_speed':           { unit: '\u00B0/s', norm: 'autoscale' },
     // Forces
     '*.load':                  { unit: 'N',   norm: 'autoscale' },
     '*.g_force.x':             { unit: 'G',   norm: 'centered' },
     '*.g_force.y':             { unit: 'G',   norm: 'centered' },
     '*.g_force.z':             { unit: 'G',   norm: 'centered' },
     // Rotation
-    '*.rotation.x':            { unit: 'rad', norm: 'centered' },
-    '*.rotation.y':            { unit: 'rad', norm: 'centered' },
-    '*.rotation.z':            { unit: 'rad', norm: 'centered' },
-    '*.angular_velocity.x':    { unit: 'rad/s', norm: 'centered' },
-    '*.angular_velocity.y':    { unit: 'rad/s', norm: 'centered' },
-    '*.angular_velocity.z':    { unit: 'rad/s', norm: 'centered' },
-    '*.angular_acceleration.x':{ unit: 'rad/s\u00B2', norm: 'centered' },
-    '*.angular_acceleration.y':{ unit: 'rad/s\u00B2', norm: 'centered' },
-    '*.angular_acceleration.z':{ unit: 'rad/s\u00B2', norm: 'centered' },
+    '*.rotation.x':            { unit: '\u00B0', norm: 'centered' },
+    '*.rotation.y':            { unit: '\u00B0', norm: 'centered' },
+    '*.rotation.z':            { unit: '\u00B0', norm: 'centered' },
+    '*.angular_velocity.x':    { unit: '\u00B0/s', norm: 'centered' },
+    '*.angular_velocity.y':    { unit: '\u00B0/s', norm: 'centered' },
+    '*.angular_velocity.z':    { unit: '\u00B0/s', norm: 'centered' },
+    '*.angular_acceleration.x':{ unit: '\u00B0/s\u00B2', norm: 'centered' },
+    '*.angular_acceleration.y':{ unit: '\u00B0/s\u00B2', norm: 'centered' },
+    '*.angular_acceleration.z':{ unit: '\u00B0/s\u00B2', norm: 'centered' },
     '*.acceleration.x':        { unit: 'm/s\u00B2', norm: 'centered' },
     '*.acceleration.y':        { unit: 'm/s\u00B2', norm: 'centered' },
     '*.acceleration.z':        { unit: 'm/s\u00B2', norm: 'centered' },
@@ -124,7 +123,7 @@ const METRIC_UNIT_MAP = {
     '*.velocity.x':            { unit: 'm/s', norm: 'centered' },
     '*.velocity.y':            { unit: 'm/s', norm: 'centered' },
     '*.velocity.z':            { unit: 'm/s', norm: 'centered' },
-    '*.wind_direction':        { unit: 'rad', norm: 'autoscale' },
+    '*.wind_direction':        { unit: '\u00B0', norm: 'autoscale' },
     // Percentages
     '*.tyre_wear':             { unit: '%', norm: 'pct' },
     '*.oil_level':             { unit: '%', norm: 'pct' },
@@ -159,7 +158,7 @@ const METRIC_UNIT_MAP = {
     '*.optional_repair_time_left': { unit: 's', norm: 'autoscale' },
     // Slip
     '*.slip_ratio':            { unit: '', norm: 'centered' },
-    '*.slip_angle':            { unit: 'rad', norm: 'centered' },
+    '*.slip_angle':            { unit: '\u00B0', norm: 'centered' },
     // Density
     '*.air_density':           { unit: 'kg/m\u00B3', norm: 'autoscale' },
 };

@@ -359,9 +359,11 @@ mod windows_impl {
             });
 
             let rotation = match (get_f32("Pitch"), get_f32("Yaw"), get_f32("Roll")) {
-                (Some(p), Some(y), Some(r)) => {
-                    Some(Vector3::new(Radians(p), Radians(y), Radians(r)))
-                }
+                (Some(p), Some(y), Some(r)) => Some(Vector3::new(
+                    Degrees::from_radians(p),
+                    Degrees::from_radians(y),
+                    Degrees::from_radians(r),
+                )),
                 _ => None,
             };
 
@@ -371,9 +373,9 @@ mod windows_impl {
                 get_f32("RollRate"),
             ) {
                 (Some(p), Some(y), Some(r)) => Some(Vector3::new(
-                    RadiansPerSecond(p),
-                    RadiansPerSecond(y),
-                    RadiansPerSecond(r),
+                    DegreesPerSecond::from_radians(p),
+                    DegreesPerSecond::from_radians(y),
+                    DegreesPerSecond::from_radians(r),
                 )),
                 _ => None,
             };
@@ -435,12 +437,12 @@ mod windows_impl {
                 throttle: get_f32("Throttle").map(Percentage::new),
                 brake: get_f32("Brake").map(Percentage::new),
                 clutch: get_f32("Clutch").map(Percentage::new),
-                steering_angle: get_f32("SteeringWheelAngle").map(Radians),
+                steering_angle: get_f32("SteeringWheelAngle").map(Degrees::from_radians),
                 steering_torque: get_f32("SteeringWheelTorque").map(NewtonMeters),
                 steering_torque_pct: get_f32("SteeringWheelPctTorque").map(Percentage::new),
                 handbrake: get_f32("HandbrakeRaw").map(Percentage::new),
                 shift_indicator: get_f32("ShiftIndicatorPct").map(Percentage::new),
-                steering_angle_max: get_f32("SteeringWheelAngleMax").map(Radians),
+                steering_angle_max: get_f32("SteeringWheelAngleMax").map(Degrees::from_radians),
                 on_track: get_bool("IsOnTrack"),
                 in_garage: get_bool("IsInGarage"),
                 track_surface,
@@ -615,7 +617,7 @@ mod windows_impl {
                 air_density: get_f32("AirDensity").map(KilogramsPerCubicMeter),
                 humidity: get_f32("RelativeHumidity").map(|h| Percentage::new(h / 100.0)),
                 wind_speed: get_f32("WindVel").map(MetersPerSecond),
-                wind_direction: get_f32("WindDir").map(Radians),
+                wind_direction: get_f32("WindDir").map(Degrees::from_radians),
                 fog_level: get_f32("FogLevel").map(Percentage::new),
                 precipitation: get_f32("Precipitation").map(Percentage::new),
                 track_wetness: get_i32("TrackWetness").map(|w| match w {
@@ -868,7 +870,7 @@ mod windows_impl {
                 } else {
                     get_f32("wearR").map(Percentage::new)
                 },
-                wheel_speed: get_f32("speed").map(RadiansPerSecond),
+                wheel_speed: get_f32("speed").map(DegreesPerSecond::from_radians),
                 slip_ratio: None,
                 slip_angle: None,
                 load: None,
@@ -1029,7 +1031,9 @@ mod windows_impl {
                     }),
                     gear: gears.and_then(|v| v.get(i).copied()).map(|g| g as i8),
                     rpm: rpms.and_then(|v| v.get(i).copied()).map(Rpm),
-                    steering: steers.and_then(|v| v.get(i).copied()).map(Radians),
+                    steering: steers
+                        .and_then(|v| v.get(i).copied())
+                        .map(Degrees::from_radians),
                 });
             }
 
