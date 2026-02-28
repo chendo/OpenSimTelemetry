@@ -1,6 +1,7 @@
 //! Application state management
 
 use crate::history::HistoryBuffer;
+use crate::persistence::PersistenceConfig;
 use crate::replay::ReplayState;
 use ost_core::{adapter::TelemetryAdapter, model::TelemetryFrame};
 use std::collections::HashSet;
@@ -41,6 +42,9 @@ pub struct AppState {
 
     /// History buffer for seek-back through recent live telemetry
     pub history: Arc<RwLock<HistoryBuffer>>,
+
+    /// Persistence configuration for auto-saving telemetry to disk
+    pub persistence_config: Arc<RwLock<PersistenceConfig>>,
 }
 
 /// Configuration for an output sink
@@ -80,6 +84,7 @@ impl AppState {
             status_tx,
             sinks_tx,
             history: Arc::new(RwLock::new(HistoryBuffer::new(600))),
+            persistence_config: Arc::new(RwLock::new(PersistenceConfig::default())),
         }
     }
 

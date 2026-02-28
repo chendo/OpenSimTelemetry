@@ -37,6 +37,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
+# Filesystem
+dirs = "6.0"
+
 # Windows APIs (for shared memory adapters)
 windows = { version = "0.58", features = [
     "Win32_Foundation",

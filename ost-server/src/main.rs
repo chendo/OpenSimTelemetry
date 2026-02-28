@@ -3,7 +3,7 @@
 //! Main server application with web UI and REST API
 
 use anyhow::Result;
-use ost_server::{api, manager, state};
+use ost_server::{api, manager, persistence, state};
 use std::net::SocketAddr;
 use tracing::info;
 
@@ -27,6 +27,13 @@ async fn main() -> Result<()> {
 
     // Start adapter manager in background
     tokio::spawn(manager::run(state.clone()));
+
+    // Start persistence background task
+    let persistence_rx = state.subscribe();
+    tokio::spawn(persistence::run(
+        state.persistence_config.clone(),
+        persistence_rx,
+    ));
 
     // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], 9100));

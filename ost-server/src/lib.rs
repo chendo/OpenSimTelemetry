@@ -5,6 +5,7 @@
 pub mod api;
 pub mod history;
 pub mod manager;
+pub mod persistence;
 pub mod replay;
 pub mod sinks;
 pub mod state;

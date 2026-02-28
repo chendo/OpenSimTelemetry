@@ -456,12 +456,31 @@ function buildSettingsMenu() {
         return `<option value="${opt.secs}" ${selected}>${opt.label} (~${memMb} MB)</option>`;
     }).join('');
 
+    const savedAutoSave = localStorage.getItem('ost-persistence-autosave') === 'true';
+    const savedFreq = parseInt(localStorage.getItem('ost-persistence-freq')) || 60;
+    const freqOptions = [10, 30, 60].map(hz => {
+        const selected = hz === savedFreq ? 'selected' : '';
+        return `<option value="${hz}" ${selected}>${hz} Hz</option>`;
+    }).join('');
+
     settingsMenu.innerHTML = `
         <div class="settings-row">
             <span class="settings-label">History Buffer</span>
             <select class="settings-select" id="settings-history-duration">${options}</select>
         </div>
         <div class="settings-hint" id="settings-memory-hint"></div>
+        <div style="border-top: 1px solid var(--border-color); margin: 8px 0;"></div>
+        <div class="settings-row">
+            <span class="settings-label">Auto-Save</span>
+            <input type="checkbox" id="settings-autosave" ${savedAutoSave ? 'checked' : ''}>
+        </div>
+        <div class="settings-row">
+            <span class="settings-label">Save Rate</span>
+            <select class="settings-select" id="settings-save-freq">${freqOptions}</select>
+        </div>
+        <div class="settings-row">
+            <button class="header-reset-btn" id="settings-download-buf" style="font-size:0.6rem">Download Buffer</button>
+        </div>
     `;
 
     const select = document.getElementById('settings-history-duration');
@@ -475,6 +494,35 @@ function buildSettingsMenu() {
         }).catch(() => {});
         fetchHistoryInfo();
     });
+
+    // Persistence settings
+    const autoSaveCb = document.getElementById('settings-autosave');
+    const freqSelect = document.getElementById('settings-save-freq');
+    const downloadBtn = document.getElementById('settings-download-buf');
+
+    function syncPersistenceConfig() {
+        const auto_save = autoSaveCb.checked;
+        const frequency_hz = parseInt(freqSelect.value);
+        localStorage.setItem('ost-persistence-autosave', auto_save);
+        localStorage.setItem('ost-persistence-freq', frequency_hz);
+        fetch('/api/persistence/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ auto_save, frequency_hz })
+        }).catch(() => {});
+    }
+
+    autoSaveCb.addEventListener('change', syncPersistenceConfig);
+    freqSelect.addEventListener('change', syncPersistenceConfig);
+
+    downloadBtn.addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = '/api/persistence/download';
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
 }
 buildSettingsMenu();
 
@@ -486,8 +534,8 @@ settingsBtn.addEventListener('click', (e) => {
 document.addEventListener('click', () => { settingsOpen = false; settingsMenu.classList.remove('open'); });
 settingsMenu.addEventListener('click', (e) => e.stopPropagation());
 
-// Sync saved history preference to server on page load
-(function syncHistoryConfig() {
+// Sync saved preferences to server on page load
+(function syncSavedConfigs() {
     const savedSecs = parseInt(localStorage.getItem(HISTORY_DURATION_KEY));
     if (savedSecs) {
         fetch('/api/history/config', {
@@ -496,6 +544,14 @@ settingsMenu.addEventListener('click', (e) => e.stopPropagation());
             body: JSON.stringify({ max_duration_secs: savedSecs })
         }).catch(() => {});
     }
+    // Sync persistence config
+    const autoSave = localStorage.getItem('ost-persistence-autosave') === 'true';
+    const freq = parseInt(localStorage.getItem('ost-persistence-freq')) || 60;
+    fetch('/api/persistence/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_save: autoSave, frequency_hz: freq })
+    }).catch(() => {});
 })();
 
 // Start

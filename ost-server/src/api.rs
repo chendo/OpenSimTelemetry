@@ -71,6 +71,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/replay", delete(replay_delete))
         // History buffer config
         .route("/api/history/config", post(history_config))
+        // Persistence endpoints
+        .route(
+            "/api/persistence/config",
+            get(persistence_get_config).post(persistence_set_config),
+        )
+        .route("/api/persistence/download", get(persistence_download))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -858,4 +864,103 @@ async fn start_playback_task(state: AppState) {
 
         tracing::info!("Playback task ended");
     });
+}
+
+// === Persistence Endpoints ===
+
+async fn persistence_get_config(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let config = state.persistence_config.read().await;
+    let dir = crate::persistence::telemetry_dir();
+    Json(serde_json::json!({
+        "enabled": config.enabled,
+        "frequency_hz": config.frequency_hz,
+        "auto_save": config.auto_save,
+        "directory": dir.to_string_lossy(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct PersistenceConfigRequest {
+    enabled: Option<bool>,
+    frequency_hz: Option<u32>,
+    auto_save: Option<bool>,
+}
+
+async fn persistence_set_config(
+    State(state): State<AppState>,
+    Json(req): Json<PersistenceConfigRequest>,
+) -> Json<serde_json::Value> {
+    let mut config = state.persistence_config.write().await;
+    if let Some(enabled) = req.enabled {
+        config.enabled = enabled;
+    }
+    if let Some(freq) = req.frequency_hz {
+        config.frequency_hz = freq.clamp(1, 60);
+    }
+    if let Some(auto_save) = req.auto_save {
+        config.auto_save = auto_save;
+    }
+    Json(serde_json::json!({
+        "status": "ok",
+        "enabled": config.enabled,
+        "frequency_hz": config.frequency_hz,
+        "auto_save": config.auto_save,
+    }))
+}
+
+async fn persistence_download(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let history = state.history.read().await;
+    let frame_count = history.frame_count();
+    if frame_count == 0 {
+        return Err((
+            StatusCode::NOT_FOUND,
+            "No telemetry data in buffer".to_string(),
+        ));
+    }
+
+    let track = history.track_name().to_string();
+    let car = history.car_name().to_string();
+    let frames: Vec<_> = history
+        .get_frames_range(0, frame_count)
+        .into_iter()
+        .map(|(_, f)| f.clone())
+        .collect();
+    drop(history);
+
+    let compressed =
+        tokio::task::spawn_blocking(move || crate::persistence::compress_frames(&frames))
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Task failed: {}", e),
+                )
+            })?
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Compression failed: {}", e),
+                )
+            })?;
+
+    let now = chrono::Local::now();
+    let track_clean = if track.is_empty() { "unknown" } else { &track };
+    let car_clean = if car.is_empty() { "unknown" } else { &car };
+    let filename = format!(
+        "{}_{track_clean}_{car_clean}.ost.ndjson.zstd",
+        now.format("%Y-%m-%d_%H-%M-%S")
+    );
+
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, "application/zstd".parse().unwrap());
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", filename)
+            .parse()
+            .unwrap(),
+    );
+
+    Ok((headers, compressed))
 }
