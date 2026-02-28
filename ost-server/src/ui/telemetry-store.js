@@ -151,11 +151,11 @@ class ReplayBuffer {
     // Chunk index for a given frame
     _chunkIndex(frame) { return Math.floor(frame / this._chunkSize); }
 
-    // Check if a chunk is fully within the cache
+    // Check if a chunk is loaded in the cache (checks actual entry, not just range)
     _hasChunk(chunkIdx) {
         const chunkStart = chunkIdx * this._chunkSize;
-        const chunkEnd = Math.min(chunkStart + this._chunkSize, this.totalFrames);
-        return chunkStart >= this.startFrame && chunkEnd <= this.startFrame + this.count;
+        if (chunkStart < this.startFrame || chunkStart >= this.startFrame + this.count) return false;
+        return this.entries[chunkStart - this.startFrame] != null;
     }
 
     // Fetch a single chunk, merge into cache
@@ -182,7 +182,7 @@ class ReplayBuffer {
         }
     }
 
-    // Merge fetched frames into the contiguous cache
+    // Merge fetched frames into the cache (supports gaps from out-of-order arrivals)
     _mergeFrames(serverFrames) {
         if (serverFrames.length === 0) return;
         const newStart = serverFrames[0].i;
@@ -190,41 +190,32 @@ class ReplayBuffer {
         const processed = serverFrames.map(sf => this._processFrame(sf.f, sf.i));
 
         if (this.count === 0) {
-            // Empty cache — just set it
             this.startFrame = newStart;
             this.entries = processed;
             this.count = processed.length;
         } else {
             const cacheEnd = this.startFrame + this.count;
-            // Check if new data is adjacent or overlapping with existing cache
-            if (newStart <= cacheEnd && newEnd >= this.startFrame) {
-                // Merge: compute union range
-                const mergedStart = Math.min(this.startFrame, newStart);
-                const mergedEnd = Math.max(cacheEnd, newEnd);
-                const mergedLen = mergedEnd - mergedStart;
+            const mergedStart = Math.min(this.startFrame, newStart);
+            const mergedEnd = Math.max(cacheEnd, newEnd);
+            const mergedLen = mergedEnd - mergedStart;
+
+            if (mergedLen > this._maxCacheFrames * 2) {
+                // Gap too large (cursor jumped far) — replace cache entirely
+                this.startFrame = newStart;
+                this.entries = processed;
+                this.count = processed.length;
+            } else {
+                // Merge into union range (gaps filled as chunks arrive)
                 const merged = new Array(mergedLen);
-                // Copy existing entries
                 for (let i = 0; i < this.count; i++) {
                     merged[this.startFrame - mergedStart + i] = this.entries[i];
                 }
-                // Overlay new entries (overwrites overlapping region)
                 for (let i = 0; i < processed.length; i++) {
                     merged[newStart - mergedStart + i] = processed[i];
                 }
                 this.startFrame = mergedStart;
                 this.entries = merged;
                 this.count = mergedLen;
-            } else {
-                // Non-adjacent — check if new data is closer to cursor
-                const cursorDistOld = Math.abs(this.cursor - (this.startFrame + this.count / 2));
-                const cursorDistNew = Math.abs(this.cursor - (newStart + processed.length / 2));
-                if (cursorDistNew < cursorDistOld) {
-                    // Replace cache with new data (cursor moved far away)
-                    this.startFrame = newStart;
-                    this.entries = processed;
-                    this.count = processed.length;
-                }
-                // else: stale fetch from old position, ignore
             }
         }
         this._trimCache();
