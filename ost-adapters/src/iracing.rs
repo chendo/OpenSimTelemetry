@@ -208,6 +208,7 @@ mod windows_impl {
         "dpFastRepair",
         // Electronics
         "dcABS",
+        "BrakeABSactive",
         "dcTractionControl",
         "dcTractionControl2",
         "dcBrakeBias",
@@ -216,6 +217,12 @@ mod windows_impl {
         "DRS_Status",
         "dcThrottleShape",
         "PushToPass",
+        // Vehicle (additional)
+        "ShiftIndicatorPct",
+        "SteeringWheelAngleMax",
+        "HandbrakeRaw",
+        // Engine (additional)
+        "WaterLevel",
         // Per-car arrays
         "CarIdxLap",
         "CarIdxLapCompleted",
@@ -412,7 +419,9 @@ mod windows_impl {
                 steering_angle: get_f32("SteeringWheelAngle").map(Radians),
                 steering_torque: get_f32("SteeringWheelTorque").map(NewtonMeters),
                 steering_torque_pct: get_f32("SteeringWheelPctTorque").map(Percentage::new),
-                handbrake: None,
+                handbrake: get_f32("HandbrakeRaw").map(Percentage::new),
+                shift_indicator: get_f32("ShiftIndicatorPct").map(Percentage::new),
+                steering_angle_max: get_f32("SteeringWheelAngleMax").map(Radians),
                 on_track: get_bool("IsOnTrack"),
                 in_garage: get_bool("IsInGarage"),
                 track_surface,
@@ -440,6 +449,7 @@ mod windows_impl {
                 fuel_use_per_hour: get_f32("FuelUsePerHour").map(LitersPerHour),
                 voltage: get_f32("Voltage").map(Volts),
                 manifold_pressure: get_f32("ManifoldPress").map(Bar),
+                water_level: get_f32("WaterLevel").map(Liters),
                 warnings: engine_warnings,
             });
 
@@ -650,6 +660,7 @@ mod windows_impl {
             // =================================================================
             let electronics = Some(ElectronicsData {
                 abs: get_f32("dcABS"),
+                abs_active: get_bool("BrakeABSactive"),
                 traction_control: get_f32("dcTractionControl"),
                 traction_control_2: get_f32("dcTractionControl2"),
                 brake_bias: get_f32("dcBrakeBias").map(Percentage::new),

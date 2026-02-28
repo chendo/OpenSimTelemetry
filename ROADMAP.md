@@ -2,7 +2,6 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Data model: ABS activation should be a common metric, not iRacing specific. Review all of iRacing metrics and determine which are iRacing-specific (CPU usage, etc) and which are metrics that likely exist in other sims
 * Data model: All angles returned in the API and displayed should be in degrees
 * Interface: First graph shows speed, rpm, throttle, brake, clutch, yaw rate, ABS active, steering angle
 * Data model: Add Computed Metrics, which takes JS/TS that can fetch metrics and process them, to return new metrics. The JS ideally is compiled or something so it's very fast.
@@ -14,4 +13,4 @@ Agent Instructions: Pick idea from the top, ask any clarifying questions, make a
 * Sinks: Remove file sink and HTTP post option.
 * Interface: Add API pane, which has short instructions and examples to access the API
 * API: Add `rate` parameter to telemetry API endpoints that affects update rate which can be from `0.0-60.0`. Defaults to 60. If set to 1, that's one update per second, 0.5 is once every two seconds.
-* Feature: Can optionally point to another OST instance.
+* Feature: Can optionally point to another OST instance to stream data from. Text box at the top that defaults to http://localhost:9100/

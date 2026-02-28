@@ -515,6 +515,12 @@ impl DemoAdapter {
             steering_torque: Some(NewtonMeters(steering * 15.0 + lat_g * 3.0)),
             steering_torque_pct: Some(Percentage::new((steering.abs() * 2.0).min(1.0))),
             handbrake: None,
+            shift_indicator: Some(Percentage::new(if rpm > 7500.0 {
+                ((rpm - 7500.0) / 500.0).min(1.0)
+            } else {
+                0.0
+            })),
+            steering_angle_max: Some(Radians(7.33)), // ~420 degrees lock
             on_track: Some(true),
             in_garage: Some(false),
             track_surface: Some(TrackSurface::Asphalt),
@@ -536,6 +542,7 @@ impl DemoAdapter {
             fuel_use_per_hour: Some(LitersPerHour(30.0 + throttle * 15.0)),
             voltage: Some(Volts(13.8 + jitter(n * 5.4, 0.1))),
             manifold_pressure: Some(Bar(0.8 + throttle * 0.6)),
+            water_level: Some(Liters(4.5)),
             warnings: Some(EngineWarnings {
                 water_temp_high: false,
                 fuel_pressure_low: false,
@@ -643,8 +650,10 @@ impl DemoAdapter {
         });
 
         // --- Electronics ---
+        let abs_active = brake > 0.8 && speed > 5.0; // simulate ABS firing under heavy braking
         let electronics = Some(ElectronicsData {
             abs: Some(2.0),
+            abs_active: Some(abs_active),
             traction_control: Some(3.0),
             traction_control_2: None,
             brake_bias: Some(Percentage::new(0.56)),

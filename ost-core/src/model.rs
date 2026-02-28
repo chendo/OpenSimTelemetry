@@ -141,8 +141,14 @@ pub struct VehicleData {
     /// Steering wheel torque as percentage of max
     pub steering_torque_pct: Option<Percentage>,
 
-    /// Handbrake input (0.0 to 1.0) — not available in iRacing
+    /// Handbrake input (0.0 to 1.0)
     pub handbrake: Option<Percentage>,
+
+    /// Shift indicator / shift light percentage (0.0 = off, 1.0 = full)
+    pub shift_indicator: Option<Percentage>,
+
+    /// Maximum steering lock angle (for scaling wheel visualizations)
+    pub steering_angle_max: Option<Radians>,
 
     /// Whether the car is on the track
     pub on_track: Option<bool>,
@@ -216,6 +222,9 @@ pub struct EngineData {
 
     /// Manifold pressure
     pub manifold_pressure: Option<Bar>,
+
+    /// Coolant/water level
+    pub water_level: Option<Liters>,
 
     /// Engine warning flags
     pub warnings: Option<EngineWarnings>,
@@ -781,6 +790,9 @@ pub struct ElectronicsData {
     /// ABS setting level
     pub abs: Option<f32>,
 
+    /// ABS currently active (firing)
+    pub abs_active: Option<bool>,
+
     /// Traction control setting
     pub traction_control: Option<f32>,
 
@@ -1248,6 +1260,8 @@ mod tests {
                 brake: Some(Percentage::new(0.0)),
                 clutch: Some(Percentage::new(0.0)),
                 handbrake: None,
+                shift_indicator: None,
+                steering_angle_max: None,
                 steering_angle: Some(Radians(0.1)),
                 steering_torque: None,
                 steering_torque_pct: None,
@@ -1266,6 +1280,7 @@ mod tests {
                 fuel_pressure: None,
                 fuel_use_per_hour: None,
                 manifold_pressure: None,
+                water_level: None,
                 voltage: None,
                 warnings: None,
             }),
