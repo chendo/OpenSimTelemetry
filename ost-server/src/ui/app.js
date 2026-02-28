@@ -455,6 +455,26 @@ function exitHistoryMode() {
     requestRedraw();
 }
 
+// Called by GraphWidget horizontal scroll to move cursor
+function graphScrollCursor(delta) {
+    // Replay mode
+    if (replayBuf.count > 0) {
+        replayBuf.cursor = Math.max(0, Math.min(replayBuf.totalFrames - 1, replayBuf.cursor + delta));
+        replayBuf._dirty = true;
+        replayBuf.ensureLoaded(buildReplayMetricMask());
+        requestRedraw();
+        return;
+    }
+    // History mode (enter if not already)
+    if (!historyMode) enterHistoryMode();
+    historyBuf.cursor = Math.max(0, Math.min(historyBuf.totalFrames - 1, historyBuf.cursor + delta));
+    historyBuf._dirty = true;
+    seekSlider.value = historyBuf.cursor;
+    updateSeekTimeDisplay();
+    historyBuf.ensureLoaded(buildReplayMetricMask());
+    requestRedraw();
+}
+
 seekSlider.addEventListener('input', (e) => {
     const frame = parseInt(e.target.value);
     if (!historyMode) enterHistoryMode();

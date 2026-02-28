@@ -48,6 +48,17 @@ class GraphWidget extends Widget {
             requestRedraw();
         });
 
+        // Horizontal scroll moves cursor in history/replay mode
+        this.canvas.addEventListener('wheel', (e) => {
+            // Only act on horizontal scroll (or shift+vertical)
+            const dx = e.deltaX || (e.shiftKey ? e.deltaY : 0);
+            if (dx === 0) return;
+            e.preventDefault();
+            const framesPerTick = Math.max(1, Math.round(Math.abs(dx) / 10));
+            const delta = dx > 0 ? framesPerTick : -framesPerTick;
+            if (typeof graphScrollCursor === 'function') graphScrollCursor(delta);
+        }, { passive: false });
+
         this.rebuildLegend();
 
         const sel = c.querySelector('.graph-time-select');
