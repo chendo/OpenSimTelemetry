@@ -176,8 +176,11 @@ class GraphWidget extends Widget {
             });
             menu.appendChild(item);
         }
-        const controls = this.contentArea.querySelector('.graph-controls');
-        controls.appendChild(menu);
+        const rect = anchor.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.top = (rect.bottom + 4) + 'px';
+        menu.style.left = rect.left + 'px';
+        document.body.appendChild(menu);
         this._presetMenu = menu;
         const closeMenu = (e) => {
             if (!menu.contains(e.target) && e.target !== anchor) {
@@ -424,9 +427,12 @@ class GraphWidget extends Widget {
 
         search.addEventListener('input', () => renderList(search.value));
 
-        // Position near anchor
-        const controls = this.contentArea.querySelector('.graph-controls');
-        controls.appendChild(popover);
+        // Position near anchor using fixed positioning to escape overflow:hidden
+        const rect = anchorEl.getBoundingClientRect();
+        popover.style.position = 'fixed';
+        popover.style.top = (rect.bottom + 4) + 'px';
+        popover.style.left = rect.left + 'px';
+        document.body.appendChild(popover);
         this._picker = popover;
 
         // Focus search

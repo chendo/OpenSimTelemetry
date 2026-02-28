@@ -764,8 +764,6 @@ body {
 }
 
 .graph-preset-menu {
-    position: absolute;
-    top: 100%;
     margin-top: 4px;
     background: var(--bg-card);
     border: 1px solid rgba(255,255,255,0.15);
@@ -799,9 +797,6 @@ body {
 .custom-legend-remove:hover { opacity: 1 !important; color: var(--status-inactive); }
 
 .metric-picker-popover {
-    position: absolute;
-    top: 100%;
-    left: 0;
     width: 340px;
     max-height: 320px;
     background: var(--bg-card);
