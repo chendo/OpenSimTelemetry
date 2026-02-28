@@ -230,25 +230,23 @@ class ReplayBuffer {
         this._dirty = true;
     }
 
-    // Trim cache to _maxCacheFrames, keeping data centered on cursor
+    // Trim cache to _maxCacheFrames, biased toward keeping data ahead of cursor.
+    // During forward playback, keeps ~35s behind cursor and the rest ahead,
+    // ensuring prefetched data is never immediately discarded.
     _trimCache() {
         if (this.count <= this._maxCacheFrames) return;
         const excess = this.count - this._maxCacheFrames;
         const cursorLocal = this.cursor - this.startFrame;
-        // Determine how much to trim from each end
-        const distToStart = cursorLocal;
-        const distToEnd = this.count - 1 - cursorLocal;
-        if (distToStart > distToEnd) {
-            // Trim from start
-            const trim = Math.min(excess, distToStart - Math.floor(this._maxCacheFrames / 2));
-            if (trim > 0) {
-                this.entries = this.entries.slice(trim);
-                this.startFrame += trim;
-                this.count -= trim;
-            }
+        // Keep at most 35s of data behind cursor; trim the rest from start
+        const keepBehind = Math.floor(this.tickRate * 35);
+        const trimFromStart = Math.min(excess, Math.max(0, cursorLocal - keepBehind));
+        if (trimFromStart > 0) {
+            this.entries = this.entries.slice(trimFromStart);
+            this.startFrame += trimFromStart;
+            this.count -= trimFromStart;
         }
+        // Only trim from end as last resort (e.g. after seeking backward)
         if (this.count > this._maxCacheFrames) {
-            // Trim from end
             this.entries.length = this._maxCacheFrames;
             this.count = this._maxCacheFrames;
         }
@@ -289,9 +287,9 @@ class ReplayBuffer {
             }
             await Promise.all(viewportPromises);
 
-            // Fire-and-forget: prefetch 60s ahead during playback for smooth scrolling
+            // Fire-and-forget: prefetch 45s ahead during playback for smooth scrolling
             if (!this.scrubbing) {
-                const extraAhead = Math.ceil((this.tickRate * 60) / this._chunkSize);
+                const extraAhead = Math.ceil((this.tickRate * 45) / this._chunkSize);
                 for (let i = viewportChunks + 1; i <= viewportChunks + extraAhead; i++) {
                     if (cursorChunk + i <= maxChunk)
                         this._fetchChunk(cursorChunk + i, metrics, signal);

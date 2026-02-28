@@ -2,7 +2,6 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Interface: Wheels viz doesn't make sense. Higher suspension travel means the wheels are loaded (braking causes front tires suspension travel to increase). Maybe instead of bar, have a rounded rectangle that represents the wheel and the redder the colour, the more loaded that wheel is 
 * Data model: Add Computed Metrics, which takes JS/TS that can fetch metrics and process them, to return new metrics. The JS ideally is compiled or something so it's very fast.
 * Persistence: Allow persistence of replay data. NDJSON + ZSTD. Buffer can be downloaded by the user in the browser, or automatically writes to disk. Add option to set frequency (10, 30, 60 default, custom), Store in ~/Documents/OpenSimTelemetry/telemetry/ on Windows, ~/.opensimtelemetry/telemetry/ on mac/linux. Filename: YYYY-MM-DD_track_car.ost.ndjson.zstd. Add these preferences to the settings.
 * Interface: Allow browsing and loading of saved replays in those default folders. Replays are streamed from disk rather than loading it all into memory as these can be quite big.
@@ -13,4 +12,4 @@ Agent Instructions: Pick idea from the top, ask any clarifying questions, make a
 * API: Add authentication via Authorization header or query param. Defaults to no authentication
 * Interface: Optional HTTP Basic authentication
 * Interface: Add warning in Wheels pane that some games don't have live data for all metrics here
-* Graphs: Scrolling horizontally on 
+* Graphs: Scrolling horizontally on a graph will move the cursor

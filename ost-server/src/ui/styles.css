@@ -909,38 +909,44 @@ body {
     min-width: 32px;
 }
 
-/* Bars row: suspension + shock side by side */
-.wheel-bars-row {
+/* Tire load rectangle + shock info row */
+.wheel-load-row {
     display: flex;
+    align-items: center;
     gap: 6px;
-    align-items: flex-end;
 }
 
-.wheel-bar-group {
+.wheel-tire {
+    width: 22px;
+    height: 34px;
+    border-radius: 5px;
+    background: var(--bg-inset);
+    transition: background 0.1s ease-out;
+    flex-shrink: 0;
+}
+
+.wheel-load-info {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    min-width: 32px;
+    min-width: 28px;
+}
+
+.wheel-shock-wrap {
+    display: flex;
+    align-items: center;
+    gap: 2px;
 }
 
 .wheel-bar-track {
-    width: 8px;
-    height: 32px;
+    width: 6px;
+    height: 24px;
     background: var(--bg-inset);
-    border-radius: 4px;
+    border-radius: 3px;
     overflow: hidden;
     position: relative;
     flex-shrink: 0;
-}
-
-.wheel-bar-fill {
-    width: 100%;
-    position: absolute;
-    bottom: 0;
-    background: linear-gradient(0deg, var(--accent), #ffa502, #ff4757);
-    border-radius: 4px;
-    transition: height 0.08s ease-out;
 }
 
 /* Shock velocity centered bar */
@@ -956,7 +962,7 @@ body {
 .wheel-shock-fill {
     width: 100%;
     position: absolute;
-    border-radius: 4px;
+    border-radius: 3px;
     transition: height 0.08s ease-out;
 }
 

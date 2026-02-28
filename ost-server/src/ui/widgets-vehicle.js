@@ -352,7 +352,6 @@ class WheelsWidget extends Widget {
             <div class="wheel-layout">
                 ${corners.map(w => {
                     const left = isLeft[w];
-                    // Temp segments ordered so inner is always toward the car silhouette
                     const seg1 = left ? 'to' : 'ti';
                     const seg3 = left ? 'ti' : 'to';
                     const lbl1 = left ? 'O' : 'I';
@@ -360,14 +359,14 @@ class WheelsWidget extends Widget {
                     return `
                 <div class="wheel-corner" style="${positions[w]}">
                     <span class="wheel-label">${labels[w]}</span>
-                    <div class="wheel-bars-row">
-                        <div class="wheel-bar-group">
-                            <div class="wheel-bar-track"><div class="wheel-bar-fill" id="w-${w}-sbar"></div></div>
+                    <div class="wheel-load-row">
+                        <div class="wheel-tire" id="w-${w}-tire"></div>
+                        <div class="wheel-load-info">
                             <span class="wheel-val" id="w-${w}-susp">--</span>
-                        </div>
-                        <div class="wheel-bar-group">
-                            <div class="wheel-bar-track wheel-shock-track"><div class="wheel-bar-center"></div><div class="wheel-shock-fill" id="w-${w}-shbar"></div></div>
-                            <span class="wheel-val" id="w-${w}-shock">--</span>
+                            <div class="wheel-shock-wrap">
+                                <div class="wheel-bar-track wheel-shock-track"><div class="wheel-bar-center"></div><div class="wheel-shock-fill" id="w-${w}-shbar"></div></div>
+                                <span class="wheel-val" id="w-${w}-shock">--</span>
+                            </div>
                         </div>
                     </div>
                     <div class="wheel-temp-row">
@@ -400,7 +399,7 @@ class WheelsWidget extends Widget {
         this.wEls = {};
         for (const w of corners) {
             this.wEls[w] = {
-                sbar: c.querySelector(`#w-${w}-sbar`),
+                tire: c.querySelector(`#w-${w}-tire`),
                 susp: c.querySelector(`#w-${w}-susp`),
                 shbar: c.querySelector(`#w-${w}-shbar`),
                 shock: c.querySelector(`#w-${w}-shock`),
@@ -414,6 +413,16 @@ class WheelsWidget extends Widget {
                 wearv: c.querySelector(`#w-${w}-wearv`),
             };
         }
+    }
+
+    // Map suspension travel (normalized 0-1) to a load color: green → yellow → red
+    _loadColor(t) {
+        t = Math.max(0, Math.min(1, t));
+        if (t <= 0.5) {
+            const f = t / 0.5;
+            return _lerpColor('#22c55e', '#eab308', f);
+        }
+        return _lerpColor('#eab308', '#ef4444', (t - 0.5) / 0.5);
     }
 
     update(store) {
@@ -434,18 +443,16 @@ class WheelsWidget extends Widget {
         }
 
         const sRange = this.suspRange.max - this.suspRange.min;
-        const sMin = this.suspRange.min - sRange * 0.1;
-        const sMax = this.suspRange.max + sRange * 0.1;
+        const sMin = this.suspRange.min;
 
         for (const [key, wd] of Object.entries(map)) {
             const els = this.wEls[key];
 
-            // Suspension travel bar
+            // Tire load rectangle — colored by suspension travel
             if (wd?.suspension_travel != null) {
                 const mm = wd.suspension_travel * 1000;
-                let pct = sMax > sMin ? ((mm - sMin) / (sMax - sMin)) * 100 : 50;
-                pct = Math.max(0, Math.min(100, pct));
-                els.sbar.style.height = pct + '%';
+                const t = sRange > 0.1 ? (mm - sMin) / sRange : 0.5;
+                els.tire.style.background = this._loadColor(t);
                 els.susp.textContent = mm.toFixed(1);
             }
 
