@@ -280,7 +280,8 @@ class ApiWidget extends Widget {
                     <div class="api-heading">SSE Streams</div>
                     <div class="api-endpoint"><code>GET /api/stream</code> — Unified stream (frame, status, sinks events)</div>
                     <div class="api-endpoint"><code>GET /api/telemetry/stream</code> — Telemetry frames only</div>
-                    <div class="api-example"><code>curl -N ${base}/api/telemetry/stream</code></div>
+                    <div class="api-endpoint" style="margin-left:12px;font-size:0.6rem">Query params: <code>rate</code> (0.01–60, default 60), <code>metric_mask</code></div>
+                    <div class="api-example"><code>curl -N "${base}/api/telemetry/stream?rate=1"</code></div>
                     <div class="api-endpoint"><code>GET /api/status/stream</code> — Status updates only</div>
                 </div>
                 <div class="api-section">

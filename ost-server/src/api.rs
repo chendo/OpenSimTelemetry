@@ -22,6 +22,17 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
 
+/// Convert a rate (frames per second) query param to a minimum interval between emissions.
+/// Returns None for rates >= 60 (no throttling needed).
+fn rate_to_interval(rate: Option<f64>) -> Option<Duration> {
+    let hz = rate.unwrap_or(60.0).clamp(0.01, 60.0);
+    if hz >= 60.0 {
+        None
+    } else {
+        Some(Duration::from_secs_f64(1.0 / hz))
+    }
+}
+
 /// Round all floating-point numbers in a JSON value tree to 5 decimal places.
 fn round_json_floats(val: &mut serde_json::Value) {
     match val {
@@ -250,16 +261,28 @@ async fn unified_stream(
         Ok(Event::default().event("sinks").data(initial_sinks_json)),
     ]);
 
-    // Telemetry frames (with optional metric mask filtering)
+    // Telemetry frames (with optional metric mask filtering and rate limiting)
     let metric_mask = query.metric_mask.map(|f| MetricMask::parse(&f));
+    let min_interval = rate_to_interval(query.rate);
+    let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
     let telemetry = BroadcastStream::new(telemetry_rx).filter_map(move |result| {
         let mask = metric_mask.clone();
+        let last = last_emit.clone();
         async move {
             match result {
-                Ok(frame) => match frame.to_json_filtered(mask.as_ref()) {
-                    Ok(json) => Some(Ok(Event::default().event("frame").data(json))),
-                    Err(_) => None,
-                },
+                Ok(frame) => {
+                    if let Some(interval) = min_interval {
+                        let mut guard = last.lock().unwrap();
+                        if guard.elapsed() < interval {
+                            return None;
+                        }
+                        *guard = tokio::time::Instant::now();
+                    }
+                    match frame.to_json_filtered(mask.as_ref()) {
+                        Ok(json) => Some(Ok(Event::default().event("frame").data(json))),
+                        Err(_) => None,
+                    }
+                }
                 Err(_) => None,
             }
         }
@@ -361,6 +384,8 @@ async fn status_stream(
 #[derive(Deserialize)]
 struct StreamQuery {
     metric_mask: Option<String>,
+    /// Frames per second (0.0–60.0). Defaults to 60.
+    rate: Option<f64>,
 }
 
 async fn telemetry_stream(
@@ -369,13 +394,22 @@ async fn telemetry_stream(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.subscribe();
     let metric_mask = query.metric_mask.map(|f| MetricMask::parse(&f));
+    let min_interval = rate_to_interval(query.rate);
 
+    let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
         let mask = metric_mask.clone();
+        let last = last_emit.clone();
         async move {
             match result {
                 Ok(frame) => {
-                    // Serialize with metric mask
+                    if let Some(interval) = min_interval {
+                        let mut guard = last.lock().unwrap();
+                        if guard.elapsed() < interval {
+                            return None;
+                        }
+                        *guard = tokio::time::Instant::now();
+                    }
                     match frame.to_json_filtered(mask.as_ref()) {
                         Ok(json) => Some(Ok(Event::default().data(json))),
                         Err(e) => {
