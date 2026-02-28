@@ -6,11 +6,11 @@
 
 use crate::state::{SinkConfig, SinkType};
 use anyhow::Result;
-use ost_core::model::{FieldMask, TelemetryFrame};
+use ost_core::model::{MetricMask, TelemetryFrame};
 
 /// Trait for output sinks
 pub trait Sink: Send {
-    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&FieldMask>) -> Result<()>;
+    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&MetricMask>) -> Result<()>;
 }
 
 /// HTTP POST sink
@@ -29,7 +29,7 @@ impl HttpSink {
 }
 
 impl Sink for HttpSink {
-    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&FieldMask>) -> Result<()> {
+    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&MetricMask>) -> Result<()> {
         let json = frame.to_json_filtered(mask)?;
         // Fire and forget (non-blocking)
         let url = self.url.clone();
@@ -59,7 +59,7 @@ impl UdpSink {
 }
 
 impl Sink for UdpSink {
-    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&FieldMask>) -> Result<()> {
+    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&MetricMask>) -> Result<()> {
         let json = frame.to_json_filtered(mask)?;
         self.socket.send_to(json.as_bytes(), self.addr)?;
         Ok(())
@@ -80,7 +80,7 @@ impl FileSink {
 }
 
 impl Sink for FileSink {
-    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&FieldMask>) -> Result<()> {
+    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&MetricMask>) -> Result<()> {
         use std::io::Write;
         let json = frame.to_json_filtered(mask)?;
         writeln!(self.file, "{}", json)?;

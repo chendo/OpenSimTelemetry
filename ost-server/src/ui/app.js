@@ -102,7 +102,7 @@ const staticWidgets = [
     new WheelsWidget(),
     new LapTimingWidget(),
     new SessionWidget(),
-    new AllFieldsWidget(),
+    new AllMetricsWidget(),
     new OutputSinksWidget(),
 ];
 staticWidgets.forEach(w => { w.init(); grid.addWidget(w); });
@@ -207,7 +207,7 @@ function renderLoop() {
         replayBuf.advancePlayback(now);
         // Ensure chunks around cursor are loaded (prefetches ahead during playback)
         if (replayBuf.needsFetch() || replayBuf.playing) {
-            replayBuf.ensureLoaded(buildReplayFieldMask());
+            replayBuf.ensureLoaded(buildReplayMetricMask());
         }
         // Sync store.currentFrame so non-graph widgets see the replay frame
         const replayFrame = replayBuf.currentFrame();

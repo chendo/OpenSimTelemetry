@@ -44,7 +44,7 @@ pub struct AppState {
 pub struct SinkConfig {
     pub id: String,
     pub sink_type: SinkType,
-    pub field_mask: Option<String>, // Comma-separated field names
+    pub metric_mask: Option<String>, // Comma-separated metric names
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

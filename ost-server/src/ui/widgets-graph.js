@@ -92,7 +92,7 @@ class GraphWidget extends Widget {
             this.legendItems[key] = item;
         }
 
-        // Custom field metrics (only show enabled)
+        // Custom metrics (only show enabled)
         for (const [path, meta] of this.customMetrics) {
             if (!this.enabledMetrics.has(path)) continue;
             const item = document.createElement('span');
@@ -122,18 +122,18 @@ class GraphWidget extends Widget {
             item.title = sug.path;
             item.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.addCustomField(sug.path);
+                this.addCustomMetric(sug.path);
             });
             this.legendEl.appendChild(item);
         }
 
         // "+ Metric" button
         const addBtn = document.createElement('span');
-        addBtn.className = 'graph-legend-item graph-add-field-btn';
+        addBtn.className = 'graph-legend-item graph-add-metric-btn';
         addBtn.textContent = '+ Metric';
         addBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.openFieldPicker(addBtn);
+            this.openMetricPicker(addBtn);
         });
         this.legendEl.appendChild(addBtn);
 
@@ -190,10 +190,10 @@ class GraphWidget extends Widget {
                 this.enabledMetrics.add(pattern);
             } else if (pattern.includes('*')) {
                 for (const p of allPaths) {
-                    if (matchFieldFilter(p, pattern)) this.addCustomField(p);
+                    if (matchMetricFilter(p, pattern)) this.addCustomMetric(p);
                 }
             } else {
-                this.addCustomField(pattern);
+                this.addCustomMetric(pattern);
             }
         }
         this.rebuildLegend();
@@ -265,8 +265,8 @@ class GraphWidget extends Widget {
         return cur;
     }
 
-    openFieldPicker(anchorEl) {
-        if (this._picker) { this.closeFieldPicker(); return; }
+    openMetricPicker(anchorEl) {
+        if (this._picker) { this.closeMetricPicker(); return; }
         const frame = store.currentFrame;
         if (!frame) return;
 
@@ -289,16 +289,16 @@ class GraphWidget extends Widget {
 
         // Build popover
         const popover = document.createElement('div');
-        popover.className = 'field-picker-popover';
+        popover.className = 'metric-picker-popover';
 
         const search = document.createElement('input');
-        search.className = 'field-picker-search';
+        search.className = 'metric-picker-search';
         search.placeholder = 'Search... (* wildcard, /regex/)';
         search.type = 'text';
         popover.appendChild(search);
 
         const list = document.createElement('div');
-        list.className = 'field-picker-list';
+        list.className = 'metric-picker-list';
         popover.appendChild(list);
 
         const alreadyAdded = new Set([...this.enabledMetrics]);
@@ -311,54 +311,54 @@ class GraphWidget extends Widget {
 
             // Preset metrics section (show un-enabled presets)
             const presetEntries = Object.entries(GRAPH_METRICS).filter(([key]) => !alreadyAdded.has(key));
-            const filteredPresets = filter ? presetEntries.filter(([key, m]) => matchFieldFilter(key, filter) || matchFieldFilter(m.label, filter)) : presetEntries;
+            const filteredPresets = filter ? presetEntries.filter(([key, m]) => matchMetricFilter(key, filter) || matchMetricFilter(m.label, filter)) : presetEntries;
             if (filteredPresets.length > 0) {
                 const hdr = document.createElement('div');
-                hdr.className = 'field-picker-section';
+                hdr.className = 'metric-picker-section';
                 hdr.textContent = 'Presets';
                 list.appendChild(hdr);
                 for (const [key, metric] of filteredPresets) {
                     const item = document.createElement('div');
-                    item.className = 'field-picker-item';
+                    item.className = 'metric-picker-item';
                     const extract = metric.extract(frame);
                     const val = extract != null ? (Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2)) : null;
-                    const valHtml = val != null ? `<span class="field-picker-value">${val} <span class="field-picker-unit">${metric.unit}</span></span>` : '';
-                    item.innerHTML = `<span class="field-picker-path">${metric.label}</span>${valHtml}`;
-                    item.addEventListener('click', () => { this.addCustomField(key); this.closeFieldPicker(); });
+                    const valHtml = val != null ? `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>` : '';
+                    item.innerHTML = `<span class="metric-picker-path">${metric.label}</span>${valHtml}`;
+                    item.addEventListener('click', () => { this.addCustomMetric(key); this.closeMetricPicker(); });
                     list.appendChild(item);
                 }
             }
 
-            // Raw field sections — collect all addable matches for "Add all" button
+            // Raw metric sections — collect all addable matches for "Add all" button
             const addablePaths = [];
             for (const [section, paths] of Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]))) {
-                const filtered = filter ? paths.filter(p => matchFieldFilter(p, filter)) : paths;
+                const filtered = filter ? paths.filter(p => matchMetricFilter(p, filter)) : paths;
                 if (filtered.length === 0) continue;
 
                 const hdr = document.createElement('div');
-                hdr.className = 'field-picker-section';
+                hdr.className = 'metric-picker-section';
                 hdr.textContent = section.charAt(0).toUpperCase() + section.slice(1);
                 list.appendChild(hdr);
 
                 for (const path of filtered) {
                     const item = document.createElement('div');
                     const added = alreadyAdded.has(path);
-                    item.className = 'field-picker-item' + (added ? ' dimmed' : '');
+                    item.className = 'metric-picker-item' + (added ? ' dimmed' : '');
                     const parts = path.split('.');
-                    const rawVal = resolveFieldPathRaw(frame, parts);
+                    const rawVal = resolveMetricPathRaw(frame, parts);
                     let valHtml = '';
                     if (typeof rawVal === 'boolean') {
-                        valHtml = `<span class="field-picker-value">${rawVal ? 'true' : 'false'} <span class="field-picker-unit">bool</span></span>`;
+                        valHtml = `<span class="metric-picker-value">${rawVal ? 'true' : 'false'} <span class="metric-picker-unit">bool</span></span>`;
                     } else if (typeof rawVal === 'number') {
-                        const fmt = formatFieldValue(path, rawVal);
-                        valHtml = `<span class="field-picker-value">${fmt.text}${fmt.unit ? ' <span class="field-picker-unit">' + fmt.unit + '</span>' : ''}</span>`;
+                        const fmt = formatMetricValue(path, rawVal);
+                        valHtml = `<span class="metric-picker-value">${fmt.text}${fmt.unit ? ' <span class="metric-picker-unit">' + fmt.unit + '</span>' : ''}</span>`;
                     }
-                    item.innerHTML = `<span class="field-picker-path">${path}</span>${valHtml}`;
+                    item.innerHTML = `<span class="metric-picker-path">${path}</span>${valHtml}`;
                     if (!added) {
                         addablePaths.push(path);
                         item.addEventListener('click', () => {
-                            this.addCustomField(path);
-                            this.closeFieldPicker();
+                            this.addCustomMetric(path);
+                            this.closeMetricPicker();
                         });
                     }
                     list.appendChild(item);
@@ -368,11 +368,11 @@ class GraphWidget extends Widget {
             // "Add all" button when using wildcard/regex with multiple matches
             if (hasPattern && addablePaths.length > 1) {
                 const btn = document.createElement('div');
-                btn.className = 'field-picker-add-all';
+                btn.className = 'metric-picker-add-all';
                 btn.textContent = `+ Add all ${addablePaths.length} matches`;
                 btn.addEventListener('click', () => {
-                    for (const p of addablePaths) this.addCustomField(p);
-                    this.closeFieldPicker();
+                    for (const p of addablePaths) this.addCustomMetric(p);
+                    this.closeMetricPicker();
                 });
                 list.insertBefore(btn, list.firstChild);
             }
@@ -392,13 +392,13 @@ class GraphWidget extends Widget {
         // Close on outside click
         this._pickerClickOutside = (e) => {
             if (!popover.contains(e.target) && e.target !== anchorEl) {
-                this.closeFieldPicker();
+                this.closeMetricPicker();
             }
         };
         setTimeout(() => document.addEventListener('click', this._pickerClickOutside), 0);
     }
 
-    closeFieldPicker() {
+    closeMetricPicker() {
         if (this._picker) {
             this._picker.remove();
             this._picker = null;
@@ -409,7 +409,7 @@ class GraphWidget extends Widget {
         }
     }
 
-    addCustomField(path) {
+    addCustomMetric(path) {
         if (this.enabledMetrics.has(path)) return;
         // If it's a preset metric, just enable it
         if (GRAPH_METRICS[path]) {
@@ -417,11 +417,11 @@ class GraphWidget extends Widget {
         } else {
             if (this.customMetrics.has(path)) return;
             const parts = path.split('.');
-            // Check if this field is boolean in the current frame
+            // Check if this metric is boolean in the current frame
             const frame = store.currentFrame;
-            const rawVal = frame ? resolveFieldPathRaw(frame, parts) : undefined;
+            const rawVal = frame ? resolveMetricPathRaw(frame, parts) : undefined;
             const isBool = typeof rawVal === 'boolean';
-            const unitInfo = isBool ? { unit: '', norm: 'boolean' } : getFieldUnitInfo(path);
+            const unitInfo = isBool ? { unit: '', norm: 'boolean' } : getMetricUnitInfo(path);
             this.customMetrics.set(path, {
                 path,
                 label: deriveLabel(path),
@@ -483,7 +483,7 @@ class GraphWidget extends Widget {
                         boolTraces.push({ key, color: custom.color, norm: 'boolean', unit: '', dU: '', dM: 1, label: custom.label,
                             getValue: (entry) => {
                                 if (!entry._frame) return null;
-                                const v = resolveFieldPathRaw(entry._frame, parts);
+                                const v = resolveMetricPathRaw(entry._frame, parts);
                                 return typeof v === 'boolean' ? v : null;
                             }
                         });
@@ -491,9 +491,9 @@ class GraphWidget extends Widget {
                         const leaf = parts[parts.length - 1];
                         let dU = custom.unit, dM = 1;
                         if (custom.norm === 'pct') { dU = '%'; dM = 100; }
-                        else if (custom.unit === 'm' && METERS_TO_MM_FIELDS.test(leaf)) { dU = 'mm'; dM = 1000; }
-                        else if (custom.unit === 'm/s' && MPS_TO_MMPS_FIELDS.test(leaf)) { dU = 'mm/s'; dM = 1000; }
-                        traces.push({ key, color: custom.color, norm: custom.norm, unit: custom.unit, dU, dM, getValue: (entry) => entry._frame ? resolveFieldPathParts(entry._frame, parts) : null });
+                        else if (custom.unit === 'm' && METERS_TO_MM_METRICS.test(leaf)) { dU = 'mm'; dM = 1000; }
+                        else if (custom.unit === 'm/s' && MPS_TO_MMPS_METRICS.test(leaf)) { dU = 'mm/s'; dM = 1000; }
+                        traces.push({ key, color: custom.color, norm: custom.norm, unit: custom.unit, dU, dM, getValue: (entry) => entry._frame ? resolveMetricPathParts(entry._frame, parts) : null });
                     }
                 }
             }

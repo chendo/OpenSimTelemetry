@@ -40,10 +40,10 @@ const GRAPH_PRESETS = [
     { name: 'Engine', metrics: ['rpm', 'wheels.*.wheel_speed'] },
 ];
 
-/* ==================== Field Unit Metadata ==================== */
-// Maps field paths to { unit, norm } for arbitrary field plotting.
-// Lookup: exact match first, then suffix match (*.field_name).
-const FIELD_UNIT_MAP = {
+/* ==================== Metric Unit Metadata ==================== */
+// Maps metric paths to { unit, norm } for arbitrary metric plotting.
+// Lookup: exact match first, then suffix match (*.metric_name).
+const METRIC_UNIT_MAP = {
     // Exact paths with special handling
     'vehicle.speed':          { unit: 'm/s',  norm: 'autoscale' },
     'vehicle.gear':           { unit: '',     norm: 'autoscale' },
@@ -153,29 +153,29 @@ const FIELD_UNIT_MAP = {
     '*.air_density':           { unit: 'kg/m\u00B3', norm: 'autoscale' },
 };
 
-function getFieldUnitInfo(path) {
-    if (FIELD_UNIT_MAP[path]) return FIELD_UNIT_MAP[path];
+function getMetricUnitInfo(path) {
+    if (METRIC_UNIT_MAP[path]) return METRIC_UNIT_MAP[path];
     const parts = path.split('.');
     for (let i = 1; i < parts.length; i++) {
         const suffix = '*.' + parts.slice(i).join('.');
-        if (FIELD_UNIT_MAP[suffix]) return FIELD_UNIT_MAP[suffix];
+        if (METRIC_UNIT_MAP[suffix]) return METRIC_UNIT_MAP[suffix];
     }
     return { unit: '', norm: 'autoscale' };
 }
 
-// Format a numeric field value for display with unit conversion
-// Some fields are stored in SI units but displayed in friendlier units
-const METERS_TO_MM_FIELDS = /suspension_travel|ride_height/;
-const MPS_TO_MMPS_FIELDS = /shock_velocity/;
-function formatFieldValue(path, value) {
+// Format a numeric metric value for display with unit conversion
+// Some metrics are stored in SI units but displayed in friendlier units
+const METERS_TO_MM_METRICS = /suspension_travel|ride_height/;
+const MPS_TO_MMPS_METRICS = /shock_velocity/;
+function formatMetricValue(path, value) {
     if (typeof value !== 'number') return { text: JSON.stringify(value), unit: '' };
-    const info = getFieldUnitInfo(path);
+    const info = getMetricUnitInfo(path);
     const leaf = path.split('.').pop();
     // Meters → mm for suspension/ride height
-    if (info.unit === 'm' && METERS_TO_MM_FIELDS.test(leaf)) return { text: (value * 1000).toFixed(2), unit: 'mm' };
+    if (info.unit === 'm' && METERS_TO_MM_METRICS.test(leaf)) return { text: (value * 1000).toFixed(2), unit: 'mm' };
     // m/s → mm/s for shock velocity
-    if (info.unit === 'm/s' && MPS_TO_MMPS_FIELDS.test(leaf)) return { text: (value * 1000).toFixed(1), unit: 'mm/s' };
-    // 0-1 → % for percentage fields
+    if (info.unit === 'm/s' && MPS_TO_MMPS_METRICS.test(leaf)) return { text: (value * 1000).toFixed(1), unit: 'mm/s' };
+    // 0-1 → % for percentage metrics
     if (info.unit === '%' && info.norm === 'pct') return { text: (value * 100).toFixed(1), unit: '%' };
     // Smart precision: more decimals for small numbers
     const av = Math.abs(value);
@@ -183,7 +183,7 @@ function formatFieldValue(path, value) {
     return { text, unit: info.unit };
 }
 
-function resolveFieldPathParts(obj, parts) {
+function resolveMetricPathParts(obj, parts) {
     let cur = obj;
     for (let i = 0; i < parts.length; i++) {
         if (cur == null || typeof cur !== 'object') return null;
@@ -192,7 +192,7 @@ function resolveFieldPathParts(obj, parts) {
     return typeof cur === 'number' ? cur : null;
 }
 
-function resolveFieldPathRaw(obj, parts) {
+function resolveMetricPathRaw(obj, parts) {
     let cur = obj;
     for (let i = 0; i < parts.length; i++) {
         if (cur == null || typeof cur !== 'object') return undefined;
@@ -230,12 +230,12 @@ const LABEL_ABBREVS = {
     delta_session_best: '\u0394 Sess Best', delta_optimal: '\u0394 Optimal',
 };
 
-/* ==================== Field Filter Matching ==================== */
+/* ==================== Metric Filter Matching ==================== */
 // Supports three modes:
 //   - /pattern/flags  → regex (case-insensitive by default)
 //   - contains *      → wildcard (* matches any non-dot chars within a path segment)
 //   - otherwise       → case-insensitive substring match
-function matchFieldFilter(path, filter) {
+function matchMetricFilter(path, filter) {
     if (!filter) return true;
     if (filter.startsWith('/')) {
         try {

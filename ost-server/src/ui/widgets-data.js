@@ -76,18 +76,18 @@ class SessionWidget extends Widget {
     }
 }
 
-/* ==================== AllFieldsWidget ==================== */
-class AllFieldsWidget extends Widget {
+/* ==================== AllMetricsWidget ==================== */
+class AllMetricsWidget extends Widget {
     constructor() { super('allfields', 'Metrics', { col: 9, row: 15, width: 4, height: 5 }); }
 
     buildContent(c) {
         c.innerHTML = `
-            <div class="fields-toolbar">
-                <input type="text" class="fields-filter" id="af-filter" placeholder="Filter... (* wildcard, /regex/)">
-                <button class="fields-toggle-btn active" id="af-hide-nulls" title="Hide null values">Hide Nulls</button>
-                <button class="fields-toggle-btn" id="af-show-range" title="Show min/max range">Range</button>
+            <div class="metrics-toolbar">
+                <input type="text" class="metrics-filter" id="af-filter" placeholder="Filter... (* wildcard, /regex/)">
+                <button class="metrics-toggle-btn active" id="af-hide-nulls" title="Hide null values">Hide Nulls</button>
+                <button class="metrics-toggle-btn" id="af-show-range" title="Show min/max range">Range</button>
             </div>
-            <div class="fields-list" id="af-list"></div>`;
+            <div class="metrics-list" id="af-list"></div>`;
         this.filterInput = c.querySelector('#af-filter');
         this.listEl = c.querySelector('#af-list');
         this._hideNulls = true;
@@ -95,7 +95,7 @@ class AllFieldsWidget extends Widget {
         this._minMax = {}; // path -> { min, max }
 
         this._createGraphPaths = [];
-        this.filterInput.addEventListener('input', () => this.renderFields());
+        this.filterInput.addEventListener('input', () => this.renderMetrics());
 
         // Event delegation for create-graph button (survives innerHTML replacement)
         this.listEl.addEventListener('click', (e) => {
@@ -103,7 +103,7 @@ class AllFieldsWidget extends Widget {
                 const id = 'graph-' + Date.now();
                 const gw = new GraphWidget(id, { col: 1, row: 100, width: 12, height: 6 }, []);
                 gw.init();
-                for (const path of this._createGraphPaths) gw.addCustomField(path);
+                for (const path of this._createGraphPaths) gw.addCustomMetric(path);
                 gw.setTitle(this.filterInput.value);
                 grid.addWidget(gw);
                 grid.saveLayout();
@@ -115,14 +115,14 @@ class AllFieldsWidget extends Widget {
         nullsBtn.addEventListener('click', () => {
             this._hideNulls = !this._hideNulls;
             nullsBtn.classList.toggle('active', this._hideNulls);
-            this.renderFields();
+            this.renderMetrics();
         });
 
         const rangeBtn = c.querySelector('#af-show-range');
         rangeBtn.addEventListener('click', () => {
             this._showRange = !this._showRange;
             rangeBtn.classList.toggle('active', this._showRange);
-            this.renderFields();
+            this.renderMetrics();
         });
     }
 
@@ -131,7 +131,7 @@ class AllFieldsWidget extends Widget {
         if (!this._lastRender || now - this._lastRender > 100) {
             this._lastRender = now;
             this._updateMinMax();
-            this.renderFields();
+            this.renderMetrics();
         }
     }
 
@@ -156,7 +156,7 @@ class AllFieldsWidget extends Widget {
         walk(this.lastFrame, '');
     }
 
-    renderFields() {
+    renderMetrics() {
         if (!this.lastFrame) return;
         const filter = this.filterInput.value;
 
@@ -171,10 +171,10 @@ class AllFieldsWidget extends Widget {
                     extract(value, fk);
                 } else {
                     if (this._hideNulls && (value === null || value === undefined)) continue;
-                    if (filter && !matchFieldFilter(fk, filter)) continue;
+                    if (filter && !matchMetricFilter(fk, filter)) continue;
                     const section = fk.split('.')[0];
                     if (!sections[section]) sections[section] = [];
-                    const fmt = formatFieldValue(fk, value);
+                    const fmt = formatMetricValue(fk, value);
                     sections[section].push({ key: fk, value, text: fmt.text, unit: fmt.unit });
                     if (typeof value === 'number') allMatchedPaths.push(fk);
                     totalMatches++;
@@ -189,24 +189,24 @@ class AllFieldsWidget extends Widget {
 
         // Show "Create Graph" button when filter is active and <15 numeric matches
         if (filter && allMatchedPaths.length > 0 && allMatchedPaths.length <= 15) {
-            html += `<div class="fields-create-graph" id="af-create-graph">Create Graph from ${allMatchedPaths.length} metric${allMatchedPaths.length > 1 ? 's' : ''}</div>`;
+            html += `<div class="metrics-create-graph" id="af-create-graph">Create Graph from ${allMatchedPaths.length} metric${allMatchedPaths.length > 1 ? 's' : ''}</div>`;
         }
 
         for (const [section, fields] of sortedSections) {
             fields.sort((a, b) => a.key.localeCompare(b.key));
-            html += `<div class="field-section-header">${section.charAt(0).toUpperCase() + section.slice(1)}</div>`;
+            html += `<div class="metric-section-header">${section.charAt(0).toUpperCase() + section.slice(1)}</div>`;
             for (const f of fields) {
                 let rangeHtml = '';
                 if (this._showRange) {
                     const mm = this._minMax[f.key];
                     if (mm) {
-                        const fmtMin = formatFieldValue(f.key, mm.min);
-                        const fmtMax = formatFieldValue(f.key, mm.max);
-                        rangeHtml = `<span class="field-range">${fmtMin.text}..${fmtMax.text}</span>`;
+                        const fmtMin = formatMetricValue(f.key, mm.min);
+                        const fmtMax = formatMetricValue(f.key, mm.max);
+                        rangeHtml = `<span class="metric-range">${fmtMin.text}..${fmtMax.text}</span>`;
                     }
                 }
                 const unitHtml = f.unit ? ` <span class="field-unit">${f.unit}</span>` : '';
-                html += `<div class="field-item"><span class="field-name">${f.key}</span><span class="field-value">${rangeHtml}${f.text}${unitHtml}</span></div>`;
+                html += `<div class="metric-item"><span class="metric-name">${f.key}</span><span class="field-value">${rangeHtml}${f.text}${unitHtml}</span></div>`;
             }
         }
         this.listEl.innerHTML = html;
@@ -227,7 +227,7 @@ class OutputSinksWidget extends Widget {
             <form id="sk-form" class="sink-form">
                 <div class="sink-form-group"><div class="sink-form-label">Type</div><select id="sk-type"><option value="http">HTTP POST</option><option value="udp">UDP</option><option value="file">File (NDJSON)</option></select></div>
                 <div id="sk-type-fields"></div>
-                <div class="sink-form-group"><div class="sink-form-label">Field Filter</div><input type="text" id="sk-mask" placeholder="e.g. rpm,speed,gear"></div>
+                <div class="sink-form-group"><div class="sink-form-label">Metric Filter</div><input type="text" id="sk-mask" placeholder="e.g. rpm,speed,gear"></div>
                 <button type="submit" class="btn-add">Add</button>
             </form>`;
 
@@ -240,7 +240,7 @@ class OutputSinksWidget extends Widget {
         c.querySelector('#sk-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const sinkType = typeSelect.value;
-            const config = { id: '', sink_type: { type: sinkType }, field_mask: c.querySelector('#sk-mask').value.trim() || null };
+            const config = { id: '', sink_type: { type: sinkType }, metric_mask: c.querySelector('#sk-mask').value.trim() || null };
             if (sinkType === 'http') config.sink_type.url = c.querySelector('#sk-url')?.value;
             else if (sinkType === 'udp') { config.sink_type.host = c.querySelector('#sk-host')?.value; config.sink_type.port = parseInt(c.querySelector('#sk-port')?.value); }
             else if (sinkType === 'file') config.sink_type.path = c.querySelector('#sk-path')?.value;
@@ -264,7 +264,7 @@ class OutputSinksWidget extends Widget {
             } else {
                 this.listEl.innerHTML = store.sinks.map(s => {
                     const desc = s.sink_type.type === 'http' ? s.sink_type.url : s.sink_type.type === 'udp' ? `${s.sink_type.host}:${s.sink_type.port}` : s.sink_type.path;
-                    return `<div class="sink-item"><div><strong>${s.sink_type.type.toUpperCase()}</strong> ${desc}${s.field_mask ? `<br><span style="color:var(--text-muted);font-size:0.6rem">Fields: ${s.field_mask}</span>` : ''}</div><button class="btn-delete" data-id="${s.id}">Delete</button></div>`;
+                    return `<div class="sink-item"><div><strong>${s.sink_type.type.toUpperCase()}</strong> ${desc}${s.metric_mask ? `<br><span style="color:var(--text-muted);font-size:0.6rem">Metrics: ${s.metric_mask}</span>` : ''}</div><button class="btn-delete" data-id="${s.id}">Delete</button></div>`;
                 }).join('');
                 this.listEl.querySelectorAll('.btn-delete').forEach(btn => {
                     btn.addEventListener('click', async () => {

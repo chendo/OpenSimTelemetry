@@ -58,10 +58,10 @@ On Windows with iRacing running, telemetry is detected and streamed automaticall
 
 ```bash
 # Full telemetry stream
-curl http://localhost:9100/api/stream
+curl http://localhost:9100/api/telemetry/stream
 
 # Filtered to specific sections
-curl "http://localhost:9100/api/stream?fields=vehicle,timing"
+curl "http://localhost:9100/api/telemetry/stream?metric_mask=vehicle,timing"
 ```
 
 ### Output Sinks
@@ -73,7 +73,7 @@ curl -X POST http://localhost:9100/api/sinks \
   -d '{
     "id": "motion-platform",
     "sink_type": {"type": "udp", "host": "192.168.1.100", "port": 9200},
-    "field_mask": "motion,vehicle"
+    "metric_mask": "motion,vehicle"
   }'
 
 # File logger (NDJSON)

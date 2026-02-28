@@ -162,7 +162,7 @@ async fn test_create_sink_returns_201() {
             "type": "http",
             "url": "http://localhost:8080/telemetry"
         },
-        "field_mask": null
+        "metric_mask": null
     });
 
     let response = app
@@ -199,7 +199,7 @@ async fn test_create_sink_generates_id_when_empty() {
             "host": "127.0.0.1",
             "port": 9200
         },
-        "field_mask": null
+        "metric_mask": null
     });
 
     let response = app
@@ -241,7 +241,7 @@ async fn test_create_then_list_sinks() {
             sink_type: SinkType::Http {
                 url: "http://localhost:8080/telemetry".to_string(),
             },
-            field_mask: None,
+            metric_mask: None,
         });
     }
 
@@ -280,7 +280,7 @@ async fn test_delete_sink_returns_204() {
             sink_type: SinkType::Http {
                 url: "http://localhost:8080".to_string(),
             },
-            field_mask: None,
+            metric_mask: None,
         });
     }
 
@@ -436,7 +436,7 @@ async fn test_telemetry_stream_receives_broadcast_frame() {
 }
 
 #[tokio::test]
-async fn test_telemetry_stream_with_field_filter() {
+async fn test_telemetry_stream_with_metric_filter() {
     let (app, state) = app_with_state();
 
     let tx = state.telemetry_tx.clone();
@@ -451,7 +451,7 @@ async fn test_telemetry_stream_with_field_filter() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/telemetry/stream?fields=vehicle,timing")
+                .uri("/api/telemetry/stream?metric_mask=vehicle,timing")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -468,7 +468,7 @@ async fn test_telemetry_stream_with_field_filter() {
         .unwrap();
     assert!(
         content_type.contains("text/event-stream"),
-        "Should still return SSE content type with field filter"
+        "Should still return SSE content type with metric filter"
     );
 
     // Read the body with a timeout

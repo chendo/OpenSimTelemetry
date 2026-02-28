@@ -99,8 +99,8 @@ class ReplayPlayer {
             // Setup lap data
             this.laps = this.info.laps || [];
             this.buildLapUI();
-            // Fetch initial chunks around cursor with field mask
-            await this.buf.ensureLoaded(buildReplayFieldMask());
+            // Fetch initial chunks around cursor with metric mask
+            await this.buf.ensureLoaded(buildReplayMetricMask());
         }
         this.clearLoop();
         this.updateSpeedButtons();
@@ -176,7 +176,7 @@ class ReplayPlayer {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'seek', value: frame })
         }).catch(() => {});
-        this.buf.ensureLoadedDebounced(50, buildReplayFieldMask());
+        this.buf.ensureLoadedDebounced(50, buildReplayMetricMask());
         this.seekSlider.value = frame;
         this.updateControlsFromBuf();
         requestRedraw();
@@ -361,7 +361,7 @@ class ReplayPlayer {
         if (now - this._seekThrottleTime >= 250) {
             this._seekThrottleTime = now;
             if (this.buf._abortController) this.buf._abortController.abort();
-            this.buf.ensureLoaded(buildReplayFieldMask());
+            this.buf.ensureLoaded(buildReplayMetricMask());
         }
         this.playPauseBtn.innerHTML = '&#9654;';
         requestRedraw();
@@ -381,7 +381,7 @@ class ReplayPlayer {
         }).catch(() => {});
         // Abort any in-flight scrub fetch, then fetch final position with prefetch
         if (this.buf._abortController) this.buf._abortController.abort();
-        this.buf.ensureLoaded(buildReplayFieldMask());
+        this.buf.ensureLoaded(buildReplayMetricMask());
         requestRedraw();
     }
 

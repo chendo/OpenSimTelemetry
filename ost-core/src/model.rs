@@ -916,74 +916,74 @@ pub struct DriverData {
 }
 
 // =============================================================================
-// Field Masking for Selective Output
+// Metric Masking for Selective Output
 // =============================================================================
 
-/// Specifies which fields to include in serialized output.
+/// Specifies which metrics to include in serialized output.
 ///
 /// Supports both section-level filtering (`vehicle`, `timing`) and
 /// dotted sub-field filtering (`vehicle.speed`, `timing.best_lap_time`).
 #[derive(Debug, Clone, Default)]
-pub struct FieldMask {
-    fields: HashSet<String>,
+pub struct MetricMask {
+    metrics: HashSet<String>,
     include_all: bool,
 }
 
-impl FieldMask {
-    /// Create a mask that includes all fields
+impl MetricMask {
+    /// Create a mask that includes all metrics
     pub fn all() -> Self {
         Self {
-            fields: HashSet::new(),
+            metrics: HashSet::new(),
             include_all: true,
         }
     }
 
-    /// Create a mask from a comma-separated list of field names
-    pub fn parse(fields: &str) -> Self {
-        let fields: HashSet<String> = fields
+    /// Create a mask from a comma-separated list of metric names
+    pub fn parse(metrics: &str) -> Self {
+        let metrics: HashSet<String> = metrics
             .split(',')
             .map(|s| s.trim().to_lowercase())
             .filter(|s| !s.is_empty())
             .collect();
 
         Self {
-            fields,
+            metrics,
             include_all: false,
         }
     }
 
-    /// Check if a field should be included.
+    /// Check if a metric should be included.
     ///
     /// Returns true if:
-    /// - All fields are included (no mask)
-    /// - The exact field name matches (e.g. "vehicle")
+    /// - All metrics are included (no mask)
+    /// - The exact metric name matches (e.g. "vehicle")
     /// - A parent section matches (e.g. "vehicle" includes "vehicle.speed")
     /// - The specific dotted path matches (e.g. "vehicle.speed")
-    pub fn includes(&self, field: &str) -> bool {
+    pub fn includes(&self, metric: &str) -> bool {
         if self.include_all {
             return true;
         }
 
-        let field_lower = field.to_lowercase();
+        let metric_lower = metric.to_lowercase();
 
         // Exact match
-        if self.fields.contains(&field_lower) {
+        if self.metrics.contains(&metric_lower) {
             return true;
         }
 
-        // Check if any requested field is a parent section of this field
-        // e.g. if mask has "vehicle" and field is "vehicle.speed"
-        if let Some(dot_pos) = field_lower.find('.') {
-            let section = &field_lower[..dot_pos];
-            if self.fields.contains(section) {
+        // Check if any requested metric is a parent section of this metric
+        // e.g. if mask has "vehicle" and metric is "vehicle.speed"
+        if let Some(dot_pos) = metric_lower.find('.') {
+            let section = &metric_lower[..dot_pos];
+            if self.metrics.contains(section) {
                 return true;
             }
         }
 
-        // Check if any requested field is a child of this section
-        // e.g. if mask has "vehicle.speed" and field is "vehicle" (the section)
-        for f in &self.fields {
-            if f.starts_with(&field_lower) && f.as_bytes().get(field_lower.len()) == Some(&b'.') {
+        // Check if any requested metric is a child of this section
+        // e.g. if mask has "vehicle.speed" and metric is "vehicle" (the section)
+        for f in &self.metrics {
+            if f.starts_with(&metric_lower) && f.as_bytes().get(metric_lower.len()) == Some(&b'.') {
                 return true;
             }
         }
@@ -1002,12 +1002,12 @@ impl FieldMask {
         }
         let section_lower = section.to_lowercase();
         // If the bare section is requested, include everything
-        if self.fields.contains(&section_lower) {
+        if self.metrics.contains(&section_lower) {
             return None;
         }
         let prefix = format!("{}.", section_lower);
         let keys: Vec<&str> = self
-            .fields
+            .metrics
             .iter()
             .filter_map(|f| f.strip_prefix(&prefix))
             .collect();
@@ -1018,13 +1018,13 @@ impl FieldMask {
         }
     }
 
-    /// Check if all fields should be included
+    /// Check if all metrics should be included
     pub fn is_all(&self) -> bool {
         self.include_all
     }
 }
 
-impl FromStr for FieldMask {
+impl FromStr for MetricMask {
     type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -1032,69 +1032,69 @@ impl FromStr for FieldMask {
     }
 }
 
-/// Builder for FieldMask
+/// Builder for MetricMask
 #[derive(Debug, Default)]
-pub struct FieldMaskBuilder {
-    fields: HashSet<String>,
+pub struct MetricMaskBuilder {
+    metrics: HashSet<String>,
 }
 
-impl FieldMaskBuilder {
-    pub fn with_field(mut self, field: &str) -> Self {
-        self.fields.insert(field.to_lowercase());
+impl MetricMaskBuilder {
+    pub fn with_metric(mut self, metric: &str) -> Self {
+        self.metrics.insert(metric.to_lowercase());
         self
     }
 
     pub fn motion(self) -> Self {
-        self.with_field("motion")
+        self.with_metric("motion")
     }
 
     pub fn vehicle(self) -> Self {
-        self.with_field("vehicle")
+        self.with_metric("vehicle")
     }
 
     pub fn engine(self) -> Self {
-        self.with_field("engine")
+        self.with_metric("engine")
     }
 
     pub fn wheels(self) -> Self {
-        self.with_field("wheels")
+        self.with_metric("wheels")
     }
 
     pub fn timing(self) -> Self {
-        self.with_field("timing")
+        self.with_metric("timing")
     }
 
     pub fn session(self) -> Self {
-        self.with_field("session")
+        self.with_metric("session")
     }
 
     pub fn weather(self) -> Self {
-        self.with_field("weather")
+        self.with_metric("weather")
     }
 
     pub fn pit(self) -> Self {
-        self.with_field("pit")
+        self.with_metric("pit")
     }
 
     pub fn electronics(self) -> Self {
-        self.with_field("electronics")
+        self.with_metric("electronics")
     }
 
     pub fn damage(self) -> Self {
-        self.with_field("damage")
+        self.with_metric("damage")
     }
 
     pub fn competitors(self) -> Self {
-        self.with_field("competitors")
+        self.with_metric("competitors")
     }
 
     pub fn driver(self) -> Self {
-        self.with_field("driver")
+        self.with_metric("driver")
     }
 
-    pub fn build(self) -> FieldMask {
-        FieldMask {
-            fields: self.fields,
+    pub fn build(self) -> MetricMask {
+        MetricMask {
+            metrics: self.metrics,
             include_all: false,
         }
     }
@@ -1105,11 +1105,11 @@ impl FieldMaskBuilder {
 // =============================================================================
 
 impl TelemetryFrame {
-    /// Serialize this frame respecting the given field mask.
+    /// Serialize this frame respecting the given metric mask.
     ///
-    /// If mask is None or includes all fields, serialize everything.
-    /// Otherwise, only include specified sections/fields.
-    pub fn to_json_filtered(&self, mask: Option<&FieldMask>) -> serde_json::Result<String> {
+    /// If mask is None or includes all metrics, serialize everything.
+    /// Otherwise, only include specified sections/metrics.
+    pub fn to_json_filtered(&self, mask: Option<&MetricMask>) -> serde_json::Result<String> {
         if mask.is_none() || mask.map(|m| m.is_all()).unwrap_or(true) {
             return serde_json::to_string(self);
         }
@@ -1197,7 +1197,7 @@ impl TelemetryFrame {
                     map.insert("extras".to_string(), serde_json::to_value(&self.extras)?);
                 }
                 Some(keys) => {
-                    // child_keys are lowercased (FieldMask normalises to lowercase),
+                    // child_keys are lowercased (MetricMask normalises to lowercase),
                     // so compare case-insensitively against the original extras keys.
                     let filtered: HashMap<&String, &serde_json::Value> = self
                         .extras
@@ -1320,8 +1320,8 @@ mod tests {
     }
 
     #[test]
-    fn test_field_mask_parse_comma_separated() {
-        let mask = FieldMask::parse("vehicle,timing,motion");
+    fn test_metric_mask_parse_comma_separated() {
+        let mask = MetricMask::parse("vehicle,timing,motion");
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("timing"));
         assert!(mask.includes("motion"));
@@ -1330,47 +1330,47 @@ mod tests {
     }
 
     #[test]
-    fn test_field_mask_parse_with_whitespace() {
-        let mask = FieldMask::parse(" vehicle , timing , motion ");
+    fn test_metric_mask_parse_with_whitespace() {
+        let mask = MetricMask::parse(" vehicle , timing , motion ");
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("timing"));
         assert!(mask.includes("motion"));
     }
 
     #[test]
-    fn test_field_mask_parse_case_insensitive() {
-        let mask = FieldMask::parse("Vehicle,TIMING,Motion");
+    fn test_metric_mask_parse_case_insensitive() {
+        let mask = MetricMask::parse("Vehicle,TIMING,Motion");
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("timing"));
         assert!(mask.includes("motion"));
     }
 
     #[test]
-    fn test_field_mask_parse_empty_string() {
-        let mask = FieldMask::parse("");
+    fn test_metric_mask_parse_empty_string() {
+        let mask = MetricMask::parse("");
         assert!(!mask.is_all());
         assert!(!mask.includes("vehicle"));
     }
 
     #[test]
-    fn test_field_mask_all() {
-        let mask = FieldMask::all();
+    fn test_metric_mask_all() {
+        let mask = MetricMask::all();
         assert!(mask.is_all());
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("anything"));
     }
 
     #[test]
-    fn test_field_mask_from_str() {
-        let mask: FieldMask = "vehicle,timing".parse().unwrap();
+    fn test_metric_mask_from_str() {
+        let mask: MetricMask = "vehicle,timing".parse().unwrap();
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("timing"));
         assert!(!mask.includes("engine"));
     }
 
     #[test]
-    fn test_field_mask_builder() {
-        let mask = FieldMaskBuilder::default()
+    fn test_metric_mask_builder() {
+        let mask = MetricMaskBuilder::default()
             .vehicle()
             .timing()
             .engine()
@@ -1382,8 +1382,8 @@ mod tests {
     }
 
     #[test]
-    fn test_field_mask_section_includes_subfields() {
-        let mask = FieldMask::parse("vehicle");
+    fn test_metric_mask_section_includes_subfields() {
+        let mask = MetricMask::parse("vehicle");
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("vehicle.speed"));
         assert!(!mask.includes("timing"));
@@ -1405,7 +1405,7 @@ mod tests {
     #[test]
     fn test_to_json_filtered_with_all_mask_returns_full_frame() {
         let frame = make_test_frame();
-        let mask = FieldMask::all();
+        let mask = MetricMask::all();
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
@@ -1417,7 +1417,7 @@ mod tests {
     #[test]
     fn test_to_json_filtered_with_mask_returns_only_requested_sections() {
         let frame = make_test_frame();
-        let mask = FieldMask::parse("vehicle,timing");
+        let mask = MetricMask::parse("vehicle,timing");
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
@@ -1439,7 +1439,7 @@ mod tests {
     fn test_to_json_filtered_with_mask_for_none_section() {
         let frame = make_test_frame();
         // weather is None in our test frame
-        let mask = FieldMask::parse("weather,vehicle");
+        let mask = MetricMask::parse("weather,vehicle");
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
@@ -1499,9 +1499,9 @@ mod tests {
     }
 
     #[test]
-    fn test_extras_field_mask_case_insensitive() {
+    fn test_extras_metric_mask_case_insensitive() {
         // Extras keys from iRacing have mixed case like "iRacing/brakeABSactive".
-        // The field mask lowercases everything, so filtering must compare
+        // The metric mask lowercases everything, so filtering must compare
         // case-insensitively.
         let mut frame = make_test_frame();
         frame.extras.insert(
@@ -1513,7 +1513,7 @@ mod tests {
             .insert("iRacing/dcBrakeBias".to_string(), serde_json::json!(56.5));
 
         // Request only one extras key with mixed-case path
-        let mask = FieldMask::parse("extras.iRacing/brakeABSactive");
+        let mask = MetricMask::parse("extras.iRacing/brakeABSactive");
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 

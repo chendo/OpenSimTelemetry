@@ -50,7 +50,7 @@ class TelemetryStore {
     }
 }
 
-// Map preset GRAPH_METRICS keys to their TelemetryFrame field paths
+// Map preset GRAPH_METRICS keys to their TelemetryFrame metric paths
 // e.g. speed → 'vehicle.speed', lat_g → 'motion.g_force.x'
 const GRAPH_METRIC_PATHS = {};
 (function() {
@@ -64,31 +64,31 @@ const GRAPH_METRIC_PATHS = {};
     }
 })();
 
-// Build a dynamic field mask from all visible widgets on the dashboard.
+// Build a dynamic metric mask from all visible widgets on the dashboard.
 // Emits individual metric paths (e.g. "vehicle.speed,motion.g_force")
-// so the server can filter at the field level, especially for extras.
-function buildReplayFieldMask() {
-    const fields = new Set();
+// so the server can filter at the metric level, especially for extras.
+function buildReplayMetricMask() {
+    const metrics = new Set();
     // Static widgets
-    fields.add('vehicle');  // VehicleWidget needs the whole section
-    fields.add('motion');   // GForceWidget needs the whole section
-    fields.add('timing');   // LapTimingWidget needs the whole section
+    metrics.add('vehicle');  // VehicleWidget needs the whole section
+    metrics.add('motion');   // GForceWidget needs the whole section
+    metrics.add('timing');   // LapTimingWidget needs the whole section
     // Collect individual paths from graph widgets
     if (typeof grid !== 'undefined') {
         for (const w of grid.widgets.values()) {
             if (!(w instanceof GraphWidget)) continue;
             for (const key of w.enabledMetrics) {
                 if (GRAPH_METRIC_PATHS[key]) {
-                    fields.add(GRAPH_METRIC_PATHS[key]);
+                    metrics.add(GRAPH_METRIC_PATHS[key]);
                 } else {
-                    // Custom field: full dotted path like "extras.iracing/Foo"
+                    // Custom metric: full dotted path like "extras.iracing/Foo"
                     const custom = w.customMetrics.get(key);
-                    if (custom) fields.add(key); // key IS the dotted path
+                    if (custom) metrics.add(key); // key IS the dotted path
                 }
             }
         }
     }
-    return Array.from(fields).join(',');
+    return Array.from(metrics).join(',');
 }
 
 /* ==================== ReplayBuffer ==================== */
@@ -159,7 +159,7 @@ class ReplayBuffer {
     }
 
     // Fetch a single chunk, merge into cache
-    async _fetchChunk(chunkIdx, fields, signal) {
+    async _fetchChunk(chunkIdx, metrics, signal) {
         if (this._hasChunk(chunkIdx) || this._fetchingChunks.has(chunkIdx)) return;
         const start = chunkIdx * this._chunkSize;
         if (start >= this.totalFrames) return;
@@ -167,7 +167,7 @@ class ReplayBuffer {
         this._fetchingChunks.add(chunkIdx);
         try {
             let url = `/api/replay/frames?start=${start}&count=${count}`;
-            if (fields) url += `&fields=${encodeURIComponent(fields)}`;
+            if (metrics) url += `&metric_mask=${encodeURIComponent(metrics)}`;
             if (this.replayId) url += `&rid=${encodeURIComponent(this.replayId)}`;
             const opts = signal ? { signal } : {};
             const resp = await fetch(url, opts);
@@ -257,7 +257,7 @@ class ReplayBuffer {
     }
 
     // Main entry point: ensure cursor's region is loaded, prefetch adjacent chunks
-    async ensureLoaded(fields) {
+    async ensureLoaded(metrics) {
         // Create a fresh controller if none exists or previous was aborted
         if (!this._abortController || this._abortController.signal.aborted) {
             this._abortController = new AbortController();
@@ -266,7 +266,7 @@ class ReplayBuffer {
 
         const cursorChunk = this._chunkIndex(this.cursor);
         // Await cursor chunk so UI can render immediately
-        await this._fetchChunk(cursorChunk, fields, signal);
+        await this._fetchChunk(cursorChunk, metrics, signal);
 
         const maxChunk = this._chunkIndex(this.totalFrames - 1);
 
@@ -277,7 +277,7 @@ class ReplayBuffer {
 
         for (let i = 1; i <= viewportChunks; i++) {
             const behind = cursorChunk - i;
-            if (behind >= 0) this._fetchChunk(behind, fields, signal);
+            if (behind >= 0) this._fetchChunk(behind, metrics, signal);
         }
 
         const aheadChunks = this.scrubbing
@@ -285,16 +285,16 @@ class ReplayBuffer {
             : viewportChunks + Math.ceil((this.tickRate * 60) / this._chunkSize);
         for (let i = 1; i <= aheadChunks; i++) {
             const ahead = cursorChunk + i;
-            if (ahead <= maxChunk) this._fetchChunk(ahead, fields, signal);
+            if (ahead <= maxChunk) this._fetchChunk(ahead, metrics, signal);
         }
     }
 
     // Debounced ensureLoaded for rapid scrubbing — aborts stale fetches
-    ensureLoadedDebounced(delayMs = 200, fields) {
+    ensureLoadedDebounced(delayMs = 200, metrics) {
         clearTimeout(this._fetchDebounce);
         // Cancel in-flight fetches from the previous scrub position
         if (this._abortController) this._abortController.abort();
-        this._fetchDebounce = setTimeout(() => this.ensureLoaded(fields), delayMs);
+        this._fetchDebounce = setTimeout(() => this.ensureLoaded(metrics), delayMs);
     }
 
     // Check if cursor is near cache boundary and needs fetch

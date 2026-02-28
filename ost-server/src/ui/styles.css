@@ -503,12 +503,12 @@ body {
 }
 .graph-time-select:focus { outline: none; border-color: var(--accent); }
 
-.graph-add-field-btn {
+.graph-add-metric-btn {
     border: 1px dashed var(--text-muted) !important;
     color: var(--text-muted) !important;
     font-style: italic;
 }
-.graph-add-field-btn:hover {
+.graph-add-metric-btn:hover {
     border-color: var(--accent) !important;
     color: var(--accent) !important;
     background: transparent !important;
@@ -578,7 +578,7 @@ body {
 .graph-legend-item:hover .custom-legend-remove { opacity: 0.6; }
 .custom-legend-remove:hover { opacity: 1 !important; color: var(--status-inactive); }
 
-.field-picker-popover {
+.metric-picker-popover {
     position: absolute;
     top: 100%;
     left: 0;
@@ -594,7 +594,7 @@ body {
     overflow: hidden;
     margin-top: 4px;
 }
-.field-picker-search {
+.metric-picker-search {
     background: var(--bg-inset);
     border: none;
     border-bottom: 1px solid var(--border-color);
@@ -604,14 +604,14 @@ body {
     font-family: var(--font-family);
     width: 100%;
 }
-.field-picker-search:focus { outline: none; }
-.field-picker-search::placeholder { color: var(--text-muted); }
-.field-picker-list {
+.metric-picker-search:focus { outline: none; }
+.metric-picker-search::placeholder { color: var(--text-muted); }
+.metric-picker-list {
     overflow-y: auto;
     flex: 1;
     min-height: 0;
 }
-.field-picker-section {
+.metric-picker-section {
     font-size: 0.6rem;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -622,7 +622,7 @@ body {
     top: 0;
     text-transform: uppercase;
 }
-.field-picker-item {
+.metric-picker-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -632,13 +632,13 @@ body {
     cursor: pointer;
     border-bottom: 1px solid var(--border-color);
 }
-.field-picker-item:hover { background: rgba(255,255,255,0.06); }
-.field-picker-item.dimmed { opacity: 0.35; cursor: default; }
-.field-picker-item.dimmed:hover { background: transparent; }
-.field-picker-path { color: var(--accent); }
-.field-picker-value { color: var(--text-secondary); font-size: 0.65rem; }
-.field-picker-unit { color: var(--text-muted); font-size: 0.6rem; }
-.field-picker-add-all {
+.metric-picker-item:hover { background: rgba(255,255,255,0.06); }
+.metric-picker-item.dimmed { opacity: 0.35; cursor: default; }
+.metric-picker-item.dimmed:hover { background: transparent; }
+.metric-picker-path { color: var(--accent); }
+.metric-picker-value { color: var(--text-secondary); font-size: 0.65rem; }
+.metric-picker-unit { color: var(--text-muted); font-size: 0.6rem; }
+.metric-picker-add-all {
     padding: 6px 10px;
     font-size: 0.7rem;
     font-weight: 700;
@@ -647,7 +647,7 @@ body {
     border-bottom: 1px solid var(--border-color);
     background: rgba(0, 214, 143, 0.08);
 }
-.field-picker-add-all:hover { background: rgba(0, 214, 143, 0.15); }
+.metric-picker-add-all:hover { background: rgba(0, 214, 143, 0.15); }
 
 .graph-canvas-wrap {
     flex: 1;
@@ -910,15 +910,15 @@ body {
     margin-bottom: 4px;
 }
 
-/* ==================== All Metrics Widget ==================== */
-.fields-toolbar {
+/* ==================== All Metrics Widget (metric list) ==================== */
+.metrics-toolbar {
     display: flex;
     gap: 4px;
     align-items: center;
     margin-bottom: 6px;
     flex-shrink: 0;
 }
-.fields-filter {
+.metrics-filter {
     background: var(--bg-inset);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
@@ -928,10 +928,10 @@ body {
     flex: 1;
     min-width: 0;
 }
-.fields-filter:focus { outline: none; border-color: var(--accent); }
-.fields-filter::placeholder { color: var(--text-muted); }
+.metrics-filter:focus { outline: none; border-color: var(--accent); }
+.metrics-filter::placeholder { color: var(--text-muted); }
 
-.fields-toggle-btn {
+.metrics-toggle-btn {
     background: transparent;
     border: 1px solid var(--border-color);
     color: var(--text-muted);
@@ -945,20 +945,20 @@ body {
     white-space: nowrap;
     transition: all 0.12s ease;
 }
-.fields-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
-.fields-toggle-btn.active {
+.metrics-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
+.metrics-toggle-btn.active {
     border-color: var(--accent);
     color: var(--accent);
     background: rgba(0, 214, 143, 0.1);
 }
 
-.fields-list {
+.metrics-list {
     flex: 1;
     overflow-y: auto;
     min-height: 0;
 }
 
-.field-section-header {
+.metric-section-header {
     font-size: 0.6rem;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -971,7 +971,7 @@ body {
     z-index: 1;
 }
 
-.field-item {
+.metric-item {
     display: flex;
     justify-content: space-between;
     padding: 3px 8px;
@@ -979,17 +979,17 @@ body {
     font-size: 0.7rem;
     font-family: var(--font-mono);
 }
-.field-item:last-child { border-bottom: none; }
-.field-name { color: var(--accent); }
+.metric-item:last-child { border-bottom: none; }
+.metric-name { color: var(--accent); }
 .field-value { color: var(--text-secondary); white-space: nowrap; }
 .field-unit { color: var(--text-muted); margin-left: 3px; font-size: 0.65rem; }
-.field-range {
+.metric-range {
     color: var(--text-muted);
     font-size: 0.6rem;
     margin-right: 8px;
 }
 
-.fields-create-graph {
+.metrics-create-graph {
     padding: 6px 10px;
     font-size: 0.7rem;
     font-weight: 700;
@@ -1001,7 +1001,7 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
-.fields-create-graph:hover { background: rgba(0, 214, 143, 0.15); }
+.metrics-create-graph:hover { background: rgba(0, 214, 143, 0.15); }
 
 /* ==================== Output Sinks Widget ==================== */
 .sink-list {

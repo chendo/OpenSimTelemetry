@@ -14,7 +14,7 @@ use axum::{
     Json, Router,
 };
 use futures::stream::{self, Stream, StreamExt as FuturesStreamExt};
-use ost_core::model::FieldMask;
+use ost_core::model::MetricMask;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::time::Duration;
@@ -199,6 +199,7 @@ async fn broadcast_sinks(state: &AppState) {
 /// This avoids consuming multiple HTTP/1.1 connection slots (browsers limit to 6).
 async fn unified_stream(
     State(state): State<AppState>,
+    Query(query): Query<StreamQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // Build initial status
     let initial_status_json = {
@@ -239,14 +240,18 @@ async fn unified_stream(
         Ok(Event::default().event("sinks").data(initial_sinks_json)),
     ]);
 
-    // Telemetry frames
-    let telemetry = BroadcastStream::new(telemetry_rx).filter_map(|result| async move {
-        match result {
-            Ok(frame) => match frame.to_json_filtered(None) {
-                Ok(json) => Some(Ok(Event::default().event("frame").data(json))),
+    // Telemetry frames (with optional metric mask filtering)
+    let metric_mask = query.metric_mask.map(|f| MetricMask::parse(&f));
+    let telemetry = BroadcastStream::new(telemetry_rx).filter_map(move |result| {
+        let mask = metric_mask.clone();
+        async move {
+            match result {
+                Ok(frame) => match frame.to_json_filtered(mask.as_ref()) {
+                    Ok(json) => Some(Ok(Event::default().event("frame").data(json))),
+                    Err(_) => None,
+                },
                 Err(_) => None,
-            },
-            Err(_) => None,
+            }
         }
     });
 
@@ -345,7 +350,7 @@ async fn status_stream(
 
 #[derive(Deserialize)]
 struct StreamQuery {
-    fields: Option<String>,
+    metric_mask: Option<String>,
 }
 
 async fn telemetry_stream(
@@ -353,14 +358,14 @@ async fn telemetry_stream(
     Query(query): Query<StreamQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.subscribe();
-    let field_mask = query.fields.map(|f| FieldMask::parse(&f));
+    let metric_mask = query.metric_mask.map(|f| MetricMask::parse(&f));
 
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
-        let mask = field_mask.clone();
+        let mask = metric_mask.clone();
         async move {
             match result {
                 Ok(frame) => {
-                    // Serialize with field mask
+                    // Serialize with metric mask
                     match frame.to_json_filtered(mask.as_ref()) {
                         Ok(json) => Some(Ok(Event::default().data(json))),
                         Err(e) => {
@@ -540,7 +545,7 @@ async fn replay_info(
 struct ReplayFramesQuery {
     start: usize,
     count: usize,
-    fields: Option<String>,
+    metric_mask: Option<String>,
     /// Replay ID for cache-busting; when present, response is immutable-cached
     rid: Option<String>,
 }
@@ -564,12 +569,12 @@ async fn replay_frames(
             )
         })?;
 
-    let field_mask = params.fields.map(|f| FieldMask::parse(&f));
+    let metric_mask = params.metric_mask.map(|f| MetricMask::parse(&f));
 
     let json_frames: Vec<serde_json::Value> = frames
         .into_iter()
         .map(|(idx, frame)| {
-            let mut f_val = if let Some(ref mask) = field_mask {
+            let mut f_val = if let Some(ref mask) = metric_mask {
                 let json_str = frame.to_json_filtered(Some(mask)).unwrap_or_default();
                 serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null)
             } else {
