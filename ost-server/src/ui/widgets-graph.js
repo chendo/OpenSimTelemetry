@@ -2,7 +2,7 @@
 class GraphWidget extends Widget {
     constructor(id, defaultLayout, defaultEnabled) {
         super(id || 'graph', 'Graph', defaultLayout || { col: 1, row: 7, width: 12, height: 6 });
-        this.enabledMetrics = new Set(defaultEnabled || ['speed', 'rpm', 'throttle', 'brake']);
+        this.enabledMetrics = new Set(defaultEnabled || ['speed', 'rpm', 'throttle', 'brake', 'clutch', 'yaw_rate', 'abs_active', 'steering']);
         this.customMetrics = new Map(); // path -> { path, label, color, unit, norm, parts }
         this.timeWindowMs = 10000;
         this.maxSeen = {};
@@ -474,9 +474,15 @@ class GraphWidget extends Widget {
         for (const key of this.enabledMetrics) {
             const preset = GRAPH_METRICS[key];
             if (preset) {
-                const dM = preset.norm === 'pct' ? 100 : 1;
-                const dU = preset.norm === 'pct' ? '%' : (preset.unit || '');
-                traces.push({ key, color: preset.color, norm: preset.norm, unit: preset.unit || '', dU, dM, getValue: (entry) => entry[key] });
+                if (preset.norm === 'boolean') {
+                    boolTraces.push({ key, color: preset.color, norm: 'boolean', unit: '', dU: '', dM: 1, label: preset.label,
+                        getValue: (entry) => { const v = entry[key]; return typeof v === 'boolean' ? v : null; }
+                    });
+                } else {
+                    const dM = preset.norm === 'pct' ? 100 : 1;
+                    const dU = preset.norm === 'pct' ? '%' : (preset.unit || '');
+                    traces.push({ key, color: preset.color, norm: preset.norm, unit: preset.unit || '', dU, dM, getValue: (entry) => entry[key] });
+                }
             } else {
                 const custom = this.customMetrics.get(key);
                 if (custom) {

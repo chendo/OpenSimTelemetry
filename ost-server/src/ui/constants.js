@@ -28,7 +28,9 @@ const GRAPH_METRICS = {
     rpm:         { label: 'RPM',        color: '#ff6b6b', unit: 'rpm',   norm: 'autoscale', extract: f => f.vehicle?.rpm ?? 0 },
     throttle:    { label: 'Throttle',   color: '#4ecdc4', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.throttle ?? 0 },
     brake:       { label: 'Brake',      color: '#ff4757', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.brake ?? 0 },
-    steering:    { label: 'Steering',   color: '#ffa502', unit: '%',     norm: 'centered',  extract: f => f.vehicle?.steering_angle ?? 0 },
+    clutch:      { label: 'Clutch',     color: '#a78bfa', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.clutch ?? 0 },
+    steering:    { label: 'Steering',   color: '#ffa502', unit: '\u00B0',  norm: 'centered',  extract: f => f.vehicle?.steering_angle ?? 0 },
+    abs_active:  { label: 'ABS',        color: '#f59e0b', unit: '',      norm: 'boolean',   extract: f => f.electronics?.abs_active ?? false },
     lat_g:       { label: 'Lateral G',  color: '#a855f6', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.x ?? 0 },
     long_g:      { label: 'Long G',     color: '#ec4899', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.z ?? 0 },
     vert_g:      { label: 'Vert G',     color: '#6366f1', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.y ?? 0 },
@@ -40,7 +42,7 @@ const GRAPH_METRIC_KEYS = Object.keys(GRAPH_METRICS);
 
 /* ==================== Graph Presets ==================== */
 const GRAPH_PRESETS = [
-    { name: 'Pedals & Speed', metrics: ['speed', 'throttle', 'brake', 'steering'] },
+    { name: 'Pedals & Speed', metrics: ['speed', 'throttle', 'brake', 'clutch', 'steering'] },
     { name: 'G-Forces', metrics: ['lat_g', 'long_g', 'vert_g'] },
     { name: 'Wheel Suspension', metrics: ['wheels.*.suspension_travel', 'wheels.*.shock_velocity', 'wheels.*.ride_height'] },
     { name: 'Tire Temps', metrics: ['wheels.*.surface_temp_*'] },
