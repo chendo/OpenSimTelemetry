@@ -215,6 +215,108 @@ ibtFileInput.addEventListener('change', () => {
     ibtFileInput.value = '';
 });
 
+// Browse saved replays
+document.getElementById('header-browse-replays').addEventListener('click', async () => {
+    if (document.getElementById('replays-modal')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'replays-modal';
+    overlay.className = 'cm-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'cm-modal';
+    modal.style.width = '520px';
+
+    const title = document.createElement('div');
+    title.className = 'cm-modal-title';
+    title.textContent = 'Saved Replays';
+    modal.appendChild(title);
+
+    const list = document.createElement('div');
+    list.className = 'cm-list';
+    list.innerHTML = '<div class="no-data">Loading...</div>';
+    modal.appendChild(list);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'cm-btn-row';
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'cm-btn cm-btn-cancel';
+    closeBtn.textContent = 'Close';
+    closeBtn.addEventListener('click', () => overlay.remove());
+    btnRow.appendChild(closeBtn);
+    modal.appendChild(btnRow);
+
+    overlay.appendChild(modal);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+
+    // Fetch file list
+    try {
+        const resp = await fetch('/api/persistence/files');
+        const files = await resp.json();
+        list.innerHTML = '';
+        if (files.length === 0) {
+            list.innerHTML = '<div class="no-data">No saved replays found</div>';
+        }
+        for (const f of files) {
+            const item = document.createElement('div');
+            item.className = 'cm-list-item';
+            item.style.cursor = 'pointer';
+
+            const info = document.createElement('div');
+            info.style.flex = '1';
+            info.style.minWidth = '0';
+            // Parse filename for display: YYYY-MM-DD_HH-MM-SS_track_car.ost.ndjson.zstd
+            const parts = f.name.replace('.ost.ndjson.zstd', '').split('_');
+            const date = parts.length >= 2 ? parts[0] : '';
+            const time = parts.length >= 2 ? parts[1].replace(/-/g, ':') : '';
+            const rest = parts.slice(2).join(' ');
+            info.innerHTML = `<div style="font-size:0.75rem;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${rest || f.name}</div>
+                <div style="font-size:0.6rem;color:var(--text-muted)">${date} ${time} &middot; ${(f.size / 1024 / 1024).toFixed(1)} MB</div>`;
+
+            const loadBtn = document.createElement('button');
+            loadBtn.className = 'cm-btn cm-btn-save';
+            loadBtn.textContent = 'Load';
+            loadBtn.style.flexShrink = '0';
+            loadBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                loadBtn.textContent = '...';
+                loadBtn.disabled = true;
+                try {
+                    const r = await fetch('/api/persistence/load', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filename: f.name })
+                    });
+                    if (r.ok) {
+                        const data = await r.json();
+                        if (data.info) {
+                            replayPlayer.info = data.info;
+                            replayPlayer.active = true;
+                            replayPlayer.currentSpeed = data.info.playback_speed;
+                            await replayPlayer.enterReplayMode();
+                        }
+                        overlay.remove();
+                    } else {
+                        const err = await r.text();
+                        loadBtn.textContent = 'Error';
+                        console.error('Load replay failed:', err);
+                    }
+                } catch (err) {
+                    loadBtn.textContent = 'Error';
+                    console.error('Load replay failed:', err);
+                }
+            });
+
+            item.appendChild(info);
+            item.appendChild(loadBtn);
+            list.appendChild(item);
+        }
+    } catch (e) {
+        list.innerHTML = '<div class="no-data">Failed to load file list</div>';
+    }
+});
+
 // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
 let _lastPrefetchTime = 0;
 function renderLoop() {

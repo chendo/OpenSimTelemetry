@@ -77,6 +77,8 @@ pub fn create_router(state: AppState) -> Router {
             get(persistence_get_config).post(persistence_set_config),
         )
         .route("/api/persistence/download", get(persistence_download))
+        .route("/api/persistence/files", get(persistence_list_files))
+        .route("/api/persistence/load", post(persistence_load_file))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -963,4 +965,107 @@ async fn persistence_download(
     );
 
     Ok((headers, compressed))
+}
+
+async fn persistence_list_files() -> Json<Vec<serde_json::Value>> {
+    let dir = crate::persistence::telemetry_dir();
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if !name.ends_with(".ost.ndjson.zstd") {
+                continue;
+            }
+            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            let modified = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| {
+                    chrono::DateTime::<chrono::Utc>::from(t)
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string()
+                })
+                .unwrap_or_default();
+            files.push(serde_json::json!({
+                "name": name,
+                "size": size,
+                "modified": modified,
+            }));
+        }
+    }
+    // Sort by name descending (newest first since names are date-prefixed)
+    files.sort_by(|a, b| {
+        b.get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .cmp(a.get("name").and_then(|v| v.as_str()).unwrap_or(""))
+    });
+    Json(files)
+}
+
+#[derive(Deserialize)]
+struct LoadFileRequest {
+    filename: String,
+}
+
+async fn persistence_load_file(
+    State(state): State<AppState>,
+    Json(req): Json<LoadFileRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    {
+        let replay = state.replay.read().await;
+        if replay.is_some() {
+            return Err((
+                StatusCode::CONFLICT,
+                "A replay is already active. Delete it first.".to_string(),
+            ));
+        }
+    }
+
+    // Validate filename to prevent path traversal
+    if req.filename.contains('/') || req.filename.contains('\\') || req.filename.contains("..") {
+        return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
+    }
+
+    let dir = crate::persistence::telemetry_dir();
+    let path = dir.join(&req.filename);
+    if !path.exists() {
+        return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
+    }
+
+    let replay_state = tokio::task::spawn_blocking(move || {
+        ReplayState::from_ndjson_zstd(&path).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to load file: {}", e),
+            )
+        })
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task failed: {}", e),
+        )
+    })??;
+
+    let info = replay_state.info();
+
+    {
+        let mut replay = state.replay.write().await;
+        *replay = Some(replay_state);
+    }
+
+    start_playback_task(state.clone()).await;
+
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "info": info,
+    })))
 }

@@ -11,16 +11,24 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
+/// The data source backing a replay session
+enum ReplaySource {
+    /// .ibt file with random-access reads
+    Ibt(Box<IbtFile>),
+    /// In-memory frames from NDJSON+ZSTD file
+    Ndjson(Vec<TelemetryFrame>),
+}
+
 /// State for an active replay session
 pub struct ReplayState {
-    ibt: IbtFile,
+    source: ReplaySource,
     current_frame: usize,
     total_frames: usize,
     tick_rate: u32,
     playing: bool,
     playback_speed: f64,
     file_size: u64,
-    temp_path: PathBuf,
+    temp_path: Option<PathBuf>,
     track_name: String,
     car_name: String,
     duration_secs: f64,
@@ -49,14 +57,112 @@ impl ReplayState {
         let replay_id = format!("{:016x}", hasher.finish());
 
         Ok(ReplayState {
-            ibt,
+            source: ReplaySource::Ibt(Box::new(ibt)),
             current_frame: 0,
             total_frames,
             tick_rate,
             playing: true,
             playback_speed: 1.0,
             file_size,
-            temp_path: path.to_path_buf(),
+            temp_path: Some(path.to_path_buf()),
+            track_name,
+            car_name,
+            duration_secs,
+            laps,
+            replay_id,
+        })
+    }
+
+    /// Load an NDJSON+ZSTD telemetry file
+    pub fn from_ndjson_zstd(path: &Path) -> Result<Self> {
+        let file = std::fs::File::open(path)?;
+        let file_size = file.metadata()?.len();
+        let decoder = zstd::Decoder::new(file)?;
+        let reader = std::io::BufReader::new(decoder);
+
+        let mut frames = Vec::new();
+        use std::io::BufRead;
+        for line in reader.lines() {
+            let line = line?;
+            if line.is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<TelemetryFrame>(&line) {
+                Ok(frame) => frames.push(frame),
+                Err(e) => {
+                    tracing::warn!("Skipping malformed NDJSON line: {}", e);
+                }
+            }
+        }
+
+        let total_frames = frames.len();
+        if total_frames == 0 {
+            anyhow::bail!("No valid frames in file");
+        }
+
+        // Estimate tick rate from timestamps
+        let tick_rate = if total_frames >= 2 {
+            let diff = frames.last().unwrap().timestamp - frames[0].timestamp;
+            let secs = diff.num_milliseconds() as f64 / 1000.0;
+            if secs > 0.0 {
+                ((total_frames - 1) as f64 / secs).round() as u32
+            } else {
+                60
+            }
+        } else {
+            60
+        };
+
+        let duration_secs = total_frames as f64 / tick_rate as f64;
+
+        let track_name = frames[0]
+            .session
+            .as_ref()
+            .and_then(|s| s.track_name.clone())
+            .unwrap_or_default();
+        let car_name = frames[0]
+            .session
+            .as_ref()
+            .and_then(|s| s.car_name.clone())
+            .unwrap_or_default();
+
+        // Build lap index from timing data
+        let mut laps = Vec::new();
+        let mut last_lap: Option<u32> = None;
+        for (i, f) in frames.iter().enumerate() {
+            if let Some(lap_num) = f.timing.as_ref().and_then(|t| t.lap_number) {
+                if last_lap.is_some_and(|prev| prev != lap_num) {
+                    let lap_time = f
+                        .timing
+                        .as_ref()
+                        .and_then(|t| t.last_lap_time)
+                        .map(|s| s.0 as f64);
+                    laps.push(LapInfo {
+                        lap_number: lap_num as i32,
+                        start_frame: i,
+                        lap_time_secs: lap_time,
+                    });
+                }
+                last_lap = Some(lap_num);
+            }
+        }
+
+        let mut hasher = DefaultHasher::new();
+        file_size.hash(&mut hasher);
+        total_frames.hash(&mut hasher);
+        track_name.hash(&mut hasher);
+        car_name.hash(&mut hasher);
+        let replay_id = format!("{:016x}", hasher.finish());
+
+        Ok(ReplayState {
+            source: ReplaySource::Ndjson(frames),
+            current_frame: 0,
+            total_frames,
+            tick_rate,
+            playing: true,
+            playback_speed: 1.0,
+            file_size,
+            temp_path: None, // Don't delete on drop — it's the user's saved file
             track_name,
             car_name,
             duration_secs,
@@ -66,13 +172,19 @@ impl ReplayState {
     }
 
     pub fn get_frame(&self, index: usize) -> Result<TelemetryFrame> {
-        let sample = self.ibt.read_sample(index)?;
-        Ok(self.ibt.sample_to_frame(&sample))
+        match &self.source {
+            ReplaySource::Ibt(ibt) => {
+                let sample = ibt.read_sample(index)?;
+                Ok(ibt.sample_to_frame(&sample))
+            }
+            ReplaySource::Ndjson(frames) => frames
+                .get(index)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("Frame index {} out of range", index)),
+        }
     }
 
     /// Read a range of frames for batch delivery to the client.
-    /// Returns Vec of (frame_index, TelemetryFrame) pairs.
-    /// Uses positional reads so this only requires &self (no write lock needed).
     pub fn get_frames_range(
         &self,
         start: usize,
@@ -84,13 +196,23 @@ impl ReplayState {
             .min(max_count)
             .min(self.total_frames.saturating_sub(clamped_start));
 
-        let samples = self.ibt.read_samples_range(clamped_start, clamped_count)?;
-        let frames = samples
-            .iter()
-            .enumerate()
-            .map(|(i, sample)| (clamped_start + i, self.ibt.sample_to_frame(sample)))
-            .collect();
-        Ok(frames)
+        match &self.source {
+            ReplaySource::Ibt(ibt) => {
+                let samples = ibt.read_samples_range(clamped_start, clamped_count)?;
+                let frames = samples
+                    .iter()
+                    .enumerate()
+                    .map(|(i, sample)| (clamped_start + i, ibt.sample_to_frame(sample)))
+                    .collect();
+                Ok(frames)
+            }
+            ReplaySource::Ndjson(frames) => {
+                let result = (clamped_start..clamped_start + clamped_count)
+                    .map(|i| (i, frames[i].clone()))
+                    .collect();
+                Ok(result)
+            }
+        }
     }
 
     pub fn total_frames(&self) -> usize {
@@ -162,8 +284,10 @@ impl ReplayState {
 
 impl Drop for ReplayState {
     fn drop(&mut self) {
-        if self.temp_path.exists() {
-            let _ = std::fs::remove_file(&self.temp_path);
+        if let Some(ref path) = self.temp_path {
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+            }
         }
     }
 }
