@@ -243,7 +243,7 @@ class OutputSinksWidget extends Widget {
                 update_rate_hz: parseFloat(c.querySelector('#sk-rate').value),
                 metric_mask: c.querySelector('#sk-mask').value.trim() || null,
             };
-            try { await fetch('/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); } catch(e) { console.error(e); }
+            try { await fetch(apiBase() + '/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); } catch(e) { console.error(e); }
         });
     }
 
@@ -260,7 +260,7 @@ class OutputSinksWidget extends Widget {
                 }).join('');
                 this.listEl.querySelectorAll('.btn-delete').forEach(btn => {
                     btn.addEventListener('click', async () => {
-                        try { await fetch(`/api/sinks/${btn.dataset.id}`, { method: 'DELETE' }); } catch(e) { console.error(e); }
+                        try { await fetch(`${apiBase()}/api/sinks/${btn.dataset.id}`, { method: 'DELETE' }); } catch(e) { console.error(e); }
                     });
                 });
             }

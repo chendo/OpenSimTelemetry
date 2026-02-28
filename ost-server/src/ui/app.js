@@ -67,11 +67,47 @@ function updateThroughput() {
     throughputEl.className = 'header-throughput' + (pct < 98 ? ' throughput-warn' : '');
 }
 
+// Remote OST instance support
+let remoteBase = localStorage.getItem('ost-remote-base') || '';
+const remoteInput = document.getElementById('remote-url');
+const remoteClearBtn = document.getElementById('remote-clear');
+remoteInput.value = remoteBase;
+if (remoteBase) { remoteInput.classList.add('remote-active'); remoteClearBtn.style.display = ''; }
+
+function apiBase() { return remoteBase || ''; }
+
+remoteInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        let val = remoteInput.value.trim().replace(/\/+$/, '');
+        if (val && !val.startsWith('http')) val = 'http://' + val;
+        remoteBase = val;
+        if (val) {
+            localStorage.setItem('ost-remote-base', val);
+            remoteInput.classList.add('remote-active');
+            remoteClearBtn.style.display = '';
+        } else {
+            localStorage.removeItem('ost-remote-base');
+            remoteInput.classList.remove('remote-active');
+            remoteClearBtn.style.display = 'none';
+        }
+        connectSSE();
+        remoteInput.blur();
+    }
+});
+remoteClearBtn.addEventListener('click', () => {
+    remoteBase = '';
+    remoteInput.value = '';
+    localStorage.removeItem('ost-remote-base');
+    remoteInput.classList.remove('remote-active');
+    remoteClearBtn.style.display = 'none';
+    connectSSE();
+});
+
 // Single unified SSE connection (avoids exhausting HTTP/1.1 connection slots)
 let sseSource = null;
 function connectSSE() {
     if (sseSource) sseSource.close();
-    const es = new EventSource('/api/stream');
+    const es = new EventSource(apiBase() + '/api/stream');
     sseSource = es;
     es.onopen = () => {
         sseConnected = true; sseEverConnected = true; updateStatus();
@@ -175,7 +211,7 @@ function updateHeaderAdapters() {
         cb.addEventListener('change', async () => {
             const key = cb.closest('.sources-item').dataset.key;
             try {
-                await fetch(`/api/adapters/${key}/toggle`, { method: 'POST' });
+                await fetch(`${apiBase()}/api/adapters/${key}/toggle`, { method: 'POST' });
                 // Status SSE will push the updated adapter list
             } catch (e) { console.error('Toggle adapter failed:', e); }
         });
@@ -193,7 +229,7 @@ pauseBtn.addEventListener('click', () => {
     pauseBtn.style.borderColor = streamPaused ? 'var(--accent)' : '';
     pauseBtn.style.color = streamPaused ? 'var(--accent)' : '';
     // Sync pause state to server history buffer
-    fetch('/api/replay/control', {
+    fetch(apiBase() + '/api/replay/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: streamPaused ? 'pause' : 'play' })
@@ -253,7 +289,7 @@ document.getElementById('header-browse-replays').addEventListener('click', async
 
     // Fetch file list
     try {
-        const resp = await fetch('/api/persistence/files');
+        const resp = await fetch(apiBase() + '/api/persistence/files');
         const files = await resp.json();
         list.innerHTML = '';
         if (files.length === 0) {
@@ -284,7 +320,7 @@ document.getElementById('header-browse-replays').addEventListener('click', async
                 loadBtn.textContent = '...';
                 loadBtn.disabled = true;
                 try {
-                    const r = await fetch('/api/persistence/load', {
+                    const r = await fetch(apiBase() + '/api/persistence/load', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ filename: f.name })
@@ -515,7 +551,7 @@ const memoryEl = document.getElementById('header-memory');
 
 async function fetchHistoryInfo() {
     try {
-        const resp = await fetch('/api/replay/info');
+        const resp = await fetch(apiBase() + '/api/replay/info');
         if (!resp.ok) return;
         const info = await resp.json();
         if (info.mode === 'history') {
@@ -590,7 +626,7 @@ function buildSettingsMenu() {
     select.addEventListener('change', () => {
         const secs = parseInt(select.value);
         localStorage.setItem(HISTORY_DURATION_KEY, secs);
-        fetch('/api/history/config', {
+        fetch(apiBase() + '/api/history/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ max_duration_secs: secs })
@@ -608,7 +644,7 @@ function buildSettingsMenu() {
         const frequency_hz = parseInt(freqSelect.value);
         localStorage.setItem('ost-persistence-autosave', auto_save);
         localStorage.setItem('ost-persistence-freq', frequency_hz);
-        fetch('/api/persistence/config', {
+        fetch(apiBase() + '/api/persistence/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ auto_save, frequency_hz })
@@ -641,7 +677,7 @@ settingsMenu.addEventListener('click', (e) => e.stopPropagation());
 (function syncSavedConfigs() {
     const savedSecs = parseInt(localStorage.getItem(HISTORY_DURATION_KEY));
     if (savedSecs) {
-        fetch('/api/history/config', {
+        fetch(apiBase() + '/api/history/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ max_duration_secs: savedSecs })
@@ -650,7 +686,7 @@ settingsMenu.addEventListener('click', (e) => e.stopPropagation());
     // Sync persistence config
     const autoSave = localStorage.getItem('ost-persistence-autosave') === 'true';
     const freq = parseInt(localStorage.getItem('ost-persistence-freq')) || 60;
-    fetch('/api/persistence/config', {
+    fetch(apiBase() + '/api/persistence/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ auto_save: autoSave, frequency_hz: freq })
@@ -691,7 +727,7 @@ document.body.addEventListener('drop', (e) => {
 // Check for existing replay on page load
 (async () => {
     try {
-        const resp = await fetch('/api/replay/info');
+        const resp = await fetch(apiBase() + '/api/replay/info');
         if (resp.ok) {
             const info = await resp.json();
             if (info.mode === 'replay') {

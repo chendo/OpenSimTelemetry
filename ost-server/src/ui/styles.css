@@ -55,6 +55,21 @@ body {
 .header-logo .logo-sim { color: var(--accent); }
 .header-logo .logo-tel { color: var(--text-secondary); }
 
+/* Remote source input */
+.remote-source { display: flex; align-items: center; gap: 4px; margin-left: 12px; }
+.remote-input {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-primary); font-size: 0.65rem; font-family: inherit;
+    padding: 3px 8px; border-radius: 4px; width: 180px; outline: none;
+}
+.remote-input:focus { border-color: var(--accent); }
+.remote-input.remote-active { border-color: #4caf50; background: rgba(76,175,80,0.1); }
+.remote-clear-btn {
+    background: none; border: none; color: var(--text-muted); font-size: 0.8rem;
+    cursor: pointer; padding: 0 4px; line-height: 1;
+}
+.remote-clear-btn:hover { color: var(--text-primary); }
+
 .header-right {
     display: flex;
     align-items: center;

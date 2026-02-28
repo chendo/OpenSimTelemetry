@@ -61,7 +61,7 @@ class ReplayPlayer {
         try {
             const formData = new FormData();
             formData.append('file', file);
-            const resp = await fetch('/api/replay/upload', { method: 'POST', body: formData });
+            const resp = await fetch(apiBase() + '/api/replay/upload', { method: 'POST', body: formData });
             if (!resp.ok) throw new Error(await resp.text());
             const result = await resp.json();
             this.info = result.info;
@@ -168,12 +168,12 @@ class ReplayPlayer {
         this.buf._dirty = true;
         this.playPauseBtn.innerHTML = '&#9654;';
         // Sync to server
-        fetch('/api/replay/control', {
+        fetch(apiBase() + '/api/replay/control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'pause' })
         }).catch(() => {});
-        fetch('/api/replay/control', {
+        fetch(apiBase() + '/api/replay/control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'seek', value: frame })
@@ -310,7 +310,7 @@ class ReplayPlayer {
         this.playPauseBtn.innerHTML = this.buf.playing ? '&#9646;&#9646;' : '&#9654;';
         // Sync play/pause to server
         const action = this.buf.playing ? 'play' : 'pause';
-        fetch('/api/replay/control', {
+        fetch(apiBase() + '/api/replay/control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action })
@@ -323,7 +323,7 @@ class ReplayPlayer {
         this.buf.playbackSpeed = speed;
         this.updateSpeedButtons();
         // Sync speed to server
-        fetch('/api/replay/control', {
+        fetch(apiBase() + '/api/replay/control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'speed', value: speed })
@@ -339,7 +339,7 @@ class ReplayPlayer {
     onSeekInput(value) {
         if (!this.seeking) {
             // Pause server playback when scrubbing starts
-            fetch('/api/replay/control', {
+            fetch(apiBase() + '/api/replay/control', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'pause' })
@@ -376,7 +376,7 @@ class ReplayPlayer {
         this.buf.cursor = frame;
         this.buf._dirty = true;
         // Sync server position (for exit/cleanup, non-blocking)
-        fetch('/api/replay/control', {
+        fetch(apiBase() + '/api/replay/control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'seek', value: frame })
@@ -388,7 +388,7 @@ class ReplayPlayer {
     }
 
     async exit() {
-        try { await fetch('/api/replay', { method: 'DELETE' }); }
+        try { await fetch(apiBase() + '/api/replay', { method: 'DELETE' }); }
         catch (e) { console.error('Exit replay failed:', e); }
         this.exitReplayMode();
     }

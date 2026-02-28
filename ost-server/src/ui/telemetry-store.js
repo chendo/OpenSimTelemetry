@@ -172,7 +172,7 @@ class ReplayBuffer {
         const count = Math.min(this._chunkSize, this.totalFrames - start);
         this._fetchingChunks.add(chunkIdx);
         try {
-            let url = `/api/replay/frames?start=${start}&count=${count}`;
+            let url = `${apiBase()}/api/replay/frames?start=${start}&count=${count}`;
             if (metrics) url += `&metric_mask=${encodeURIComponent(metrics)}`;
             if (this.replayId) url += `&rid=${encodeURIComponent(this.replayId)}`;
             const opts = signal ? { signal } : {};
@@ -353,7 +353,7 @@ class ReplayBuffer {
             this.cursor = this.loopStart || 0;
             this._lastPlayTick = null; // prevent frame burst after seek
             // Sync server position (fire-and-forget)
-            fetch('/api/replay/control', {
+            fetch(apiBase() + '/api/replay/control', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'seek', value: this.cursor })
