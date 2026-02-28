@@ -6,6 +6,7 @@ use crate::web_ui;
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Query, State},
     http::{header, StatusCode},
+    middleware::Next,
     response::{
         sse::{Event, KeepAlive, Sse},
         IntoResponse,
@@ -59,6 +60,45 @@ fn round_json_floats(val: &mut serde_json::Value) {
     }
 }
 
+/// Auth middleware: checks token on /api/ routes when auth is configured.
+async fn auth_middleware(
+    State(state): State<AppState>,
+    req: axum::http::Request<axum::body::Body>,
+    next: Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let token = match &state.auth_token {
+        Some(t) => t,
+        None => return Ok(next.run(req).await),
+    };
+
+    // Skip auth for the UI page itself
+    if req.uri().path() == "/" {
+        return Ok(next.run(req).await);
+    }
+
+    // Check Authorization header
+    if let Some(auth) = req.headers().get(header::AUTHORIZATION) {
+        if let Ok(val) = auth.to_str() {
+            if val.strip_prefix("Bearer ").is_some_and(|t| t == token) {
+                return Ok(next.run(req).await);
+            }
+        }
+    }
+
+    // Check ?token= query param
+    if let Some(query) = req.uri().query() {
+        for pair in query.split('&') {
+            if let Some(val) = pair.strip_prefix("token=") {
+                if val == token {
+                    return Ok(next.run(req).await);
+                }
+            }
+        }
+    }
+
+    Err(StatusCode::UNAUTHORIZED)
+}
+
 /// Create the main application router
 pub fn create_router(state: AppState) -> Router {
     Router::new()
@@ -90,6 +130,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/persistence/download", get(persistence_download))
         .route("/api/persistence/files", get(persistence_list_files))
         .route("/api/persistence/load", post(persistence_load_file))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

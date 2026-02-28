@@ -45,6 +45,9 @@ pub struct AppState {
 
     /// Persistence configuration for auto-saving telemetry to disk
     pub persistence_config: Arc<RwLock<PersistenceConfig>>,
+
+    /// Optional API authentication token (from OST_AUTH_TOKEN env var)
+    pub auth_token: Option<String>,
 }
 
 /// Configuration for an output sink
@@ -79,6 +82,9 @@ impl AppState {
             sinks_tx,
             history: Arc::new(RwLock::new(HistoryBuffer::new(600))),
             persistence_config: Arc::new(RwLock::new(PersistenceConfig::default())),
+            auth_token: std::env::var("OST_AUTH_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
         }
     }
 
