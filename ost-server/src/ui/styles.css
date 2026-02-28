@@ -1303,6 +1303,16 @@ body {
     text-align: center;
 }
 
+/* ==================== API Widget ==================== */
+.api-docs { padding: 4px 8px; font-size: 0.7rem; overflow-y: auto; max-height: 100%; }
+.api-section { margin-bottom: 8px; }
+.api-heading { color: var(--accent); font-weight: 700; font-size: 0.7rem; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.api-endpoint { color: var(--text-secondary); margin: 2px 0; }
+.api-endpoint code { color: var(--text-primary); background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 2px; font-size: 0.65rem; }
+.api-example { margin: 2px 0 4px 0; }
+.api-example code { color: var(--text-muted); background: rgba(255,255,255,0.04); padding: 2px 6px; border-radius: 2px; font-size: 0.6rem; display: inline-block; user-select: all; }
+.api-code { color: var(--text-secondary); background: rgba(0,0,0,0.3); padding: 6px 8px; border-radius: 4px; font-size: 0.6rem; line-height: 1.4; overflow-x: auto; white-space: pre; user-select: all; }
+
 /* ==================== Scrollbar ==================== */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

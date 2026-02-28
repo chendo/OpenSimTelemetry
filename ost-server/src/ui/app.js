@@ -111,6 +111,7 @@ const staticWidgets = [
     new SessionWidget(),
     new AllMetricsWidget(),
     new OutputSinksWidget(),
+    new ApiWidget(),
 ];
 staticWidgets.forEach(w => { w.init(); grid.addWidget(w); });
 

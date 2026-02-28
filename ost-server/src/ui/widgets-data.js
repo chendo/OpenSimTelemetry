@@ -267,3 +267,47 @@ class OutputSinksWidget extends Widget {
         }
     }
 }
+
+/* ==================== ApiWidget ==================== */
+class ApiWidget extends Widget {
+    constructor() { super('api', 'API', { col: 1, row: 25, width: 12, height: 6 }); }
+
+    buildContent(c) {
+        const base = location.origin;
+        c.innerHTML = `
+            <div class="api-docs">
+                <div class="api-section">
+                    <div class="api-heading">SSE Streams</div>
+                    <div class="api-endpoint"><code>GET /api/stream</code> — Unified stream (frame, status, sinks events)</div>
+                    <div class="api-endpoint"><code>GET /api/telemetry/stream</code> — Telemetry frames only</div>
+                    <div class="api-example"><code>curl -N ${base}/api/telemetry/stream</code></div>
+                    <div class="api-endpoint"><code>GET /api/status/stream</code> — Status updates only</div>
+                </div>
+                <div class="api-section">
+                    <div class="api-heading">REST Endpoints</div>
+                    <div class="api-endpoint"><code>GET /api/adapters</code> — List adapters and their status</div>
+                    <div class="api-endpoint"><code>POST /api/adapters/:name/toggle</code> — Enable/disable an adapter</div>
+                    <div class="api-endpoint"><code>GET /api/sinks</code> — List output sinks</div>
+                    <div class="api-endpoint"><code>POST /api/sinks</code> — Create UDP sink</div>
+                    <div class="api-endpoint"><code>DELETE /api/sinks/:id</code> — Remove a sink</div>
+                </div>
+                <div class="api-section">
+                    <div class="api-heading">Replay</div>
+                    <div class="api-endpoint"><code>POST /api/replay/upload</code> — Upload .ibt file (multipart)</div>
+                    <div class="api-endpoint"><code>GET /api/replay/info</code> — Current replay state</div>
+                    <div class="api-endpoint"><code>GET /api/replay/frames?start=0&count=100</code> — Fetch frames</div>
+                    <div class="api-endpoint"><code>POST /api/replay/control</code> — Play/pause/seek/speed</div>
+                </div>
+                <div class="api-section">
+                    <div class="api-heading">JavaScript Example</div>
+                    <pre class="api-code">const es = new EventSource('${base}/api/telemetry/stream');
+es.onmessage = (e) => {
+  const frame = JSON.parse(e.data);
+  console.log(frame.vehicle?.speed);
+};</pre>
+                </div>
+            </div>`;
+    }
+
+    update() {} // Static content, no updates needed
+}
