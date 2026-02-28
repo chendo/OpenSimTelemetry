@@ -110,6 +110,7 @@ class ReplayBuffer {
         this._chunkSize = 300;        // frames per chunk (tickRate * 5, set in enterReplayMode)
         this._maxCacheFrames = 10800; // max cached frames (tickRate * 180, set in enterReplayMode)
         this._fetchingChunks = new Set(); // in-flight chunk indices
+        this._loadedChunks = new Set();   // chunk indices successfully fetched and merged
         this._ensureLoadedRunning = false; // reentrant guard for ensureLoaded
         this._fetchDebounce = null;
         this._dirty = false;
@@ -165,7 +166,7 @@ class ReplayBuffer {
 
     // Fetch a single chunk, merge into cache
     async _fetchChunk(chunkIdx, metrics, signal) {
-        if (this._hasChunk(chunkIdx) || this._fetchingChunks.has(chunkIdx)) return;
+        if (this._loadedChunks.has(chunkIdx) || this._fetchingChunks.has(chunkIdx)) return;
         const start = chunkIdx * this._chunkSize;
         if (start >= this.totalFrames) return;
         const count = Math.min(this._chunkSize, this.totalFrames - start);
@@ -179,6 +180,7 @@ class ReplayBuffer {
             if (!resp.ok) throw new Error(await resp.text());
             const frames = await resp.json();
             this._mergeFrames(frames);
+            this._loadedChunks.add(chunkIdx);
         } catch (e) {
             if (e.name === 'AbortError') return; // Cancelled — expected during scrubbing
             console.error(`Failed to fetch chunk ${chunkIdx}:`, e);
@@ -206,6 +208,7 @@ class ReplayBuffer {
 
             if (mergedLen > this._maxCacheFrames * 2) {
                 // Gap too large (cursor jumped far) — replace cache entirely
+                this._loadedChunks.clear();
                 this.startFrame = newStart;
                 this.entries = processed;
                 this.count = processed.length;
@@ -246,9 +249,14 @@ class ReplayBuffer {
         }
         if (this.count > this._maxCacheFrames) {
             // Trim from end
-            const trim = this.count - this._maxCacheFrames;
             this.entries.length = this._maxCacheFrames;
             this.count = this._maxCacheFrames;
+        }
+        // Remove evicted chunk indices from _loadedChunks so they can be re-fetched
+        const cacheEnd = this.startFrame + this.count;
+        for (const idx of this._loadedChunks) {
+            const cs = idx * this._chunkSize;
+            if (cs < this.startFrame || cs >= cacheEnd) this._loadedChunks.delete(idx);
         }
     }
 
@@ -302,9 +310,10 @@ class ReplayBuffer {
         this._fetchDebounce = setTimeout(() => this.ensureLoaded(metrics), delayMs);
     }
 
-    // Check if cursor is near cache boundary and needs fetch
+    // Check if cursor's chunk needs fetching
     needsFetch() {
-        return !this._hasChunk(this._chunkIndex(this.cursor));
+        const idx = this._chunkIndex(this.cursor);
+        return !this._loadedChunks.has(idx) && !this._fetchingChunks.has(idx);
     }
 
     // Get entries for a centered time window around cursor.
@@ -366,6 +375,7 @@ class ReplayBuffer {
         this._lastPlayTick = null;
         this._dirty = false;
         this._ensureLoadedRunning = false;
+        this._loadedChunks.clear();
         if (this._abortController) { this._abortController.abort(); this._abortController = null; }
         this.scrubbing = false;
         this.replayId = null;
