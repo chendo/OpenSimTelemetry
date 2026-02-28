@@ -1,6 +1,9 @@
 /* ==================== Initialization ==================== */
 const store = new TelemetryStore();
 const replayBuf = new ReplayBuffer();
+const historyBuf = new ReplayBuffer();
+let historyMode = false;
+let historyInfo = null;
 const grid = new DashboardGrid(document.getElementById('dashboard-grid'));
 
 // Global function for GraphWidget to call when config changes
@@ -19,6 +22,9 @@ function updateStatus() {
     } else if (replayBuf.count > 0) {
         text = 'Viewing replay';
         dotClass = 'dot-active';
+    } else if (historyMode) {
+        text = 'Viewing history';
+        dotClass = 'dot-detected';
     } else if (streamPaused) {
         text = 'Paused';
         dotClass = 'dot-detected';
@@ -182,6 +188,12 @@ pauseBtn.addEventListener('click', () => {
     pauseBtn.textContent = streamPaused ? 'Resume' : 'Pause';
     pauseBtn.style.borderColor = streamPaused ? 'var(--accent)' : '';
     pauseBtn.style.color = streamPaused ? 'var(--accent)' : '';
+    // Sync pause state to server history buffer
+    fetch('/api/replay/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: streamPaused ? 'pause' : 'play' })
+    }).catch(() => {});
     updateStatus();
 });
 
@@ -201,6 +213,8 @@ ibtFileInput.addEventListener('change', () => {
 function renderLoop() {
     const now = performance.now();
     const activeReplay = replayBuf.count > 0 ? replayBuf : null;
+    const activeHistory = !activeReplay && historyMode && historyBuf.count > 0 ? historyBuf : null;
+    const activeBuf = activeReplay || activeHistory;
 
     // Advance client-side cursor and sync store for all widgets
     if (activeReplay) {
@@ -209,28 +223,264 @@ function renderLoop() {
         if (replayBuf.needsFetch() || replayBuf.playing) {
             replayBuf.ensureLoaded(buildReplayMetricMask());
         }
-        // Sync store.currentFrame so non-graph widgets see the replay frame
-        const replayFrame = replayBuf.currentFrame();
-        if (replayFrame) {
-            store.currentFrame = replayFrame;
-            store._dirty = true;
-        }
         // Update replay controls (slider, time)
         if (typeof replayPlayer !== 'undefined' && replayPlayer.active) {
             replayPlayer.updateControlsFromBuf();
         }
     }
 
-    if (store._dirty || _uiDirty || (activeReplay && replayBuf._dirty)) {
+    if (activeHistory) {
+        if (historyBuf.needsFetch()) {
+            historyBuf.ensureLoaded(buildReplayMetricMask());
+        }
+    }
+
+    if (activeBuf) {
+        const frame = activeBuf.currentFrame();
+        if (frame) {
+            store.currentFrame = frame;
+            store._dirty = true;
+        }
+    }
+
+    // Update seek bar
+    updateSeekBar();
+
+    if (store._dirty || _uiDirty || (activeBuf && activeBuf._dirty)) {
         store._dirty = false;
         _uiDirty = false;
-        if (activeReplay) replayBuf._dirty = false;
+        if (activeBuf) activeBuf._dirty = false;
         for (const w of grid.widgets.values()) {
-            if (w._visible) w.update(store, now, activeReplay);
+            if (w._visible) w.update(store, now, activeBuf);
         }
     }
     requestAnimationFrame(renderLoop);
 }
+
+// ==================== History Seek Bar ====================
+const seekBar = document.getElementById('seek-bar');
+const seekSlider = document.getElementById('seek-slider');
+const seekTime = document.getElementById('seek-time');
+const seekLiveBtn = document.getElementById('seek-live-btn');
+const seekLaps = document.getElementById('seek-laps');
+const seekTrackWrap = document.getElementById('seek-track-wrap');
+let _seekThrottleTime = 0;
+
+function enterHistoryMode() {
+    if (historyMode) return;
+    historyMode = true;
+    if (historyInfo) {
+        historyBuf.totalFrames = historyInfo.total_frames;
+        historyBuf.tickRate = historyInfo.tick_rate || 60;
+        historyBuf._chunkSize = historyBuf.tickRate * 5;
+        historyBuf._maxCacheFrames = historyBuf.tickRate * 180;
+        historyBuf.cursor = parseInt(seekSlider.value);
+        historyBuf.playing = false;
+        historyBuf.replayId = null;
+    }
+    seekLiveBtn.classList.remove('active');
+    const badge = document.getElementById('mode-badge');
+    badge.textContent = 'HISTORY';
+    badge.className = 'mode-badge mode-history';
+    badge.style.display = '';
+    historyBuf.ensureLoaded(buildReplayMetricMask());
+    updateStatus();
+}
+
+function exitHistoryMode() {
+    if (!historyMode) return;
+    historyMode = false;
+    historyBuf.reset();
+    seekLiveBtn.classList.add('active');
+    const badge = document.getElementById('mode-badge');
+    badge.style.display = 'none';
+    if (historyInfo) {
+        seekSlider.value = seekSlider.max;
+    }
+    updateSeekTimeDisplay();
+    updateStatus();
+    requestRedraw();
+}
+
+seekSlider.addEventListener('input', (e) => {
+    const frame = parseInt(e.target.value);
+    if (!historyMode) enterHistoryMode();
+    historyBuf.cursor = frame;
+    historyBuf._dirty = true;
+    updateSeekTimeDisplay();
+    // Throttle fetch during scrubbing
+    const now = performance.now();
+    if (now - _seekThrottleTime >= 250) {
+        _seekThrottleTime = now;
+        if (historyBuf._abortController) historyBuf._abortController.abort();
+        historyBuf.ensureLoaded(buildReplayMetricMask());
+    }
+    requestRedraw();
+});
+
+seekSlider.addEventListener('change', (e) => {
+    if (!historyMode) return;
+    historyBuf.cursor = parseInt(e.target.value);
+    historyBuf._dirty = true;
+    if (historyBuf._abortController) historyBuf._abortController.abort();
+    historyBuf.ensureLoaded(buildReplayMetricMask());
+    requestRedraw();
+});
+
+seekLiveBtn.addEventListener('click', exitHistoryMode);
+
+function updateSeekBar() {
+    // Hide during replay
+    if (replayBuf.count > 0 || (typeof replayPlayer !== 'undefined' && replayPlayer.active)) {
+        seekBar.classList.remove('active');
+        return;
+    }
+    seekBar.classList.add('active');
+    if (!historyInfo) return;
+
+    const total = historyInfo.total_frames;
+    seekSlider.max = Math.max(0, total - 1);
+    if (!historyMode) {
+        seekSlider.value = seekSlider.max;
+    }
+    updateSeekTimeDisplay();
+    updateSeekLapMarkers();
+}
+
+function updateSeekTimeDisplay() {
+    if (!historyInfo || historyInfo.total_frames === 0) {
+        seekTime.textContent = '0:00';
+        return;
+    }
+    if (!historyMode) {
+        seekTime.textContent = '0:00';
+        return;
+    }
+    // Show negative offset from live edge
+    const total = historyInfo.total_frames;
+    const tickRate = historyInfo.tick_rate || 60;
+    const offsetFrames = total - 1 - historyBuf.cursor;
+    const offsetSecs = offsetFrames / tickRate;
+    const m = Math.floor(offsetSecs / 60);
+    const s = Math.floor(offsetSecs % 60);
+    seekTime.textContent = `-${m}:${String(s).padStart(2, '0')}`;
+}
+
+let _lastLapMarkersHash = '';
+function updateSeekLapMarkers() {
+    if (!historyInfo || !historyInfo.laps) return;
+    const total = historyInfo.total_frames;
+    if (total <= 0) return;
+    // Quick hash to avoid rebuilding every frame
+    const hash = historyInfo.laps.map(l => `${l.lap_number}:${l.start_frame}`).join(',');
+    if (hash === _lastLapMarkersHash) return;
+    _lastLapMarkersHash = hash;
+
+    seekLaps.innerHTML = '';
+    for (let i = 0; i < historyInfo.laps.length; i++) {
+        const lap = historyInfo.laps[i];
+        const pct = (lap.start_frame / total) * 100;
+        const tick = document.createElement('div');
+        tick.className = 'seek-lap-tick';
+        tick.style.left = pct + '%';
+        const label = document.createElement('span');
+        label.className = 'seek-lap-label';
+        label.textContent = 'L' + lap.lap_number;
+        tick.appendChild(label);
+        seekLaps.appendChild(tick);
+    }
+}
+
+// ==================== History Info Polling ====================
+const memoryEl = document.getElementById('header-memory');
+
+async function fetchHistoryInfo() {
+    try {
+        const resp = await fetch('/api/replay/info');
+        if (!resp.ok) return;
+        const info = await resp.json();
+        if (info.mode === 'history') {
+            historyInfo = info;
+            updateMemoryDisplay();
+            // If in history mode, update total frames for buffer
+            if (historyMode) {
+                historyBuf.totalFrames = info.total_frames;
+                historyBuf.tickRate = info.tick_rate || 60;
+            }
+        } else if (info.mode === 'replay') {
+            // Replay is active, clear history info
+            historyInfo = null;
+        }
+    } catch (e) { /* ignore */ }
+}
+
+function updateMemoryDisplay() {
+    if (!historyInfo) {
+        memoryEl.textContent = '';
+        return;
+    }
+    const mb = historyInfo.estimated_memory_mb || 0;
+    memoryEl.textContent = mb >= 1 ? `${mb.toFixed(0)} MB` : `${(mb * 1024).toFixed(0)} KB`;
+}
+
+// Poll history info
+fetchHistoryInfo();
+setInterval(fetchHistoryInfo, 10000);
+
+// ==================== Settings Dropdown ====================
+const settingsBtn = document.getElementById('settings-btn');
+const settingsMenu = document.getElementById('settings-menu');
+let settingsOpen = false;
+
+function buildSettingsMenu() {
+    const savedSecs = parseInt(localStorage.getItem(HISTORY_DURATION_KEY)) || DEFAULT_HISTORY_SECS;
+    const options = HISTORY_DURATION_OPTIONS.map(opt => {
+        const memMb = Math.round(opt.secs * 60 * 3 / 1024);
+        const selected = opt.secs === savedSecs ? 'selected' : '';
+        return `<option value="${opt.secs}" ${selected}>${opt.label} (~${memMb} MB)</option>`;
+    }).join('');
+
+    settingsMenu.innerHTML = `
+        <div class="settings-row">
+            <span class="settings-label">History Buffer</span>
+            <select class="settings-select" id="settings-history-duration">${options}</select>
+        </div>
+        <div class="settings-hint" id="settings-memory-hint"></div>
+    `;
+
+    const select = document.getElementById('settings-history-duration');
+    select.addEventListener('change', () => {
+        const secs = parseInt(select.value);
+        localStorage.setItem(HISTORY_DURATION_KEY, secs);
+        fetch('/api/history/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max_duration_secs: secs })
+        }).catch(() => {});
+        fetchHistoryInfo();
+    });
+}
+buildSettingsMenu();
+
+settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsOpen = !settingsOpen;
+    settingsMenu.classList.toggle('open', settingsOpen);
+});
+document.addEventListener('click', () => { settingsOpen = false; settingsMenu.classList.remove('open'); });
+settingsMenu.addEventListener('click', (e) => e.stopPropagation());
+
+// Sync saved history preference to server on page load
+(function syncHistoryConfig() {
+    const savedSecs = parseInt(localStorage.getItem(HISTORY_DURATION_KEY));
+    if (savedSecs) {
+        fetch('/api/history/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max_duration_secs: savedSecs })
+        }).catch(() => {});
+    }
+})();
 
 // Start
 connectSSE();
@@ -269,10 +519,12 @@ document.body.addEventListener('drop', (e) => {
         const resp = await fetch('/api/replay/info');
         if (resp.ok) {
             const info = await resp.json();
-            replayPlayer.info = info;
-            replayPlayer.active = true;
-            replayPlayer.currentSpeed = info.playback_speed;
-            await replayPlayer.enterReplayMode();
+            if (info.mode === 'replay') {
+                replayPlayer.info = info;
+                replayPlayer.active = true;
+                replayPlayer.currentSpeed = info.playback_speed;
+                await replayPlayer.enterReplayMode();
+            }
         }
     } catch (e) {
         console.error('Failed to restore replay state:', e);

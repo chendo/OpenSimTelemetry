@@ -77,6 +77,8 @@ class ReplayPlayer {
     }
 
     async enterReplayMode() {
+        // Exit history mode if active
+        if (typeof exitHistoryMode === 'function') exitHistoryMode();
         this.badge.textContent = 'REPLAY';
         this.badge.className = 'mode-badge mode-replay';
         this.badge.style.display = '';

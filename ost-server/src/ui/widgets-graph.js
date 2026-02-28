@@ -20,6 +20,8 @@ class GraphWidget extends Widget {
                         <option value="10000">10s</option>
                         <option value="30000">30s</option>
                         <option value="60000">60s</option>
+                        <option value="120000">2m</option>
+                        <option value="300000">5m</option>
                     </select>
                 </div>
                 <div class="graph-canvas-wrap"><canvas></canvas></div>

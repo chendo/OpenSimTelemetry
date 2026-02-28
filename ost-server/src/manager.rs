@@ -153,6 +153,11 @@ async fn frame_read_cycle(state: &AppState) -> Result<bool> {
     if let Some(adapter) = adapters.iter_mut().find(|a| a.key() == active_key) {
         match adapter.read_frame() {
             Ok(Some(frame)) => {
+                // Store in history buffer for seek-back
+                {
+                    let mut history = state.history.write().await;
+                    history.push(frame.clone());
+                }
                 // Broadcast to all subscribers
                 // Ignore error if no receivers (they'll get the next frame)
                 let _ = state.telemetry_tx.send(frame);

@@ -6,6 +6,17 @@ const LAYOUT_VERSION = '7'; // Rearrange default layout: Vehicle/GForce/Wheels t
 const RAD2DEG = 180 / Math.PI;
 const BUFFER_MAX = 3600;
 
+// History buffer settings
+const HISTORY_DURATION_KEY = 'ost-history-duration-secs';
+const DEFAULT_HISTORY_SECS = 600;
+const HISTORY_DURATION_OPTIONS = [
+    { secs: 300,  label: '5 min' },
+    { secs: 600,  label: '10 min' },
+    { secs: 900,  label: '15 min' },
+    { secs: 1800, label: '30 min' },
+    { secs: 3600, label: '60 min' },
+];
+
 // Global crosshair state: when hovering any graph, all graphs show a vertical cursor at the same timestamp
 const crosshair = { t: null };
 let _uiDirty = false;

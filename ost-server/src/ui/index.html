@@ -39,6 +39,7 @@
                 <span>Connecting...</span>
             </span>
             <span class="header-throughput" id="header-throughput"></span>
+            <span class="header-memory" id="header-memory"></span>
             <div class="sources-dropdown" id="sources-dropdown">
                 <button class="header-reset-btn sources-btn" id="sources-btn">Sources</button>
                 <div class="sources-menu" id="sources-menu"></div>
@@ -48,8 +49,22 @@
             <button class="header-reset-btn" id="header-pause-btn">Pause</button>
             <button class="header-reset-btn" id="header-add-graph">+ Add Graph</button>
             <button class="header-reset-btn" id="header-reset-layout">Reset Layout</button>
+            <div class="settings-dropdown" id="settings-dropdown">
+                <button class="header-reset-btn" id="settings-btn">Settings</button>
+                <div class="settings-menu" id="settings-menu"></div>
+            </div>
         </div>
     </header>
+
+    <!-- History seek bar (always visible when no replay active) -->
+    <div class="seek-bar" id="seek-bar">
+        <span class="seek-time" id="seek-time">0:00</span>
+        <div class="seek-track-wrap" id="seek-track-wrap">
+            <input type="range" class="seek-slider" id="seek-slider" min="0" max="0" value="0">
+            <div class="seek-laps" id="seek-laps"></div>
+        </div>
+        <button class="seek-live-btn active" id="seek-live-btn">LIVE</button>
+    </div>
 
     <!-- Replay controls bar (hidden unless replay active) -->
     <div class="replay-bar" id="replay-bar">

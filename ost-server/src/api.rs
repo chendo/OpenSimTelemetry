@@ -14,7 +14,7 @@ use axum::{
     Json, Router,
 };
 use futures::stream::{self, Stream, StreamExt as FuturesStreamExt};
-use ost_core::model::MetricMask;
+use ost_core::model::{MetricMask, TelemetryFrame};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::time::Duration;
@@ -69,6 +69,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/replay/frames", get(replay_frames))
         .route("/api/replay/control", post(replay_control))
         .route("/api/replay", delete(replay_delete))
+        // History buffer config
+        .route("/api/history/config", post(history_config))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -535,9 +537,32 @@ async fn replay_info(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let replay = state.replay.read().await;
-    match &*replay {
-        Some(rs) => Ok(Json(serde_json::to_value(rs.info()).unwrap())),
-        None => Err((StatusCode::NOT_FOUND, "No active replay".to_string())),
+    if let Some(rs) = &*replay {
+        let mut info = serde_json::to_value(rs.info()).unwrap();
+        info.as_object_mut()
+            .unwrap()
+            .insert("mode".into(), "replay".into());
+        Ok(Json(info))
+    } else {
+        drop(replay);
+        let history = state.history.read().await;
+        Ok(Json(serde_json::json!({
+            "mode": "history",
+            "total_frames": history.frame_count(),
+            "tick_rate": history.tick_rate(),
+            "duration_secs": history.duration_secs(),
+            "current_frame": history.frame_count().saturating_sub(1),
+            "playing": false,
+            "playback_speed": 1.0,
+            "track_name": history.track_name(),
+            "car_name": history.car_name(),
+            "file_size": 0,
+            "laps": history.laps(),
+            "replay_id": "",
+            "paused": history.is_paused(),
+            "estimated_memory_mb": history.estimated_memory_mb(),
+            "max_duration_secs": history.max_duration_secs(),
+        })))
     }
 }
 
@@ -554,25 +579,57 @@ async fn replay_frames(
     State(state): State<AppState>,
     Query(params): Query<ReplayFramesQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Read lock: get_frames_range uses pread, no &mut self needed
     let replay = state.replay.read().await;
-    let rs = replay
-        .as_ref()
-        .ok_or((StatusCode::NOT_FOUND, "No active replay".to_string()))?;
+    if let Some(rs) = replay.as_ref() {
+        // Serve from replay file
+        let frames = rs
+            .get_frames_range(params.start, params.count)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to read frames: {}", e),
+                )
+            })?;
 
-    let frames = rs
-        .get_frames_range(params.start, params.count)
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to read frames: {}", e),
-            )
-        })?;
+        let metric_mask = params.metric_mask.map(|f| MetricMask::parse(&f));
+        let json_frames = serialize_frames(frames.into_iter(), &metric_mask);
 
-    let metric_mask = params.metric_mask.map(|f| MetricMask::parse(&f));
+        // When a replay_id is in the URL, the response is content-addressed and immutable
+        let cache_header = if params.rid.is_some() {
+            "public, max-age=31536000, immutable"
+        } else {
+            "no-cache"
+        };
 
-    let json_frames: Vec<serde_json::Value> = frames
-        .into_iter()
+        Ok((
+            [(header::CACHE_CONTROL, cache_header)],
+            Json(serde_json::json!(json_frames)),
+        ))
+    } else {
+        // Serve from history buffer
+        drop(replay);
+        let history = state.history.read().await;
+        let frames = history.get_frames_range(params.start, params.count);
+
+        let metric_mask = params.metric_mask.map(|f| MetricMask::parse(&f));
+        let json_frames = serialize_frames(
+            frames.into_iter().map(|(i, f)| (i, f.clone())),
+            &metric_mask,
+        );
+
+        Ok((
+            [(header::CACHE_CONTROL, "no-cache")],
+            Json(serde_json::json!(json_frames)),
+        ))
+    }
+}
+
+/// Serialize frames with optional metric mask filtering, shared by replay and history.
+fn serialize_frames(
+    frames: impl Iterator<Item = (usize, TelemetryFrame)>,
+    metric_mask: &Option<MetricMask>,
+) -> Vec<serde_json::Value> {
+    frames
         .map(|(idx, frame)| {
             let mut f_val = if let Some(ref mask) = metric_mask {
                 let json_str = frame.to_json_filtered(Some(mask)).unwrap_or_default();
@@ -586,19 +643,7 @@ async fn replay_frames(
                 "f": f_val
             })
         })
-        .collect();
-
-    // When a replay_id is in the URL, the response is content-addressed and immutable
-    let cache_header = if params.rid.is_some() {
-        "public, max-age=31536000, immutable"
-    } else {
-        "no-cache"
-    };
-
-    Ok((
-        [(header::CACHE_CONTROL, cache_header)],
-        Json(serde_json::json!(json_frames)),
-    ))
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -612,45 +657,59 @@ async fn replay_control(
     Json(request): Json<ReplayControlRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let mut replay = state.replay.write().await;
-    let rs = replay
-        .as_mut()
-        .ok_or((StatusCode::NOT_FOUND, "No active replay".to_string()))?;
-
-    match request.action.as_str() {
-        "play" => {
-            rs.play();
-            drop(replay);
-            start_playback_task(state.clone()).await;
-            Ok(Json(serde_json::json!({"status": "playing"})))
-        }
-        "pause" => {
-            rs.pause();
-            Ok(Json(serde_json::json!({"status": "paused"})))
-        }
-        "seek" => {
-            let frame = request.value.ok_or((
+    if let Some(rs) = replay.as_mut() {
+        // Control active replay
+        match request.action.as_str() {
+            "play" => {
+                rs.play();
+                drop(replay);
+                start_playback_task(state.clone()).await;
+                Ok(Json(serde_json::json!({"status": "playing"})))
+            }
+            "pause" => {
+                rs.pause();
+                Ok(Json(serde_json::json!({"status": "paused"})))
+            }
+            "seek" => {
+                let frame = request.value.ok_or((
+                    StatusCode::BAD_REQUEST,
+                    "Missing 'value' for seek".to_string(),
+                ))? as usize;
+                rs.seek(frame);
+                Ok(Json(
+                    serde_json::json!({"status": "seeked", "frame": rs.current_frame()}),
+                ))
+            }
+            "speed" => {
+                let speed = request.value.ok_or((
+                    StatusCode::BAD_REQUEST,
+                    "Missing 'value' for speed".to_string(),
+                ))?;
+                rs.set_speed(speed);
+                Ok(Json(
+                    serde_json::json!({"status": "speed_set", "speed": rs.playback_speed()}),
+                ))
+            }
+            _ => Err((
                 StatusCode::BAD_REQUEST,
-                "Missing 'value' for seek".to_string(),
-            ))? as usize;
-            rs.seek(frame);
-            Ok(Json(
-                serde_json::json!({"status": "seeked", "frame": rs.current_frame()}),
-            ))
+                format!("Unknown action: {}", request.action),
+            )),
         }
-        "speed" => {
-            let speed = request.value.ok_or((
-                StatusCode::BAD_REQUEST,
-                "Missing 'value' for speed".to_string(),
-            ))?;
-            rs.set_speed(speed);
-            Ok(Json(
-                serde_json::json!({"status": "speed_set", "speed": rs.playback_speed()}),
-            ))
+    } else {
+        // Control history buffer (pause/resume buffering)
+        drop(replay);
+        let mut history = state.history.write().await;
+        match request.action.as_str() {
+            "pause" => {
+                history.set_paused(true);
+                Ok(Json(serde_json::json!({"status": "paused"})))
+            }
+            "play" | "resume" => {
+                history.set_paused(false);
+                Ok(Json(serde_json::json!({"status": "buffering"})))
+            }
+            _ => Ok(Json(serde_json::json!({"status": "ok"}))),
         }
-        _ => Err((
-            StatusCode::BAD_REQUEST,
-            format!("Unknown action: {}", request.action),
-        )),
     }
 }
 
@@ -672,6 +731,23 @@ async fn replay_delete(State(state): State<AppState>) -> Result<StatusCode, (Sta
 
     tracing::info!("Replay stopped and cleaned up");
     Ok(StatusCode::NO_CONTENT)
+}
+
+// === History Config ===
+
+#[derive(Deserialize)]
+struct HistoryConfigRequest {
+    max_duration_secs: u32,
+}
+
+async fn history_config(
+    State(state): State<AppState>,
+    Json(req): Json<HistoryConfigRequest>,
+) -> Json<serde_json::Value> {
+    let clamped = req.max_duration_secs.clamp(60, 3600);
+    let mut history = state.history.write().await;
+    history.resize(clamped);
+    Json(serde_json::json!({"status": "ok", "max_duration_secs": clamped}))
 }
 
 /// Start the playback background task that pushes frames through the broadcast channel

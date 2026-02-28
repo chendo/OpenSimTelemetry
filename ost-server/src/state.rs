@@ -1,5 +1,6 @@
 //! Application state management
 
+use crate::history::HistoryBuffer;
 use crate::replay::ReplayState;
 use ost_core::{adapter::TelemetryAdapter, model::TelemetryFrame};
 use std::collections::HashSet;
@@ -37,6 +38,9 @@ pub struct AppState {
 
     /// Broadcast channel for sink config updates (serialized JSON strings)
     pub sinks_tx: broadcast::Sender<String>,
+
+    /// History buffer for seek-back through recent live telemetry
+    pub history: Arc<RwLock<HistoryBuffer>>,
 }
 
 /// Configuration for an output sink
@@ -75,6 +79,7 @@ impl AppState {
             disabled_adapters: Arc::new(RwLock::new(disabled)),
             status_tx,
             sinks_tx,
+            history: Arc::new(RwLock::new(HistoryBuffer::new(600))),
         }
     }
 
