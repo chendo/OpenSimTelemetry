@@ -4,66 +4,170 @@ class VehicleWidget extends Widget {
 
     buildContent(c) {
         c.innerHTML = `
-            <div class="vehicle-grid">
-                <div class="metric-cell">
-                    <div class="metric-label">SPEED</div>
-                    <div class="metric-value"><span id="v-speed">---</span><span class="metric-unit">km/h</span></div>
-                </div>
-                <div class="metric-cell">
-                    <div class="metric-label">RPM</div>
-                    <div class="metric-value" id="v-rpm">---</div>
-                </div>
-                <div class="metric-cell">
-                    <div class="metric-label">GEAR</div>
-                    <div class="metric-value" id="v-gear">N</div>
-                </div>
-                <div class="vehicle-bar-group">
-                    <div class="vehicle-bar-item">
-                        <span class="vehicle-bar-label">THR</span>
-                        <div class="vehicle-bar-track"><div class="vehicle-bar-fill bar-throttle" id="v-thr-bar"></div></div>
-                        <span class="vehicle-bar-pct" id="v-thr-pct">0%</span>
+            <div class="vehicle-layout">
+                <div class="vehicle-stats-row">
+                    <div class="metric-cell">
+                        <div class="metric-label">SPEED</div>
+                        <div class="vehicle-stat-val"><span id="v-speed">---</span><span class="metric-unit">km/h</span></div>
                     </div>
-                    <div class="vehicle-bar-item">
-                        <span class="vehicle-bar-label">BRK</span>
-                        <div class="vehicle-bar-track"><div class="vehicle-bar-fill bar-brake" id="v-brk-bar"></div></div>
-                        <span class="vehicle-bar-pct" id="v-brk-pct">0%</span>
+                    <div class="metric-cell">
+                        <div class="metric-label">GEAR</div>
+                        <div class="vehicle-stat-val" id="v-gear">N</div>
                     </div>
-                    <div class="vehicle-bar-item">
-                        <span class="vehicle-bar-label">STR</span>
-                        <div class="vehicle-bar-track"><div class="vehicle-bar-fill bar-steer" id="v-str-bar"></div></div>
-                        <span class="vehicle-bar-pct" id="v-str-pct">0\u00B0</span>
+                    <div class="metric-cell">
+                        <div class="metric-label">RPM</div>
+                        <div class="vehicle-stat-val" id="v-rpm">---</div>
+                    </div>
+                </div>
+                <div class="vehicle-controls">
+                    <div class="vehicle-wheel-wrap"><canvas id="v-wheel-canvas"></canvas></div>
+                    <div class="vehicle-pedals">
+                        <div class="vehicle-pedal-group">
+                            <span class="vehicle-pedal-label">T</span>
+                            <div class="vehicle-pedal-track"><div class="vehicle-pedal-fill pedal-throttle" id="v-thr-bar"></div></div>
+                            <span class="vehicle-pedal-pct" id="v-thr-pct">0</span>
+                        </div>
+                        <div class="vehicle-pedal-group">
+                            <span class="vehicle-pedal-label">B</span>
+                            <div class="vehicle-pedal-track"><div class="vehicle-pedal-fill pedal-brake" id="v-brk-bar"></div></div>
+                            <span class="vehicle-pedal-pct" id="v-brk-pct">0</span>
+                        </div>
+                        <div class="vehicle-pedal-group">
+                            <span class="vehicle-pedal-label">C</span>
+                            <div class="vehicle-pedal-track"><div class="vehicle-pedal-fill pedal-clutch" id="v-clt-bar"></div></div>
+                            <span class="vehicle-pedal-pct" id="v-clt-pct">0</span>
+                        </div>
                     </div>
                 </div>
             </div>`;
+        this.canvas = c.querySelector('#v-wheel-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this._steerAngle = 0;
         this._cache(c, { speed: '#v-speed', rpm: '#v-rpm', gear: '#v-gear',
-            thrBar: '#v-thr-bar', thrPct: '#v-thr-pct', brkBar: '#v-brk-bar', brkPct: '#v-brk-pct',
-            strBar: '#v-str-bar', strPct: '#v-str-pct' });
+            thrBar: '#v-thr-bar', thrPct: '#v-thr-pct',
+            brkBar: '#v-brk-bar', brkPct: '#v-brk-pct',
+            cltBar: '#v-clt-bar', cltPct: '#v-clt-pct' });
+        requestAnimationFrame(() => this.renderWheel());
     }
 
     _cache(c, map) { this.els = {}; for (const [k, sel] of Object.entries(map)) this.els[k] = c.querySelector(sel); }
 
     update(store) {
-        const f = store.currentFrame; if (!f) return;
-        const v = f.vehicle;
+        const f = store.currentFrame;
+        const v = f?.vehicle;
         this.els.speed.textContent = v?.speed != null ? Math.round(v.speed * 3.6) : '---';
         this.els.rpm.textContent = v?.rpm != null ? Math.round(v.rpm) : '---';
         this.els.gear.textContent = v?.gear != null ? (v.gear === -1 ? 'R' : v.gear === 0 ? 'N' : v.gear) : 'N';
 
         const thr = (v?.throttle ?? 0) * 100;
-        this.els.thrBar.style.width = thr + '%';
-        this.els.thrPct.textContent = Math.round(thr) + '%';
+        this.els.thrBar.style.height = thr + '%';
+        this.els.thrPct.textContent = Math.round(thr);
 
         const brk = (v?.brake ?? 0) * 100;
-        this.els.brkBar.style.width = brk + '%';
-        this.els.brkPct.textContent = Math.round(brk) + '%';
+        this.els.brkBar.style.height = brk + '%';
+        this.els.brkPct.textContent = Math.round(brk);
 
-        const steerRad = v?.steering_angle ?? 0;
-        const steerDeg = steerRad * RAD2DEG;
-        // Bar: normalize to ~±900° range (2.5 full turns), capped at 50% each side
-        const absPct = Math.min(Math.abs(steerDeg) / 900 * 50, 50);
-        this.els.strBar.style.width = absPct + '%';
-        this.els.strBar.style.left = steerDeg >= 0 ? '50%' : (50 - absPct) + '%';
-        this.els.strPct.textContent = Math.round(steerDeg) + '\u00B0';
+        // Clutch: 0=engaged, 1=disengaged; invert so pressing clutch fills bar
+        const clt = (1 - (v?.clutch ?? 0)) * 100;
+        this.els.cltBar.style.height = clt + '%';
+        this.els.cltPct.textContent = Math.round(clt);
+
+        this._steerAngle = v?.steering_angle ?? 0;
+        this.renderWheel();
+    }
+
+    renderWheel() {
+        const canvas = this.canvas;
+        const dpr = window.devicePixelRatio || 1;
+        const wrap = canvas.parentElement;
+        const size = Math.min(wrap.clientWidth, wrap.clientHeight);
+        if (size <= 0) return;
+        const targetW = size * dpr, targetH = size * dpr;
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width = targetW;
+            canvas.height = targetH;
+            canvas.style.width = size + 'px';
+            canvas.style.height = size + 'px';
+        }
+        const ctx = this.ctx;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, size, size);
+
+        const cx = size / 2, cy = size / 2;
+        const r = size * 0.40; // wheel radius
+
+        // Fixed reference mark at top (doesn't rotate)
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - r - 6);
+        ctx.lineTo(cx - 4, cy - r - 12);
+        ctx.lineTo(cx + 4, cy - r - 12);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.fill();
+
+        // Rotate for steering
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(this._steerAngle);
+
+        // --- Draw flat-bottom F1 wheel ---
+        const wheelColor = 'rgba(255,255,255,0.5)';
+        const spokeColor = 'rgba(255,255,255,0.25)';
+        const lw = Math.max(2, size * 0.025);
+
+        // Flat bottom angle: bottom 60° is flat (from 240° to 300°, i.e. ±30° from bottom)
+        const flatHalfAngle = Math.PI / 6; // 30°
+        const arcStart = Math.PI / 2 + flatHalfAngle;  // 120° (from right, going CW)
+        const arcEnd = Math.PI / 2 - flatHalfAngle + Math.PI * 2; // 60° + 360°
+
+        // Outer rim arc (top portion)
+        ctx.beginPath();
+        ctx.arc(0, 0, r, arcStart, arcEnd);
+        ctx.strokeStyle = wheelColor;
+        ctx.lineWidth = lw;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+
+        // Flat bottom line
+        const flatLeftX = Math.cos(arcStart) * r;
+        const flatLeftY = Math.sin(arcStart) * r;
+        const flatRightX = Math.cos(Math.PI / 2 - flatHalfAngle) * r;
+        const flatRightY = Math.sin(Math.PI / 2 - flatHalfAngle) * r;
+        ctx.beginPath();
+        ctx.moveTo(flatLeftX, flatLeftY);
+        ctx.lineTo(flatRightX, flatRightY);
+        ctx.stroke();
+
+        // Hub (center circle)
+        const hubR = r * 0.15;
+        ctx.beginPath();
+        ctx.arc(0, 0, hubR, 0, Math.PI * 2);
+        ctx.strokeStyle = spokeColor;
+        ctx.lineWidth = lw * 0.7;
+        ctx.stroke();
+
+        // Center dot
+        ctx.beginPath();
+        ctx.arc(0, 0, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#00d68f';
+        ctx.fill();
+
+        // Spokes: left, right, and top
+        ctx.beginPath();
+        ctx.strokeStyle = spokeColor;
+        ctx.lineWidth = lw * 0.7;
+        // Left spoke
+        ctx.moveTo(-hubR, 0);
+        ctx.lineTo(-r, 0);
+        // Right spoke
+        ctx.moveTo(hubR, 0);
+        ctx.lineTo(r, 0);
+        // Top spoke
+        ctx.moveTo(0, -hubR);
+        ctx.lineTo(0, -r);
+        ctx.stroke();
+
+        ctx.restore();
     }
 }
 

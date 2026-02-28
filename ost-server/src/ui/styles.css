@@ -494,36 +494,64 @@ body {
 }
 
 /* ==================== Vehicle Widget ==================== */
-.vehicle-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+.vehicle-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
     gap: 6px;
+}
+
+.vehicle-stats-row {
+    display: flex;
+    gap: 6px;
+}
+
+.vehicle-stats-row .metric-cell {
+    flex: 1;
+}
+.vehicle-stat-val {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.1;
+}
+
+.vehicle-controls {
+    display: flex;
+    flex: 1;
+    gap: 10px;
+    min-height: 0;
+}
+
+.vehicle-wheel-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+}
+
+.vehicle-wheel-wrap canvas {
+    width: 100%;
     height: 100%;
 }
 
-.vehicle-grid .metric-cell:first-child {
-    grid-column: 1 / -1;
-}
-.vehicle-grid .metric-cell:first-child .metric-value {
-    font-size: 2.2rem;
+.vehicle-pedals {
+    display: flex;
+    gap: 6px;
+    padding: 2px 0;
 }
 
-.vehicle-bar-group {
-    grid-column: 1 / -1;
+.vehicle-pedal-group {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-}
-
-.vehicle-bar-item {
-    display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.65rem;
+    gap: 3px;
+    width: 20px;
 }
 
-.vehicle-bar-label {
-    width: 28px;
+.vehicle-pedal-label {
+    font-size: 0.6rem;
     font-weight: 600;
     color: var(--text-muted);
     letter-spacing: 0.05em;
@@ -531,33 +559,32 @@ body {
     flex-shrink: 0;
 }
 
-.vehicle-bar-track {
+.vehicle-pedal-track {
     flex: 1;
-    height: 6px;
+    width: 10px;
     background: var(--bg-inset);
     border-radius: 3px;
     position: relative;
     overflow: hidden;
+    min-height: 40px;
 }
 
-.vehicle-bar-fill {
-    height: 100%;
+.vehicle-pedal-fill {
+    width: 100%;
     border-radius: 3px;
-    transition: width 0.08s ease-out;
+    transition: height 0.08s ease-out;
     position: absolute;
-    top: 0;
+    bottom: 0;
 }
 
-.bar-throttle { background: var(--accent); left: 0; }
-.bar-brake { background: #ff4757; left: 0; }
-.bar-steer { background: #ffa502; }
+.pedal-throttle { background: var(--accent); }
+.pedal-brake { background: #ff4757; }
+.pedal-clutch { background: #3b82f6; }
 
-.vehicle-bar-pct {
-    width: 32px;
-    text-align: right;
+.vehicle-pedal-pct {
+    font-size: 0.6rem;
     color: var(--text-secondary);
     font-family: var(--font-mono);
-    font-size: 0.65rem;
     flex-shrink: 0;
 }
 
