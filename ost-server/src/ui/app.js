@@ -210,6 +210,7 @@ ibtFileInput.addEventListener('change', () => {
 });
 
 // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
+let _lastPrefetchTime = 0;
 function renderLoop() {
     const now = performance.now();
     const activeReplay = replayBuf.count > 0 ? replayBuf : null;
@@ -219,9 +220,14 @@ function renderLoop() {
     // Advance client-side cursor and sync store for all widgets
     if (activeReplay) {
         replayBuf.advancePlayback(now);
-        // Ensure chunks around cursor are loaded (prefetches ahead during playback)
-        if (replayBuf.needsFetch() || replayBuf.playing) {
-            replayBuf.ensureLoaded(buildReplayMetricMask());
+        // Skip fetch during scrubbing — seek handlers manage it to avoid abort conflicts
+        if (!replayBuf.scrubbing) {
+            if (replayBuf.needsFetch()) {
+                replayBuf.ensureLoaded(buildReplayMetricMask());
+            } else if (replayBuf.playing && now - _lastPrefetchTime > 1000) {
+                _lastPrefetchTime = now;
+                replayBuf.ensureLoaded(buildReplayMetricMask());
+            }
         }
         // Update replay controls (slider, time)
         if (typeof replayPlayer !== 'undefined' && replayPlayer.active) {
@@ -230,7 +236,8 @@ function renderLoop() {
     }
 
     if (activeHistory) {
-        if (historyBuf.needsFetch()) {
+        // Skip fetch during scrubbing — seek handler manages it
+        if (!_histScrubbing && historyBuf.needsFetch()) {
             historyBuf.ensureLoaded(buildReplayMetricMask());
         }
     }
@@ -265,6 +272,7 @@ const seekLiveBtn = document.getElementById('seek-live-btn');
 const seekLaps = document.getElementById('seek-laps');
 const seekTrackWrap = document.getElementById('seek-track-wrap');
 let _seekThrottleTime = 0;
+let _histScrubbing = false;
 
 function enterHistoryMode() {
     if (historyMode) return;
@@ -305,6 +313,7 @@ function exitHistoryMode() {
 seekSlider.addEventListener('input', (e) => {
     const frame = parseInt(e.target.value);
     if (!historyMode) enterHistoryMode();
+    _histScrubbing = true;
     historyBuf.cursor = frame;
     historyBuf._dirty = true;
     updateSeekTimeDisplay();
@@ -320,6 +329,7 @@ seekSlider.addEventListener('input', (e) => {
 
 seekSlider.addEventListener('change', (e) => {
     if (!historyMode) return;
+    _histScrubbing = false;
     historyBuf.cursor = parseInt(e.target.value);
     historyBuf._dirty = true;
     if (historyBuf._abortController) historyBuf._abortController.abort();

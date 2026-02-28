@@ -2,7 +2,6 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Interface: Fix bug where duplicate requests are being made (I have screenshot)
 * Data model: ABS activation should be a common metric, not iRacing specific. Review all of iRacing metrics and determine which are iRacing-specific (CPU usage, etc) and which are metrics that likely exist in other sims
 * Data model: All angles returned in the API and displayed should be in degrees
 * Interface: First graph shows speed, rpm, throttle, brake, clutch, yaw rate, ABS active, steering angle
