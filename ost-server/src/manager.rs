@@ -15,7 +15,7 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 const DETECTION_INTERVAL: Duration = Duration::from_secs(1);
-const FRAME_INTERVAL: Duration = Duration::from_millis(16); // ~60Hz
+const IDLE_INTERVAL: Duration = Duration::from_millis(100); // Sleep when no active adapter
 
 /// Main manager loop
 pub async fn run(state: AppState) {
@@ -34,12 +34,23 @@ pub async fn run(state: AppState) {
             error!("Error in detection cycle: {}", e);
         }
 
-        // Read frames from active adapter
-        if let Err(e) = frame_read_cycle(&state).await {
-            error!("Error reading frames: {}", e);
+        // Read frames from active adapter.
+        // When an adapter is active, read_frame() blocks until data is available
+        // (up to the adapter's own timeout), so no additional sleep is needed.
+        // When idle, sleep briefly before the next detection check.
+        match frame_read_cycle(&state).await {
+            Ok(true) => {
+                // Frame was read or adapter is active — loop immediately
+            }
+            Ok(false) => {
+                // No active adapter — sleep before next detection check
+                sleep(IDLE_INTERVAL).await;
+            }
+            Err(e) => {
+                error!("Error reading frames: {}", e);
+                sleep(IDLE_INTERVAL).await;
+            }
         }
-
-        sleep(FRAME_INTERVAL).await;
     }
 }
 
@@ -116,13 +127,15 @@ async fn detection_cycle(state: &AppState) -> Result<()> {
     Ok(())
 }
 
-/// Read frames from the active adapter and broadcast them
-async fn frame_read_cycle(state: &AppState) -> Result<()> {
+/// Read frames from the active adapter and broadcast them.
+/// Returns `true` if an adapter is active (even if no frame was available this tick),
+/// `false` if no adapter is active (caller should sleep).
+async fn frame_read_cycle(state: &AppState) -> Result<bool> {
     // Don't send adapter frames while a replay is active
     {
         let replay = state.replay.read().await;
         if replay.is_some() {
-            return Ok(());
+            return Ok(false);
         }
     }
 
@@ -132,7 +145,7 @@ async fn frame_read_cycle(state: &AppState) -> Result<()> {
     };
 
     let Some(active_key) = active_key else {
-        return Ok(());
+        return Ok(false);
     };
 
     let mut adapters = state.adapters.write().await;
@@ -145,7 +158,7 @@ async fn frame_read_cycle(state: &AppState) -> Result<()> {
                 let _ = state.telemetry_tx.send(frame);
             }
             Ok(None) => {
-                // No data available, that's fine
+                // No data available this tick, adapter will provide data on next call
             }
             Err(e) => {
                 warn!("Error reading frame from {}: {}", active_key, e);
@@ -153,5 +166,5 @@ async fn frame_read_cycle(state: &AppState) -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(true)
 }

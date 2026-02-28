@@ -26,6 +26,8 @@ mod windows_impl {
         session_details: Option<SessionDetails>,
         /// Whether session info changed on last read
         session_changed: bool,
+        /// Timestamp of last session info refresh (rate-limited to avoid re-parsing YAML every frame)
+        last_session_refresh: Option<std::time::Instant>,
     }
 
     // SAFETY: iRacing's shared memory is thread-safe for reading.
@@ -240,18 +242,31 @@ mod windows_impl {
                 active: false,
                 session_details: None,
                 session_changed: false,
+                last_session_refresh: None,
             }
         }
 
-        /// Refresh session info from the connection, if available.
-        fn refresh_session_info(&mut self) {
+        /// Refresh session info at most once per second (parsing the full YAML
+        /// string on every frame is expensive and unnecessary).
+        fn maybe_refresh_session_info(&mut self) {
+            let now = std::time::Instant::now();
+            if let Some(last) = self.last_session_refresh {
+                if now.duration_since(last) < Duration::from_secs(1) {
+                    self.session_changed = false;
+                    return;
+                }
+            }
+            self.last_session_refresh = Some(now);
+
             if let Some(ref mut conn) = self.connection {
                 match conn.session_info() {
                     Ok(details) => {
                         self.session_details = Some(details);
                         self.session_changed = true;
                     }
-                    Err(_) => {}
+                    Err(_) => {
+                        self.session_changed = false;
+                    }
                 }
             }
         }
@@ -1040,6 +1055,7 @@ mod windows_impl {
             self.session_details = None;
             self.active = false;
             self.session_changed = false;
+            self.last_session_refresh = None;
             Ok(())
         }
 
@@ -1053,11 +1069,15 @@ mod windows_impl {
                 None => return Ok(None),
             };
 
-            match blocking.sample(Duration::from_millis(1)) {
+            // Block up to 32ms waiting for the next frame from iRacing.
+            // iRacing publishes at ~60-90Hz (11-16ms intervals), so 32ms gives
+            // ample time to catch the next tick without busy-spinning.
+            // The manager loop has no fixed sleep of its own — this blocking call
+            // IS the pacing mechanism.
+            match blocking.sample(Duration::from_millis(32)) {
                 Ok(sample) => {
-                    // Periodically refresh session info
-                    // (iRacing updates session info version when it changes)
-                    self.refresh_session_info();
+                    // Refresh session info only when iRacing signals it changed
+                    self.maybe_refresh_session_info();
 
                     let frame = self.convert_sample(&sample);
                     Ok(Some(frame))

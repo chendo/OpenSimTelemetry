@@ -67,7 +67,7 @@ class ReplayPlayer {
             this.info = result.info;
             this.active = true;
             this.currentSpeed = 1;
-            this.enterReplayMode();
+            await this.enterReplayMode();
         } catch (e) {
             console.error('Upload failed:', e);
             alert('Failed to upload .ibt file: ' + e.message);

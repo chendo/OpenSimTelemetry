@@ -354,6 +354,8 @@ pub struct DemoAdapter {
     laps_completed: u32,
     best_lap: f32,
     last_lap: f32,
+    /// Last frame time for pacing (DemoAdapter runs at ~60Hz)
+    last_frame_time: Option<Instant>,
 }
 
 impl DemoAdapter {
@@ -366,6 +368,7 @@ impl DemoAdapter {
             frame_count: 0,
             track,
             lap_duration,
+            last_frame_time: None,
             laps_completed: 0,
             best_lap: 85.1,
             last_lap: 87.3,
@@ -797,6 +800,17 @@ impl TelemetryAdapter for DemoAdapter {
         if !self.active {
             return Ok(None);
         }
+
+        // Pace at ~60Hz to avoid busy-spinning when the manager loop has no fixed sleep
+        let now = Instant::now();
+        if let Some(last) = self.last_frame_time {
+            let elapsed = now.duration_since(last);
+            let frame_interval = std::time::Duration::from_millis(16); // ~60Hz
+            if elapsed < frame_interval {
+                std::thread::sleep(frame_interval - elapsed);
+            }
+        }
+        self.last_frame_time = Some(Instant::now());
 
         Ok(Some(self.generate_frame()))
     }
