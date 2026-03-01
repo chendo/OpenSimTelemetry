@@ -295,22 +295,42 @@ body {
 .seek-live-btn:hover { opacity: 0.85; }
 
 /* ==================== Settings Dropdown ==================== */
-.settings-dropdown { position: relative; }
-.settings-menu {
-    display: none;
-    position: absolute;
-    top: 100%;
-    right: 0;
-    margin-top: 6px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 10px 14px;
-    min-width: 220px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    z-index: 200;
+/* Settings modal sections */
+.settings-section-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 4px 0 8px;
 }
-.settings-menu.open { display: block; }
+.settings-divider {
+    border-top: 1px solid var(--border-color);
+    margin: 14px 0;
+}
+.preset-name {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.preset-builtin {
+    font-size: 0.55rem;
+    font-weight: 400;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.preset-metrics {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 2px;
+}
 .settings-row {
     display: flex;
     justify-content: space-between;

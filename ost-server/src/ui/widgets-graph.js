@@ -221,7 +221,7 @@ class GraphWidget extends Widget {
         if (this._presetMenu) { this._presetMenu.remove(); this._presetMenu = null; return; }
         const menu = document.createElement('div');
         menu.className = 'graph-preset-menu';
-        for (const preset of GRAPH_PRESETS) {
+        for (const preset of getAllPresets()) {
             const item = document.createElement('div');
             item.className = 'graph-preset-item';
             item.textContent = preset.name;

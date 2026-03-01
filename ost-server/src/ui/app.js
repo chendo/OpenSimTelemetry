@@ -664,14 +664,27 @@ function updateMemoryDisplay() {
 fetchHistoryInfo();
 setInterval(fetchHistoryInfo, 10000);
 
-// ==================== Settings Dropdown ====================
-const settingsBtn = document.getElementById('settings-btn');
-const settingsMenu = document.getElementById('settings-menu');
-let settingsOpen = false;
+// ==================== Settings Modal ====================
+const PRESETS_KEY = 'ost-user-presets';
 
-function buildSettingsMenu() {
+function getUserPresets() {
+    try { return JSON.parse(localStorage.getItem(PRESETS_KEY)) || []; } catch { return []; }
+}
+function saveUserPresets(presets) { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); }
+function getAllPresets() { return [...GRAPH_PRESETS, ...getUserPresets()]; }
+
+function openSettingsModal() {
+    if (document.getElementById('settings-modal')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'settings-modal';
+    overlay.className = 'cm-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'cm-modal';
+    modal.style.width = '520px';
+
+    // === History section ===
     const savedSecs = parseInt(localStorage.getItem(HISTORY_DURATION_KEY)) || DEFAULT_HISTORY_SECS;
-    const options = HISTORY_DURATION_OPTIONS.map(opt => {
+    const histOptions = HISTORY_DURATION_OPTIONS.map(opt => {
         const memMb = Math.round(opt.secs * 60 * 3 / 1024);
         const selected = opt.secs === savedSecs ? 'selected' : '';
         return `<option value="${opt.secs}" ${selected}>${opt.label} (~${memMb} MB)</option>`;
@@ -684,13 +697,13 @@ function buildSettingsMenu() {
         return `<option value="${hz}" ${selected}>${hz} Hz</option>`;
     }).join('');
 
-    settingsMenu.innerHTML = `
+    modal.innerHTML = `
+        <div class="cm-modal-title">Settings</div>
+        <div class="settings-section-title">History</div>
         <div class="settings-row">
-            <span class="settings-label">History Buffer</span>
-            <select class="settings-select" id="settings-history-duration">${options}</select>
+            <span class="settings-label">Buffer Duration</span>
+            <select class="settings-select" id="settings-history-duration">${histOptions}</select>
         </div>
-        <div class="settings-hint" id="settings-memory-hint"></div>
-        <div style="border-top: 1px solid var(--border-color); margin: 8px 0;"></div>
         <div class="settings-row">
             <span class="settings-label">Auto-Save</span>
             <input type="checkbox" id="settings-autosave" ${savedAutoSave ? 'checked' : ''}>
@@ -700,13 +713,31 @@ function buildSettingsMenu() {
             <select class="settings-select" id="settings-save-freq">${freqOptions}</select>
         </div>
         <div class="settings-row">
-            <button class="header-reset-btn" id="settings-download-buf" style="font-size:0.6rem">Download Buffer</button>
+            <span class="settings-label"></span>
+            <button class="cm-btn cm-btn-test" id="settings-download-buf">Download Buffer</button>
+        </div>
+        <div class="settings-divider"></div>
+        <div class="settings-section-title">Graph Presets</div>
+        <div id="settings-presets-list"></div>
+        <div style="margin-top:8px">
+            <button class="cm-btn cm-btn-test" id="settings-add-preset">+ Add Preset</button>
+        </div>
+        <div class="settings-divider"></div>
+        <div class="cm-btn-row">
+            <button class="cm-btn cm-btn-cancel" id="settings-close">Close</button>
         </div>
     `;
 
-    const select = document.getElementById('settings-history-duration');
-    select.addEventListener('change', () => {
-        const secs = parseInt(select.value);
+    overlay.appendChild(modal);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+
+    modal.querySelector('#settings-close').addEventListener('click', () => overlay.remove());
+
+    // History duration
+    const histSelect = modal.querySelector('#settings-history-duration');
+    histSelect.addEventListener('change', () => {
+        const secs = parseInt(histSelect.value);
         localStorage.setItem(HISTORY_DURATION_KEY, secs);
         fetch(apiBase() + '/api/history/config', {
             method: 'POST',
@@ -716,11 +747,9 @@ function buildSettingsMenu() {
         fetchHistoryInfo();
     });
 
-    // Persistence settings
-    const autoSaveCb = document.getElementById('settings-autosave');
-    const freqSelect = document.getElementById('settings-save-freq');
-    const downloadBtn = document.getElementById('settings-download-buf');
-
+    // Persistence
+    const autoSaveCb = modal.querySelector('#settings-autosave');
+    const freqSelect = modal.querySelector('#settings-save-freq');
     function syncPersistenceConfig() {
         const auto_save = autoSaveCb.checked;
         const frequency_hz = parseInt(freqSelect.value);
@@ -732,11 +761,10 @@ function buildSettingsMenu() {
             body: JSON.stringify({ auto_save, frequency_hz })
         }).catch(() => {});
     }
-
     autoSaveCb.addEventListener('change', syncPersistenceConfig);
     freqSelect.addEventListener('change', syncPersistenceConfig);
 
-    downloadBtn.addEventListener('click', () => {
+    modal.querySelector('#settings-download-buf').addEventListener('click', () => {
         const a = document.createElement('a');
         a.href = '/api/persistence/download';
         a.download = '';
@@ -744,16 +772,88 @@ function buildSettingsMenu() {
         a.click();
         a.remove();
     });
-}
-buildSettingsMenu();
 
-settingsBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    settingsOpen = !settingsOpen;
-    settingsMenu.classList.toggle('open', settingsOpen);
-});
-document.addEventListener('click', () => { settingsOpen = false; settingsMenu.classList.remove('open'); });
-settingsMenu.addEventListener('click', (e) => e.stopPropagation());
+    // Presets
+    const presetsListEl = modal.querySelector('#settings-presets-list');
+
+    function renderPresetsList() {
+        presetsListEl.innerHTML = '';
+        const userPresets = getUserPresets();
+
+        // Built-in presets (read-only)
+        for (const preset of GRAPH_PRESETS) {
+            const item = document.createElement('div');
+            item.className = 'cm-list-item';
+            item.innerHTML = `
+                <div style="flex:1;min-width:0">
+                    <div class="preset-name">${preset.name} <span class="preset-builtin">built-in</span></div>
+                    <div class="preset-metrics">${preset.metrics.join(', ')}</div>
+                </div>`;
+            presetsListEl.appendChild(item);
+        }
+
+        // User presets (editable)
+        for (let i = 0; i < userPresets.length; i++) {
+            const preset = userPresets[i];
+            const item = document.createElement('div');
+            item.className = 'cm-list-item';
+            item.innerHTML = `
+                <div style="flex:1;min-width:0">
+                    <div class="preset-name">${preset.name}</div>
+                    <div class="preset-metrics">${preset.metrics.join(', ')}</div>
+                </div>
+                <button class="cm-btn-edit preset-edit-btn">Edit</button>
+                <button class="cm-btn-del preset-del-btn">Del</button>`;
+            item.querySelector('.preset-edit-btn').addEventListener('click', () => openPresetEditor(i));
+            item.querySelector('.preset-del-btn').addEventListener('click', () => {
+                userPresets.splice(i, 1);
+                saveUserPresets(userPresets);
+                renderPresetsList();
+            });
+            presetsListEl.appendChild(item);
+        }
+    }
+
+    function openPresetEditor(editIndex) {
+        const userPresets = getUserPresets();
+        const existing = editIndex !== undefined ? userPresets[editIndex] : null;
+        // Replace presets list with editor form
+        presetsListEl.innerHTML = `
+            <div class="cm-form-row">
+                <span class="cm-form-label">Name</span>
+                <input type="text" class="cm-form-input" id="preset-name" value="${existing ? existing.name : ''}" placeholder="e.g. Suspension FL">
+            </div>
+            <div style="margin-bottom:4px">
+                <span class="cm-form-label">Metrics</span>
+            </div>
+            <textarea class="cm-code-input" id="preset-metrics" rows="4" placeholder="One per line. Supports wildcards (*) and /regex/.&#10;e.g. wheels.front_left.suspension_travel&#10;     wheels.*.brake_temp">${existing ? existing.metrics.join('\n') : ''}</textarea>
+            <div class="cm-btn-row">
+                <button class="cm-btn cm-btn-cancel" id="preset-cancel">Cancel</button>
+                <button class="cm-btn cm-btn-save" id="preset-save">${existing ? 'Update' : 'Add'}</button>
+            </div>`;
+
+        presetsListEl.querySelector('#preset-cancel').addEventListener('click', renderPresetsList);
+        presetsListEl.querySelector('#preset-save').addEventListener('click', () => {
+            const name = presetsListEl.querySelector('#preset-name').value.trim();
+            const metricsText = presetsListEl.querySelector('#preset-metrics').value.trim();
+            if (!name || !metricsText) return;
+            const metrics = metricsText.split('\n').map(l => l.trim()).filter(Boolean);
+            const fresh = getUserPresets();
+            if (editIndex !== undefined) {
+                fresh[editIndex] = { name, metrics };
+            } else {
+                fresh.push({ name, metrics });
+            }
+            saveUserPresets(fresh);
+            renderPresetsList();
+        });
+    }
+
+    modal.querySelector('#settings-add-preset').addEventListener('click', () => openPresetEditor());
+    renderPresetsList();
+}
+
+document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
 
 // Sync saved preferences to server on page load
 (function syncSavedConfigs() {
