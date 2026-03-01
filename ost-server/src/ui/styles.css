@@ -1206,6 +1206,31 @@ body {
     background: rgba(0, 214, 143, 0.1);
 }
 
+.metrics-rate-wrap { position: relative; }
+.metrics-rate-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--bg-widget);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 2px 0;
+    z-index: 100;
+    min-width: 80px;
+}
+.metrics-rate-menu.open { display: block; }
+.metrics-rate-opt {
+    padding: 4px 10px;
+    font-size: 0.6rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.metrics-rate-opt:hover { background: var(--bg-hover); color: var(--text-primary); }
+.metrics-rate-opt.active { color: var(--accent); }
+
 .metrics-list {
     flex: 1;
     overflow-y: auto;

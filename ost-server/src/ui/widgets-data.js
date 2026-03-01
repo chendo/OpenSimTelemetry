@@ -86,6 +86,17 @@ class AllMetricsWidget extends Widget {
                 <input type="text" class="metrics-filter" id="af-filter" placeholder="Filter... (* wildcard, /regex/)">
                 <button class="metrics-toggle-btn active" id="af-hide-nulls" title="Hide null values">Hide Nulls</button>
                 <button class="metrics-toggle-btn" id="af-show-range" title="Show min/max range">Range</button>
+                <div class="metrics-rate-wrap">
+                    <button class="metrics-toggle-btn" id="af-rate-btn" title="Update frequency">1 Hz</button>
+                    <div class="metrics-rate-menu" id="af-rate-menu">
+                        <div class="metrics-rate-opt" data-hz="0">Off</div>
+                        <div class="metrics-rate-opt" data-hz="0.1">0.1 Hz</div>
+                        <div class="metrics-rate-opt active" data-hz="1">1 Hz</div>
+                        <div class="metrics-rate-opt" data-hz="10">10 Hz</div>
+                        <div class="metrics-rate-opt" data-hz="30">30 Hz</div>
+                        <div class="metrics-rate-opt" data-hz="60">60 Hz</div>
+                    </div>
+                </div>
             </div>
             <div class="metrics-list" id="af-list"></div>`;
         this.filterInput = c.querySelector('#af-filter');
@@ -93,6 +104,7 @@ class AllMetricsWidget extends Widget {
         this._hideNulls = true;
         this._showRange = false;
         this._minMax = {}; // path -> { min, max }
+        this._updateIntervalMs = 1000; // 1 Hz default
 
         this._createGraphPaths = [];
         this.filterInput.addEventListener('input', () => this.renderMetrics());
@@ -124,11 +136,30 @@ class AllMetricsWidget extends Widget {
             rangeBtn.classList.toggle('active', this._showRange);
             this.renderMetrics();
         });
+
+        // Update frequency dropdown
+        const rateBtn = c.querySelector('#af-rate-btn');
+        const rateMenu = c.querySelector('#af-rate-menu');
+        rateBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            rateMenu.classList.toggle('open');
+        });
+        rateMenu.addEventListener('click', (e) => {
+            const opt = e.target.closest('.metrics-rate-opt');
+            if (!opt) return;
+            const hz = parseFloat(opt.dataset.hz);
+            this._updateIntervalMs = hz > 0 ? 1000 / hz : Infinity;
+            rateBtn.textContent = hz > 0 ? `${hz} Hz` : 'Off';
+            rateMenu.querySelectorAll('.metrics-rate-opt').forEach(o => o.classList.remove('active'));
+            opt.classList.add('active');
+            rateMenu.classList.remove('open');
+        });
+        document.addEventListener('click', () => rateMenu.classList.remove('open'));
     }
 
     update(store, now) {
         this.lastFrame = store.currentFrame;
-        if (!this._lastRender || now - this._lastRender > 100) {
+        if (!this._lastRender || now - this._lastRender > this._updateIntervalMs) {
             this._lastRender = now;
             this._updateMinMax();
             this.renderMetrics();
