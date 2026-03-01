@@ -202,7 +202,7 @@ class AllMetricsWidget extends Widget {
                     if (mm) {
                         const fmtMin = formatMetricValue(f.key, mm.min);
                         const fmtMax = formatMetricValue(f.key, mm.max);
-                        rangeHtml = `<span class="metric-range">${fmtMin.text}..${fmtMax.text}</span>`;
+                        rangeHtml = `<span class="metric-range">${fmtMin.text}\u2013${fmtMax.text}</span>`;
                     }
                 }
                 const unitHtml = f.unit ? ` <span class="field-unit">${f.unit}</span>` : '';
