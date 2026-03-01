@@ -370,8 +370,8 @@ pub struct WheelInfo {
     /// Tyre wear at outer edge (away from car center)
     pub tyre_wear_outer: Option<Percentage>,
 
-    /// Wheel rotation speed (deg/s)
-    pub wheel_speed: Option<DegreesPerSecond>,
+    /// Wheel rotation speed (RPM)
+    pub wheel_speed: Option<Rpm>,
 
     /// Longitudinal slip ratio
     pub slip_ratio: Option<f32>,

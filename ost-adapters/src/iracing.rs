@@ -859,7 +859,7 @@ mod windows_impl {
                 } else {
                     get_f32("wearR").map(Percentage::new)
                 },
-                wheel_speed: get_f32("speed").map(DegreesPerSecond::from_radians),
+                wheel_speed: get_f32("speed").map(Rpm::from_radians_per_sec),
                 slip_ratio: None,
                 slip_angle: None,
                 load: None,

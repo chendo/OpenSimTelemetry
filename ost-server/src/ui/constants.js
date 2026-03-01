@@ -100,7 +100,7 @@ const METRIC_UNIT_MAP = {
     '*.shock_velocity':        { unit: 'm/s', norm: 'centered' },
     '*.shock_velocity_avg':    { unit: 'm/s', norm: 'centered' },
     '*.wind_speed':            { unit: 'm/s', norm: 'autoscale' },
-    '*.wheel_speed':           { unit: '\u00B0/s', norm: 'autoscale' },
+    '*.wheel_speed':           { unit: 'rpm', norm: 'autoscale' },
     // Forces
     '*.load':                  { unit: 'N',   norm: 'autoscale' },
     '*.g_force.x':             { unit: 'G',   norm: 'centered' },

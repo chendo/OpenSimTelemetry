@@ -450,9 +450,7 @@ impl DemoAdapter {
                 tyre_wear_inner: Some(Percentage::new((0.025 + elapsed * 0.00012).min(0.35))),
                 tyre_wear_middle: Some(Percentage::new((0.02 + elapsed * 0.0001).min(0.3))),
                 tyre_wear_outer: Some(Percentage::new((0.015 + elapsed * 0.00008).min(0.25))),
-                wheel_speed: Some(DegreesPerSecond::from_radians(
-                    speed / 0.33 + jitter(n, 0.5),
-                )), // ~0.33m tyre radius
+                wheel_speed: Some(Rpm::from_radians_per_sec(speed / 0.33 + jitter(n, 0.5))), // ~0.33m tyre radius
                 slip_ratio: Some(jitter(n * 3.0, 0.03 + brake * 0.05)),
                 slip_angle: Some(Degrees::from_radians(
                     steering.abs() * 0.1 + jitter(n * 3.1, 0.005),

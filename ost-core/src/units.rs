@@ -58,6 +58,12 @@ impl DegreesPerSecondSquared {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rpm(#[serde(serialize_with = "round4")] pub f32);
 
+impl Rpm {
+    pub fn from_radians_per_sec(rad_s: f32) -> Self {
+        Self(rad_s * 60.0 / (2.0 * std::f32::consts::PI))
+    }
+}
+
 /// Kilograms
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Kilograms(#[serde(serialize_with = "round4")] pub f32);

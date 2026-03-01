@@ -83,7 +83,7 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | LFwearL | wheels.front_left.tyre_wear_outer | 0.0-1.0 (L=outer for left) |
 | LFwearM | wheels.front_left.tyre_wear_middle | 0.0-1.0 |
 | LFwearR | wheels.front_left.tyre_wear_inner | 0.0-1.0 (R=inner for left) |
-| LFspeed | wheels.front_left.wheel_speed | m/s |
+| LFspeed | wheels.front_left.wheel_speed | rad/s → rpm |
 | LFbrakeLinePress | wheels.front_left.brake_line_pressure | kPa |
 
 ### Wheels — Front Right (19)
