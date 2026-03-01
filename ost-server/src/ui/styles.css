@@ -372,6 +372,21 @@ body {
     min-width: 32px;
 }
 
+/* ==================== Recording Indicator ==================== */
+.recording-dot {
+    display: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ef4444;
+    animation: recording-pulse 1.5s ease-in-out infinite;
+}
+.recording-dot.active { display: inline-block; }
+@keyframes recording-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
 /* ==================== Mode Badge: History ==================== */
 .mode-badge.mode-history { background: #3b82f6; color: #fff; }
 

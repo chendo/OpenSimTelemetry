@@ -341,10 +341,12 @@ document.getElementById('header-browse-replays').addEventListener('click', async
             info.innerHTML = `<div style="font-size:0.75rem;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${rest || f.name}</div>
                 <div style="font-size:0.6rem;color:var(--text-muted)">${date} ${time} &middot; ${(f.size / 1024 / 1024).toFixed(1)} MB</div>`;
 
+            const btnWrap = document.createElement('div');
+            btnWrap.style.cssText = 'display:flex;gap:4px;flex-shrink:0';
+
             const loadBtn = document.createElement('button');
             loadBtn.className = 'cm-btn cm-btn-save';
             loadBtn.textContent = 'Load';
-            loadBtn.style.flexShrink = '0';
             loadBtn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 loadBtn.textContent = '...';
@@ -375,8 +377,27 @@ document.getElementById('header-browse-replays').addEventListener('click', async
                 }
             });
 
+            const delBtn = document.createElement('button');
+            delBtn.className = 'cm-btn-del';
+            delBtn.textContent = 'Del';
+            delBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!confirm(`Delete ${f.name}?`)) return;
+                try {
+                    const r = await fetch(apiBase() + `/api/persistence/files/${encodeURIComponent(f.name)}`, { method: 'DELETE' });
+                    if (r.ok) {
+                        item.remove();
+                        if (list.children.length === 0) {
+                            list.innerHTML = '<div class="no-data">No saved replays found</div>';
+                        }
+                    }
+                } catch (err) { console.error('Delete failed:', err); }
+            });
+
+            btnWrap.appendChild(loadBtn);
+            btnWrap.appendChild(delBtn);
             item.appendChild(info);
-            item.appendChild(loadBtn);
+            item.appendChild(btnWrap);
             list.appendChild(item);
         }
     } catch (e) {
@@ -717,6 +738,13 @@ function openSettingsModal() {
             <button class="cm-btn cm-btn-test" id="settings-download-buf">Download Buffer</button>
         </div>
         <div class="settings-divider"></div>
+        <div class="settings-section-title">Dashboard Profiles</div>
+        <div id="settings-profiles-list"></div>
+        <div style="margin-top:8px;display:flex;gap:6px">
+            <input type="text" class="cm-form-input" id="profile-name-input" placeholder="Profile name" style="flex:1">
+            <button class="cm-btn cm-btn-save" id="settings-save-profile">Save Current</button>
+        </div>
+        <div class="settings-divider"></div>
         <div class="settings-section-title">Graph Presets</div>
         <div id="settings-presets-list"></div>
         <div style="margin-top:8px">
@@ -760,6 +788,7 @@ function openSettingsModal() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ auto_save, frequency_hz })
         }).catch(() => {});
+        updateRecordingIndicator();
     }
     autoSaveCb.addEventListener('change', syncPersistenceConfig);
     freqSelect.addEventListener('change', syncPersistenceConfig);
@@ -851,9 +880,101 @@ function openSettingsModal() {
 
     modal.querySelector('#settings-add-preset').addEventListener('click', () => openPresetEditor());
     renderPresetsList();
+
+    // Dashboard Profiles
+    const PROFILES_KEY = 'ost-dashboard-profiles';
+    function getProfiles() {
+        try { return JSON.parse(localStorage.getItem(PROFILES_KEY)) || []; } catch { return []; }
+    }
+
+    const profilesListEl = modal.querySelector('#settings-profiles-list');
+    function renderProfilesList() {
+        const profiles = getProfiles();
+        profilesListEl.innerHTML = '';
+        if (profiles.length === 0) {
+            profilesListEl.innerHTML = '<div class="no-data" style="font-size:0.7rem;color:var(--text-muted);padding:4px 0">No saved profiles</div>';
+            return;
+        }
+        for (let i = 0; i < profiles.length; i++) {
+            const p = profiles[i];
+            const item = document.createElement('div');
+            item.className = 'cm-list-item';
+            item.innerHTML = `
+                <div style="flex:1;min-width:0">
+                    <div class="preset-name">${p.name}</div>
+                    <div class="preset-metrics">${(p.graphs || []).length} graph(s)</div>
+                </div>`;
+
+            const btnWrap = document.createElement('div');
+            btnWrap.style.cssText = 'display:flex;gap:4px;flex-shrink:0';
+
+            const loadBtn = document.createElement('button');
+            loadBtn.className = 'cm-btn cm-btn-save';
+            loadBtn.textContent = 'Load';
+            loadBtn.addEventListener('click', () => {
+                // Save current layout/graphs keys, then reload
+                if (p.layout) localStorage.setItem(LAYOUT_KEY, JSON.stringify(p.layout));
+                if (p.graphs) localStorage.setItem(GRAPHS_KEY, JSON.stringify(p.graphs));
+                localStorage.setItem(LAYOUT_VERSION_KEY, LAYOUT_VERSION);
+                location.reload();
+            });
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'cm-btn-del';
+            delBtn.textContent = 'Del';
+            delBtn.addEventListener('click', () => {
+                const fresh = getProfiles();
+                fresh.splice(i, 1);
+                localStorage.setItem(PROFILES_KEY, JSON.stringify(fresh));
+                renderProfilesList();
+            });
+
+            btnWrap.appendChild(loadBtn);
+            btnWrap.appendChild(delBtn);
+            item.appendChild(btnWrap);
+            profilesListEl.appendChild(item);
+        }
+    }
+
+    modal.querySelector('#settings-save-profile').addEventListener('click', () => {
+        const nameInput = modal.querySelector('#profile-name-input');
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+
+        // Capture current layout
+        const layouts = {};
+        for (const node of grid.gs.getGridItems()) {
+            const w = node.querySelector('.widget')?._widget;
+            if (!w) continue;
+            const n = node.gridstackNode;
+            layouts[w.id] = { x: n.x, y: n.y, w: n.w, h: n.h };
+        }
+
+        // Capture current graph configs
+        const graphs = [];
+        for (const [id, w] of grid.widgets) {
+            if (w instanceof GraphWidget) graphs.push(w.getConfig());
+        }
+
+        const profiles = getProfiles();
+        profiles.push({ name, layout: layouts, graphs });
+        localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+        nameInput.value = '';
+        renderProfilesList();
+    });
+
+    renderProfilesList();
 }
 
 document.getElementById('settings-btn').addEventListener('click', openSettingsModal);
+
+// Recording indicator — syncs with auto-save state
+const recordingDot = document.getElementById('recording-dot');
+function updateRecordingIndicator() {
+    const active = localStorage.getItem('ost-persistence-autosave') === 'true';
+    recordingDot.classList.toggle('active', active);
+}
+updateRecordingIndicator();
 
 // Sync saved preferences to server on page load
 (function syncSavedConfigs() {

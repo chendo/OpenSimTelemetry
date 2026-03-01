@@ -848,6 +848,44 @@ async fn test_persistence_download_empty_returns_404() {
     );
 }
 
+// ==================== DELETE /api/persistence/files/:name ====================
+
+#[tokio::test]
+async fn test_delete_persistence_file_nonexistent_returns_404() {
+    let app = app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/persistence/files/nonexistent.ost.ndjson.zstd")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 404);
+}
+
+#[tokio::test]
+async fn test_delete_persistence_file_rejects_traversal() {
+    let app = app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/persistence/files/..%2F..%2Fetc%2Fpasswd")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 400);
+}
+
 // ==================== Golden/snapshot test: IBT frame structure ====================
 
 #[tokio::test]

@@ -155,6 +155,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/persistence/download", get(persistence_download))
         .route("/api/persistence/files", get(persistence_list_files))
         .route("/api/persistence/load", post(persistence_load_file))
+        .route(
+            "/api/persistence/files/:name",
+            delete(persistence_delete_file),
+        )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -1313,4 +1317,35 @@ async fn persistence_load_file(
         "status": "ok",
         "info": info,
     })))
+}
+
+async fn persistence_delete_file(
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    // Validate filename to prevent path traversal
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err((StatusCode::BAD_REQUEST, "Invalid filename".to_string()));
+    }
+    if !name.ends_with(".ost.ndjson.zstd") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Only .ost.ndjson.zstd files can be deleted".to_string(),
+        ));
+    }
+
+    let dir = crate::persistence::telemetry_dir();
+    let path = dir.join(&name);
+    if !path.exists() {
+        return Err((StatusCode::NOT_FOUND, "File not found".to_string()));
+    }
+
+    std::fs::remove_file(&path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to delete file: {}", e),
+        )
+    })?;
+
+    tracing::info!("Deleted telemetry file: {}", name);
+    Ok(StatusCode::NO_CONTENT)
 }
