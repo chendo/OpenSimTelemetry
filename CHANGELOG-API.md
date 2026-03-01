@@ -85,6 +85,7 @@ GET /api/stream?rate=10    # 10 updates per second
 | `/api/history/config` | GET/POST | Server-side history buffer configuration |
 | `/api/persistence/*` | Various | Saved replay management (NDJSON+ZSTD files) |
 | `/api/replay/info` | GET | Replay metadata including history mode info |
+| `/api/convert/ibt` | POST | Upload .ibt file, streams back ZSTD-compressed NDJSON |
 
 #### Removed Endpoints
 

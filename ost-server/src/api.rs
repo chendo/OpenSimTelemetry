@@ -142,6 +142,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/replay", delete(replay_delete))
         // History buffer config
         .route("/api/history/config", post(history_config))
+        // Conversion endpoints
+        .route(
+            "/api/convert/ibt",
+            post(convert_ibt).layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
         // Persistence endpoints
         .route(
             "/api/persistence/config",
@@ -1006,6 +1011,148 @@ async fn persistence_set_config(
         "frequency_hz": config.frequency_hz,
         "auto_save": config.auto_save,
     }))
+}
+
+// === Conversion Endpoints ===
+
+async fn convert_ibt(mut multipart: Multipart) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Extract uploaded .ibt file
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to read upload: {}", e),
+            )
+        })?
+        .ok_or((StatusCode::BAD_REQUEST, "No file provided".to_string()))?;
+
+    let file_name = field.file_name().unwrap_or("upload.ibt").to_string();
+
+    if !file_name.to_lowercase().ends_with(".ibt") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Only .ibt files are supported".to_string(),
+        ));
+    }
+
+    let data = field.bytes().await.map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Failed to read file data: {}", e),
+        )
+    })?;
+
+    tracing::info!("Converting .ibt file: {} ({} bytes)", file_name, data.len());
+
+    // Write to temp file and parse header (blocking I/O)
+    let (ibt, temp_path) = tokio::task::spawn_blocking({
+        let file_name = file_name.clone();
+        move || {
+            use ost_adapters::ibt_parser::IbtFile;
+
+            let temp_dir = std::env::temp_dir().join("ost-convert");
+            std::fs::create_dir_all(&temp_dir).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to create temp dir: {}", e),
+                )
+            })?;
+
+            let temp_path = temp_dir.join(&file_name);
+            std::fs::write(&temp_path, &data).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to write temp file: {}", e),
+                )
+            })?;
+
+            let ibt = IbtFile::open(&temp_path).map_err(|e| {
+                let _ = std::fs::remove_file(&temp_path);
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to parse .ibt file: {}", e),
+                )
+            })?;
+
+            Ok::<_, (StatusCode, String)>((ibt, temp_path))
+        }
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task failed: {}", e),
+        )
+    })??;
+
+    // Build output filename from session metadata
+    let session = ibt.session_info();
+    let track = if session.track_display_name.is_empty() {
+        "unknown"
+    } else {
+        &session.track_display_name
+    };
+    let car = if session.car_screen_name.is_empty() {
+        "unknown"
+    } else {
+        &session.car_screen_name
+    };
+    let out_filename = format!(
+        "{}_{}.ost.ndjson.zstd",
+        track.replace(' ', "_"),
+        car.replace(' ', "_")
+    );
+
+    // Set up streaming pipeline: duplex pipe bridges blocking writes to async reads
+    let (write_half, read_half) = tokio::io::duplex(65536);
+    let sync_write = tokio_util::io::SyncIoBridge::new(write_half);
+
+    // Spawn blocking conversion task that streams compressed NDJSON through the pipe
+    tokio::task::spawn_blocking(move || {
+        use std::io::Write;
+
+        let total = ibt.record_count();
+        let batch_size = 1000;
+
+        let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = (|| {
+            let mut encoder = zstd::Encoder::new(sync_write, 3)?;
+            for start in (0..total).step_by(batch_size) {
+                let count = batch_size.min(total - start);
+                let samples = ibt.read_samples_range(start, count)?;
+                for sample in &samples {
+                    let frame = ibt.sample_to_frame(sample);
+                    let json = serde_json::to_string(&frame)?;
+                    writeln!(encoder, "{}", json)?;
+                }
+            }
+            encoder.finish()?;
+            Ok(())
+        })();
+
+        if let Err(e) = &result {
+            tracing::error!("IBT conversion failed: {}", e);
+        }
+
+        // Clean up temp file
+        let _ = std::fs::remove_file(&temp_path);
+    });
+
+    // Build streaming response
+    let stream = tokio_util::io::ReaderStream::new(read_half);
+    let body = axum::body::Body::from_stream(stream);
+
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, "application/zstd".parse().unwrap());
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", out_filename)
+            .parse()
+            .unwrap(),
+    );
+
+    Ok((headers, body))
 }
 
 async fn persistence_download(

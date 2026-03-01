@@ -37,6 +37,7 @@ All notable changes to OpenSimTelemetry are documented in this file.
 - **UDP sink** with configurable update rate (HTTP and file sinks removed)
 - **Metric mask** for filtering telemetry fields in API responses
 - **Chunked replay fetching** with pread optimization, abort support, and caching
+- **IBT conversion endpoint** (`POST /api/convert/ibt`) — upload .ibt file and stream back ZSTD-compressed NDJSON without buffering entire output in memory
 
 ### Infrastructure
 
