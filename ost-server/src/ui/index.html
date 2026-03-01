@@ -34,8 +34,9 @@
             <span class="mode-badge" id="mode-badge" style="display:none"></span>
         </span>
         <div class="remote-source">
-            <input type="text" class="remote-input" id="remote-url" placeholder="Remote host:port" title="Connect to a remote OST instance (Enter to connect, Esc to cancel)">
-            <button class="remote-clear-btn" id="remote-clear" style="display:none" title="Disconnect from remote">&times;</button>
+            <span class="remote-label" id="remote-label">Connected to</span>
+            <input type="text" class="remote-input" id="remote-url" value="http://localhost:9100" title="OST server endpoint">
+            <button class="remote-connect-btn" id="remote-connect" style="display:none">Connect</button>
         </div>
         <div class="header-right">
             <span class="header-conn" id="header-conn">

@@ -17,11 +17,9 @@ let sseEverConnected = false;
 
 function updateStatus() {
     let text, dotClass;
-    const remoteHost = remoteBase ? remoteBase.replace(/^https?:\/\//, '') : '';
     if (!sseConnected) {
         text = sseEverConnected ? 'Disconnected' : 'Connecting...';
         dotClass = 'dot-inactive';
-        if (remoteHost) text += ` (${remoteHost})`;
     } else if (replayBuf.count > 0) {
         text = 'Viewing replay';
         dotClass = 'dot-active';
@@ -41,9 +39,7 @@ function updateStatus() {
             dotClass = 'dot-detected';
         }
     }
-    if (sseConnected && remoteHost) text += ` @ ${remoteHost}`;
     connEl.innerHTML = `<span class="status-dot ${dotClass}"></span><span>${text}</span>`;
-    // Update remote input visual state
     _updateRemoteState();
 }
 
@@ -73,56 +69,64 @@ function updateThroughput() {
 }
 
 // Remote OST instance support
+const DEFAULT_ENDPOINT = 'http://localhost:9100';
 let remoteBase = localStorage.getItem('ost-remote-base') || '';
 const remoteInput = document.getElementById('remote-url');
-const remoteClearBtn = document.getElementById('remote-clear');
-remoteInput.value = remoteBase;
-if (remoteBase) remoteClearBtn.style.display = '';
+const remoteConnectBtn = document.getElementById('remote-connect');
+const remoteLabel = document.getElementById('remote-label');
+remoteInput.value = remoteBase || DEFAULT_ENDPOINT;
 
 function apiBase() { return remoteBase || ''; }
 
 function _updateRemoteState() {
     remoteInput.classList.remove('remote-connected', 'remote-error', 'remote-connecting');
-    if (remoteBase) {
-        if (sseConnected) remoteInput.classList.add('remote-connected');
-        else if (sseEverConnected) remoteInput.classList.add('remote-error');
-        else remoteInput.classList.add('remote-connecting');
-    }
+    if (sseConnected) remoteInput.classList.add('remote-connected');
+    else if (sseEverConnected) remoteInput.classList.add('remote-error');
+    else remoteInput.classList.add('remote-connecting');
 }
 
-function _applyRemoteUrl(val) {
+function _normalizeUrl(val) {
     val = val.trim().replace(/\/+$/, '');
     if (val && !val.startsWith('http')) val = 'http://' + val;
-    if (val === remoteBase) return;
-    remoteBase = val;
-    if (val) {
-        localStorage.setItem('ost-remote-base', val);
-        remoteClearBtn.style.display = '';
-    } else {
+    return val;
+}
+
+function _connectToEndpoint(val) {
+    val = _normalizeUrl(val);
+    // Treat default endpoint as local (empty remoteBase)
+    const isLocal = !val || val === DEFAULT_ENDPOINT;
+    remoteBase = isLocal ? '' : val;
+    if (isLocal) {
         localStorage.removeItem('ost-remote-base');
-        remoteClearBtn.style.display = 'none';
+    } else {
+        localStorage.setItem('ost-remote-base', val);
     }
+    remoteConnectBtn.style.display = 'none';
     sseEverConnected = false;
     connectSSE();
 }
 
+// Show Connect button when input differs from current connection
+remoteInput.addEventListener('input', () => {
+    const inputVal = _normalizeUrl(remoteInput.value);
+    const currentVal = remoteBase || DEFAULT_ENDPOINT;
+    remoteConnectBtn.style.display = inputVal !== currentVal ? '' : 'none';
+});
+
 remoteInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-        _applyRemoteUrl(remoteInput.value);
+        _connectToEndpoint(remoteInput.value);
         remoteInput.blur();
     }
     if (e.key === 'Escape') {
-        remoteInput.value = remoteBase;
+        remoteInput.value = remoteBase || DEFAULT_ENDPOINT;
+        remoteConnectBtn.style.display = 'none';
         remoteInput.blur();
     }
 });
-remoteInput.addEventListener('blur', () => {
-    _applyRemoteUrl(remoteInput.value);
-});
-remoteClearBtn.addEventListener('click', () => {
-    remoteInput.value = '';
-    _applyRemoteUrl('');
-    remoteInput.focus();
+
+remoteConnectBtn.addEventListener('click', () => {
+    _connectToEndpoint(remoteInput.value);
 });
 
 _updateRemoteState();
