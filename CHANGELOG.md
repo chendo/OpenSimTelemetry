@@ -79,6 +79,7 @@ All notable changes to OpenSimTelemetry are documented in this file.
 - Fixed metric picker silently failing when no frame data or on render error
 - Fixed metric picker and preset menu clipped by `overflow:hidden`
 - Fixed extras field mask case sensitivity
+- Fixed iRacing extras data grouped under "Extras" section; now appears under its own adapter-named section (e.g. "Iracing")
 - Fixed default graph metrics using wrong units for steering and angular velocity
 - Fixed crosshair on paused replay
 - Fixed live telemetry throughput calculation

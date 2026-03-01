@@ -2,8 +2,6 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Bug: iRacing-specific data is no longer visible in metric lists. It should appear under its own iracing namespace, instead of extras.
-
 ## Everything below: Ask any clarifying questions before starting work. Batch if you need
 ### Dashboard & Widgets
 

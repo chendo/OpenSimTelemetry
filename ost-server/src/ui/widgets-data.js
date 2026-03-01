@@ -203,7 +203,14 @@ class AllMetricsWidget extends Widget {
                 } else {
                     if (this._hideNulls && (value === null || value === undefined)) continue;
                     if (filter && !matchMetricFilter(fk, filter)) continue;
-                    const section = fk.split('.')[0];
+                    // For extras with adapter prefix (e.g. "iracing/Foo"),
+                    // group under the adapter name instead of "extras"
+                    let section;
+                    if (prefix === 'extras' && key.includes('/')) {
+                        section = key.split('/')[0];
+                    } else {
+                        section = fk.split('.')[0];
+                    }
                     if (!sections[section]) sections[section] = [];
                     const fmt = formatMetricValue(fk, value);
                     sections[section].push({ key: fk, value, text: fmt.text, unit: fmt.unit });
