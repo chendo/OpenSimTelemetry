@@ -769,6 +769,33 @@ function openSettingsModal() {
             <button class="cm-btn cm-btn-save" id="settings-save-profile">Save Current</button>
         </div>
         <div class="settings-divider"></div>
+        <div class="settings-section-title">Units</div>
+        ${Object.entries(UNIT_SYSTEMS).map(([key, sys]) => {
+            const prefs = getUnitPrefs();
+            const opts = sys.options.map(o => `<option value="${o}" ${prefs[key] === o ? 'selected' : ''}>${o}</option>`).join('');
+            return `<div class="settings-row">
+                <span class="settings-label">${key.charAt(0).toUpperCase() + key.slice(1)}</span>
+                <select class="settings-select unit-pref-select" data-unit-key="${key}">${opts}</select>
+            </div>`;
+        }).join('')}
+        <div class="settings-divider"></div>
+        <div class="settings-section-title">Data Export</div>
+        <div class="settings-row">
+            <span class="settings-label">Last N seconds</span>
+            <input type="number" class="cm-form-input" id="export-duration" value="60" min="1" max="3600" style="width:80px">
+        </div>
+        <div class="settings-row">
+            <span class="settings-label">Format</span>
+            <select class="settings-select" id="export-format">
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+            </select>
+        </div>
+        <div class="settings-row">
+            <span class="settings-label"></span>
+            <button class="cm-btn cm-btn-test" id="settings-export-data">Export</button>
+        </div>
+        <div class="settings-divider"></div>
         <div class="settings-section-title">Graph Presets</div>
         <div id="settings-presets-list"></div>
         <div style="margin-top:8px">
@@ -824,6 +851,73 @@ function openSettingsModal() {
         document.body.appendChild(a);
         a.click();
         a.remove();
+    });
+
+    // Unit preferences
+    modal.querySelectorAll('.unit-pref-select').forEach(sel => {
+        sel.addEventListener('change', () => {
+            const prefs = getUnitPrefs();
+            prefs[sel.dataset.unitKey] = sel.value;
+            saveUnitPrefs(prefs);
+        });
+    });
+
+    // Data export
+    modal.querySelector('#settings-export-data').addEventListener('click', () => {
+        const duration = parseInt(modal.querySelector('#export-duration').value) || 60;
+        const format = modal.querySelector('#export-format').value;
+        const count = store._count;
+        if (count === 0) { alert('No data in buffer'); return; }
+
+        // Collect frames from ring buffer for last N seconds
+        const now = performance.now();
+        const cutoff = now - duration * 1000;
+        const frames = [];
+        for (let i = 0; i < count; i++) {
+            const idx = (store._head - count + i + store._ring.length) % store._ring.length;
+            const entry = store._ring[idx];
+            if (entry && entry.t >= cutoff && entry._frame) frames.push(entry._frame);
+        }
+        if (frames.length === 0) { alert('No data in the selected time range'); return; }
+
+        let blob, filename;
+        if (format === 'csv') {
+            // Build CSV from all numeric fields in first frame
+            const paths = [];
+            function collectPaths(obj, prefix) {
+                for (const [k, v] of Object.entries(obj)) {
+                    const p = prefix ? prefix + '.' + k : k;
+                    if (typeof v === 'number') paths.push(p);
+                    else if (v && typeof v === 'object' && !Array.isArray(v)) collectPaths(v, p);
+                }
+            }
+            collectPaths(frames[0], '');
+
+            const header = ['timestamp', ...paths].join(',');
+            const rows = frames.map(f => {
+                const vals = paths.map(p => {
+                    const parts = p.split('.');
+                    let cur = f;
+                    for (const part of parts) { cur = cur?.[part]; }
+                    return typeof cur === 'number' ? cur : '';
+                });
+                return [f.timestamp || '', ...vals].join(',');
+            });
+            blob = new Blob([header + '\n' + rows.join('\n')], { type: 'text/csv' });
+            filename = `telemetry_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+        } else {
+            blob = new Blob([JSON.stringify(frames, null, 2)], { type: 'application/json' });
+            filename = `telemetry_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
     });
 
     // Presets

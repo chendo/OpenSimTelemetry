@@ -283,6 +283,38 @@ function hashStringColor(str) {
     return `hsl(${hue}, 70%, 55%)`;
 }
 
+/* ==================== Unit Preferences ==================== */
+const UNIT_PREFS_KEY = 'ost-unit-preferences';
+const UNIT_SYSTEMS = {
+    speed:       { options: ['km/h', 'mph', 'm/s'],  default: 'km/h' },
+    temperature: { options: ['\u00b0C', '\u00b0F'],   default: '\u00b0C' },
+    pressure:    { options: ['kPa', 'psi', 'bar'],    default: 'kPa' },
+    distance:    { options: ['mm', 'in'],             default: 'mm' },
+};
+const UNIT_CONVERSIONS = {
+    'km/h':  { from: 'm/s', factor: 3.6 },
+    'mph':   { from: 'm/s', factor: 2.23694 },
+    'm/s':   { from: 'm/s', factor: 1 },
+    '\u00b0C':  { from: '\u00b0C', factor: 1, offset: 0 },
+    '\u00b0F':  { from: '\u00b0C', factor: 1.8, offset: 32 },
+    'kPa':   { from: 'kPa', factor: 1 },
+    'psi':   { from: 'kPa', factor: 0.145038 },
+    'bar':   { from: 'kPa', factor: 0.01 },
+    'mm':    { from: 'm', factor: 1000 },
+    'in':    { from: 'm', factor: 39.3701 },
+};
+
+function getUnitPrefs() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(UNIT_PREFS_KEY));
+        return { ...Object.fromEntries(Object.entries(UNIT_SYSTEMS).map(([k, v]) => [k, v.default])), ...saved };
+    } catch { return Object.fromEntries(Object.entries(UNIT_SYSTEMS).map(([k, v]) => [k, v.default])); }
+}
+
+function saveUnitPrefs(prefs) {
+    localStorage.setItem(UNIT_PREFS_KEY, JSON.stringify(prefs));
+}
+
 const CUSTOM_COLORS = [
     '#22d3ee', '#f472b6', '#a3e635', '#fb923c', '#818cf8',
     '#e879f9', '#34d399', '#fbbf24', '#f87171', '#38bdf8',
