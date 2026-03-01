@@ -81,7 +81,8 @@ class GraphWidget extends Widget {
             const dx = e.deltaX || (e.shiftKey ? e.deltaY : 0);
             if (dx === 0) return;
             e.preventDefault();
-            const framesPerTick = Math.max(1, Math.round(Math.abs(dx) / 10));
+            // Scale scroll speed proportionally to the time window
+            const framesPerTick = Math.max(1, Math.round(Math.abs(dx) * this.timeWindowMs / 5000));
             const delta = dx > 0 ? framesPerTick : -framesPerTick;
             if (typeof graphScrollCursor === 'function') graphScrollCursor(delta);
         }, { passive: false });
