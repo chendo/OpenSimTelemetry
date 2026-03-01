@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 
 export const IBT_FIXTURE = path.resolve(__dirname, '../../../fixtures/bmwm4gt3_bathurst 2026-02-20 21-45-59.ibt');
-export const API_BASE = 'http://localhost:9100';
+export const API_BASE = process.env.API_BASE_URL || 'http://localhost:9100';
 
 export function hasFixture(): boolean {
   return fs.existsSync(IBT_FIXTURE);

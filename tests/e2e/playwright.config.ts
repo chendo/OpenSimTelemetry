@@ -1,11 +1,13 @@
 import { defineConfig } from '@playwright/test';
 
-// When PLAYWRIGHT_WS_ENDPOINT is set, we connect to a remote browser (e.g. in Docker).
-// The browser needs host.docker.internal to reach the server on the host.
+// Env vars for flexible deployment:
+//   PLAYWRIGHT_WS_ENDPOINT — connect to remote browser (e.g. Docker)
+//   BROWSER_BASE_URL — URL the browser uses to reach the server (Docker network name)
+//   API_BASE_URL — URL the test runner uses to reach the server (host port)
 const wsEndpoint = process.env.PLAYWRIGHT_WS_ENDPOINT;
-const browserBaseURL = wsEndpoint
-  ? 'http://host.docker.internal:9100'
-  : 'http://localhost:9100';
+const browserBaseURL = process.env.BROWSER_BASE_URL
+  || (wsEndpoint ? 'http://host.docker.internal:9100' : 'http://localhost:9100');
+const externalServer = !!process.env.API_BASE_URL;
 
 export default defineConfig({
   testDir: './specs',
@@ -26,11 +28,14 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },
   ],
-  webServer: {
-    command: 'cargo run --release -p ost-server',
-    cwd: '../..',
-    url: 'http://localhost:9100',
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  // Skip webServer when using an external server (e.g. Docker Compose)
+  ...(!externalServer && {
+    webServer: {
+      command: 'cargo run --release -p ost-server',
+      cwd: '../..',
+      url: 'http://localhost:9100',
+      reuseExistingServer: true,
+      timeout: 120_000,
+    },
+  }),
 });

@@ -1,0 +1,22 @@
+services:
+  ost-server:
+    build: .
+    ports:
+      - "9101:9100"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9100/api/adapters"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    environment:
+      - RUST_LOG=info
+
+  chromium:
+    image: mcr.microsoft.com/playwright:v${PW_VERSION}-noble
+    ports:
+      - "3100:3000"
+    depends_on:
+      ost-server:
+        condition: service_healthy
+    command: npx -y @playwright/test@${PW_VERSION} run-server --port 3000 --host 0.0.0.0
+    init: true

@@ -77,6 +77,22 @@ e2e:
     echo "Running E2E tests..."
     cd tests/e2e && PLAYWRIGHT_WS_ENDPOINT=ws://localhost:3000 npm test
 
+# Run Playwright E2E tests with everything in Docker (server + browser)
+e2e-docker:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PW_VERSION=$(node -p "require('./tests/e2e/node_modules/@playwright/test/package.json').version")
+    COMPOSE_FILE="$PWD/docker-compose.e2e.yml"
+    echo "Building and starting containers (Playwright v${PW_VERSION})..."
+    docker compose -f "$COMPOSE_FILE" up -d --build --wait
+    trap 'docker compose -f "$COMPOSE_FILE" down' EXIT
+    echo "Running E2E tests..."
+    cd tests/e2e && \
+      PLAYWRIGHT_WS_ENDPOINT=ws://localhost:3100 \
+      BROWSER_BASE_URL=http://ost-server:9100 \
+      API_BASE_URL=http://localhost:9101 \
+      npm test
+
 # Install E2E test dependencies (npm only, browser runs in Docker)
 e2e-install:
     cd tests/e2e && npm install
