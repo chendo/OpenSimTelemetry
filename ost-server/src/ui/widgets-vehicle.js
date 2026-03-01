@@ -343,12 +343,11 @@ class WheelsWidget extends Widget {
     constructor() {
         super('wheels', 'Wheels', { col: 9, row: 1, width: 4, height: 8 });
         this.suspRange = { min: Infinity, max: -Infinity };
-        this.shockMax = 1;
-        // Shock velocity ring buffers per corner (~2s at 60Hz)
-        this._shockHistLen = 120;
-        this._shockHist = {};
+        // Suspension travel ring buffers per corner (~2s at 60Hz)
+        this._suspHistLen = 120;
+        this._suspHist = {};
         for (const w of ['fl', 'fr', 'rl', 'rr']) {
-            this._shockHist[w] = { buf: new Float32Array(120), head: 0, count: 0 };
+            this._suspHist[w] = { buf: new Float32Array(120), head: 0, count: 0 };
         }
     }
 
@@ -369,15 +368,10 @@ class WheelsWidget extends Widget {
                     return `
                 <div class="wheel-corner" style="${positions[w]}">
                     <span class="wheel-label">${labels[w]}</span>
-                    <div class="wheel-load-row">
-                        <div class="wheel-susp-col">
-                            <div class="wheel-susp-track"><div class="wheel-susp-fill" id="w-${w}-suspbar"></div></div>
-                            <span class="wheel-val" id="w-${w}-susp">--</span>
-                        </div>
-                        <div class="wheel-shock-col">
-                            <canvas class="wheel-shock-canvas" id="w-${w}-shcanvas"></canvas>
-                            <span class="wheel-val" id="w-${w}-shock">--</span>
-                        </div>
+                    <div class="wheel-susp-row">
+                        <div class="wheel-susp-track"><div class="wheel-susp-fill" id="w-${w}-suspbar"></div></div>
+                        <canvas class="wheel-susp-spark" id="w-${w}-spark"></canvas>
+                        <span class="wheel-val" id="w-${w}-susp">--</span>
                     </div>
                     <div class="wheel-temp-row">
                         <div class="wheel-temp-cell">
@@ -411,9 +405,8 @@ class WheelsWidget extends Widget {
         for (const w of corners) {
             this.wEls[w] = {
                 suspbar: c.querySelector(`#w-${w}-suspbar`),
+                spark: c.querySelector(`#w-${w}-spark`),
                 susp: c.querySelector(`#w-${w}-susp`),
-                shcanvas: c.querySelector(`#w-${w}-shcanvas`),
-                shock: c.querySelector(`#w-${w}-shock`),
                 ti: c.querySelector(`#w-${w}-ti`),
                 tm: c.querySelector(`#w-${w}-tm`),
                 to: c.querySelector(`#w-${w}-to`),
@@ -433,7 +426,7 @@ class WheelsWidget extends Widget {
         return _lerpColor('#eab308', '#ef4444', (t - 0.5) / 0.5);
     }
 
-    _renderShockSparkline(canvas, hist) {
+    _renderSuspSparkline(canvas, hist) {
         const dpr = window.devicePixelRatio || 1;
         const w = canvas.clientWidth;
         const h = canvas.clientHeight;
@@ -447,44 +440,37 @@ class WheelsWidget extends Widget {
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, w, h);
 
-        const cy = h / 2;
-        // Center line
-        ctx.beginPath();
-        ctx.moveTo(0, cy);
-        ctx.lineTo(w, cy);
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
         if (hist.count < 2) return;
 
         const n = hist.count;
         const len = hist.buf.length;
         const start = hist.count < len ? 0 : hist.head;
-        const scale = this.shockMax > 0 ? (cy - 1) / this.shockMax : 1;
-        const dx = w / (this._shockHistLen - 1);
+        const sRange = this.suspRange.max - this.suspRange.min;
+        const sMin = this.suspRange.min;
+        const pad = 1;
 
-        // Draw filled area: positive = orange (bump), negative = blue (rebound)
-        // We draw two passes: one for positive, one for negative
-        for (let pass = 0; pass < 2; pass++) {
-            ctx.beginPath();
-            let started = false;
-            for (let i = 0; i < n; i++) {
-                const idx = (start + i) % len;
-                const v = hist.buf[idx];
-                const x = (n < this._shockHistLen) ? i * (w / (n - 1)) : i * dx;
-                const clampedV = (pass === 0) ? Math.max(0, v) : Math.min(0, v);
-                const y = cy - clampedV * scale;
-                if (!started) { ctx.moveTo(x, cy); ctx.lineTo(x, y); started = true; }
-                else ctx.lineTo(x, y);
-            }
-            // Close back to center line
-            const lastX = (n < this._shockHistLen) ? (n - 1) * (w / (n - 1)) : (n - 1) * dx;
-            ctx.lineTo(lastX, cy);
-            ctx.closePath();
-            ctx.fillStyle = pass === 0 ? 'rgba(251,146,60,0.5)' : 'rgba(56,189,248,0.5)';
-            ctx.fill();
+        // Draw filled sparkline — normalized to dynamic range
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) {
+            const idx = (start + i) % len;
+            const v = hist.buf[idx];
+            const t = sRange > 0.1 ? (v - sMin) / sRange : 0.5;
+            const x = (n < this._suspHistLen) ? i * (w / (n - 1)) : i * (w / (this._suspHistLen - 1));
+            const y = pad + (1 - t) * (h - 2 * pad); // inverted: more compression at top
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
         }
+        ctx.strokeStyle = 'rgba(0,214,143,0.6)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Fill below the line
+        const lastX = (n < this._suspHistLen) ? (n - 1) * (w / (n - 1)) : (n - 1) * (w / (this._suspHistLen - 1));
+        ctx.lineTo(lastX, h);
+        ctx.lineTo(0, h);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0,214,143,0.1)';
+        ctx.fill();
     }
 
     update(store) {
@@ -498,10 +484,6 @@ class WheelsWidget extends Widget {
                 if (mm < this.suspRange.min) this.suspRange.min = mm;
                 if (mm > this.suspRange.max) this.suspRange.max = mm;
             }
-            if (wd?.shock_velocity != null) {
-                const abs = Math.abs(wd.shock_velocity * 1000);
-                if (abs > this.shockMax) this.shockMax = abs;
-            }
         }
 
         const sRange = this.suspRange.max - this.suspRange.min;
@@ -510,7 +492,7 @@ class WheelsWidget extends Widget {
         for (const [key, wd] of Object.entries(map)) {
             const els = this.wEls[key];
 
-            // Suspension travel — vertical bar filling top-down
+            // Suspension travel — vertical bar + sparkline
             if (wd?.suspension_travel != null) {
                 const mm = wd.suspension_travel * 1000;
                 const t = sRange > 0.1 ? (mm - sMin) / sRange : 0.5;
@@ -518,17 +500,13 @@ class WheelsWidget extends Widget {
                 els.suspbar.style.height = pct + '%';
                 els.suspbar.style.background = this._loadColor(t);
                 els.susp.textContent = mm.toFixed(1);
-            }
 
-            // Shock velocity — push to ring buffer and render sparkline
-            if (wd?.shock_velocity != null) {
-                const mmps = wd.shock_velocity * 1000;
-                const hist = this._shockHist[key];
-                hist.buf[hist.head] = mmps;
+                // Push to ring buffer and render sparkline
+                const hist = this._suspHist[key];
+                hist.buf[hist.head] = mm;
                 hist.head = (hist.head + 1) % hist.buf.length;
                 if (hist.count < hist.buf.length) hist.count++;
-                this._renderShockSparkline(els.shcanvas, hist);
-                els.shock.textContent = mmps.toFixed(0);
+                this._renderSuspSparkline(els.spark, hist);
             }
 
             // Tire surface temps
