@@ -75,6 +75,17 @@ class GraphWidget extends Widget {
             requestRedraw();
         });
 
+        // Click to seek to the clicked time position
+        this.canvas.addEventListener('click', (e) => {
+            const r = this._lastRender;
+            if (!r) return;
+            const x = e.offsetX;
+            if (x >= r.padLeft && x <= r.padLeft + r.pw) {
+                const t = r.tMin + ((x - r.padLeft) / r.pw) * r.tRange;
+                if (typeof graphSeekToTime === 'function') graphSeekToTime(t, r.isReplay);
+            }
+        });
+
         // Horizontal scroll moves cursor in history/replay mode
         this.canvas.addEventListener('wheel', (e) => {
             // Only act on horizontal scroll (or shift+vertical)
@@ -654,7 +665,7 @@ class GraphWidget extends Widget {
         ctx.clearRect(0, 0, w, h);
 
         // Cache render params for crosshair mouse mapping
-        this._lastRender = { tMin, tRange, padLeft: pad.left, pw };
+        this._lastRender = { tMin, tRange, padLeft: pad.left, pw, isReplay };
 
         // Helper: format axis label value
         const fmtAxisVal = (v, unit) => {

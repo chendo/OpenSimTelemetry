@@ -501,6 +501,38 @@ function graphScrollCursor(delta) {
     requestRedraw();
 }
 
+// Called by GraphWidget click to seek to a specific time
+function graphSeekToTime(timeMs, isBuffered) {
+    if (isBuffered) {
+        // Time is simTimeMs — convert to frame
+        const buf = replayBuf.count > 0 ? replayBuf : historyBuf;
+        const frame = Math.max(0, Math.min(buf.totalFrames - 1,
+            Math.round(timeMs / 1000 * buf.tickRate)));
+        buf.cursor = frame;
+        buf._dirty = true;
+        if (buf === historyBuf) {
+            seekSlider.value = frame;
+            updateSeekTimeDisplay();
+        }
+        buf.ensureLoaded(buildReplayMetricMask());
+        requestRedraw();
+        return;
+    }
+    // Live mode: timeMs is performance.now() timestamp
+    if (!historyInfo) return;
+    const tickRate = historyInfo.tick_rate || 60;
+    const offsetMs = performance.now() - timeMs;
+    const framesBack = Math.round(offsetMs / 1000 * tickRate);
+    const frame = Math.max(0, historyInfo.total_frames - 1 - framesBack);
+    if (!historyMode) enterHistoryMode();
+    historyBuf.cursor = frame;
+    historyBuf._dirty = true;
+    seekSlider.value = frame;
+    updateSeekTimeDisplay();
+    historyBuf.ensureLoaded(buildReplayMetricMask());
+    requestRedraw();
+}
+
 seekSlider.addEventListener('input', (e) => {
     const frame = parseInt(e.target.value);
     if (!historyMode) enterHistoryMode();
