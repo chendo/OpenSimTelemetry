@@ -22,21 +22,79 @@ let _uiDirty = false;
 function requestRedraw() { _uiDirty = true; }
 let streamPaused = false;
 
+/* ==================== Semantic Metric Colours ==================== */
+// Colour scheme conventions:
+//   Driver inputs: Throttle=green, Brake=red, Clutch=blue, ABS=reddish
+//   Axes: X=red, Y=green, Z=blue
+//   Motion categories use the same axis hue but shifted to differentiate:
+//     G-Force:      bright primary (red, green, blue)
+//     Rotation:     warm-shifted  (orange, lime, cyan)
+//     Rates:        lighter warm  (lt orange, lt lime, lt cyan)
+//     Velocity:     pastel        (pastel red, pastel green, pastel blue)
+//     Acceleration: dark primary  (dk red, dk green, dk blue)
+//     Ang. Accel:   dark warm     (dk orange, dk lime, dk cyan)
+//     Position:     light primary (lt red, lt green, lt blue)
+const METRIC_COLORS = {
+    // Driver inputs
+    'vehicle.throttle':           '#22c55e',  // Green
+    'vehicle.brake':              '#ef4444',  // Red
+    'vehicle.clutch':             '#3b82f6',  // Blue
+    'vehicle.steering_angle':     '#f59e0b',  // Amber
+    'vehicle.handbrake':          '#fbbf24',  // Yellow (brake-adjacent)
+    'electronics.abs_active':     '#f87171',  // Light red (brake-related)
+    'electronics.tc_active':      '#fb923c',  // Orange (traction)
+    // Vehicle
+    'vehicle.speed':              '#38bdf8',  // Sky blue
+    'vehicle.rpm':                '#a855f6',  // Purple
+    // G-Force — bright primary RGB
+    'motion.g_force.x':           '#ef4444',  // Red (X — lateral)
+    'motion.g_force.y':           '#22c55e',  // Green (Y — vertical)
+    'motion.g_force.z':           '#3b82f6',  // Blue (Z — longitudinal)
+    // Rotation — warm-shifted
+    'motion.rotation.x':          '#f97316',  // Orange (X — pitch)
+    'motion.rotation.y':          '#84cc16',  // Lime (Y — yaw)
+    'motion.rotation.z':          '#06b6d4',  // Cyan (Z — roll)
+    // Angular rates — lighter warm-shifted
+    'motion.pitch_rate':          '#fb923c',  // Lt orange (X)
+    'motion.yaw_rate':            '#a3e635',  // Lt lime (Y)
+    'motion.roll_rate':           '#22d3ee',  // Lt cyan (Z)
+    // Velocity — pastel RGB
+    'motion.velocity.x':          '#fca5a5',  // Pastel red (X)
+    'motion.velocity.y':          '#86efac',  // Pastel green (Y)
+    'motion.velocity.z':          '#93c5fd',  // Pastel blue (Z)
+    // Acceleration — dark RGB
+    'motion.acceleration.x':      '#dc2626',  // Dk red (X)
+    'motion.acceleration.y':      '#16a34a',  // Dk green (Y)
+    'motion.acceleration.z':      '#2563eb',  // Dk blue (Z)
+    // Angular acceleration — dark warm-shifted
+    'motion.angular_acceleration.x': '#ea580c',  // Dk orange (X)
+    'motion.angular_acceleration.y': '#65a30d',  // Dk lime (Y)
+    'motion.angular_acceleration.z': '#0891b2',  // Dk cyan (Z)
+    // Position — light RGB
+    'motion.position.x':          '#f87171',  // Lt red (X)
+    'motion.position.y':          '#4ade80',  // Lt green (Y)
+    'motion.position.z':          '#60a5fa',  // Lt blue (Z)
+};
+
+function getMetricColor(path) {
+    return METRIC_COLORS[path] || nextCustomColor();
+}
+
 /* ==================== Graph Metrics Registry ==================== */
 const GRAPH_METRICS = {
-    speed:       { label: 'Speed',      color: '#00d68f', unit: 'km/h',  norm: 'autoscale', extract: f => (f.vehicle?.speed ?? 0) * 3.6 },
-    rpm:         { label: 'RPM',        color: '#ff6b6b', unit: 'rpm',   norm: 'autoscale', extract: f => f.vehicle?.rpm ?? 0 },
-    throttle:    { label: 'Throttle',   color: '#4ecdc4', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.throttle ?? 0 },
-    brake:       { label: 'Brake',      color: '#ff4757', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.brake ?? 0 },
-    clutch:      { label: 'Clutch',     color: '#a78bfa', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.clutch ?? 0 },
-    steering:    { label: 'Steering',   color: '#ffa502', unit: '\u00B0',  norm: 'centered',  extract: f => f.vehicle?.steering_angle ?? 0 },
-    abs_active:  { label: 'ABS',        color: '#f59e0b', unit: '',      norm: 'boolean',   extract: f => f.electronics?.abs_active ?? false },
-    lat_g:       { label: 'Lateral G',  color: '#a855f6', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.x ?? 0 },
-    long_g:      { label: 'Long G',     color: '#ec4899', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.z ?? 0 },
-    vert_g:      { label: 'Vert G',     color: '#6366f1', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.y ?? 0 },
+    speed:       { label: 'Speed',      color: '#38bdf8', unit: 'km/h',  norm: 'autoscale', extract: f => (f.vehicle?.speed ?? 0) * 3.6 },
+    rpm:         { label: 'RPM',        color: '#a855f6', unit: 'rpm',   norm: 'autoscale', extract: f => f.vehicle?.rpm ?? 0 },
+    throttle:    { label: 'Throttle',   color: '#22c55e', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.throttle ?? 0 },
+    brake:       { label: 'Brake',      color: '#ef4444', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.brake ?? 0 },
+    clutch:      { label: 'Clutch',     color: '#3b82f6', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.clutch ?? 0 },
+    steering:    { label: 'Steering',   color: '#f59e0b', unit: '\u00B0',  norm: 'centered',  extract: f => f.vehicle?.steering_angle ?? 0 },
+    abs_active:  { label: 'ABS',        color: '#f87171', unit: '',      norm: 'boolean',   extract: f => f.electronics?.abs_active ?? false },
+    lat_g:       { label: 'Lateral G',  color: '#ef4444', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.x ?? 0 },
+    long_g:      { label: 'Long G',     color: '#3b82f6', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.z ?? 0 },
+    vert_g:      { label: 'Vert G',     color: '#22c55e', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.y ?? 0 },
     pitch:       { label: 'Pitch',      color: '#f97316', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.rotation?.x ?? 0 },
-    yaw_rate:    { label: 'Yaw Rate',   color: '#eab308', unit: '\u00B0/s',  norm: 'centered',  extract: f => f.motion?.yaw_rate ?? 0 },
-    roll:        { label: 'Roll',       color: '#14b8a6', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.rotation?.z ?? 0 },
+    yaw_rate:    { label: 'Yaw Rate',   color: '#a3e635', unit: '\u00B0/s',  norm: 'centered',  extract: f => f.motion?.yaw_rate ?? 0 },
+    roll:        { label: 'Roll',       color: '#06b6d4', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.rotation?.z ?? 0 },
 };
 const GRAPH_METRIC_KEYS = Object.keys(GRAPH_METRICS);
 

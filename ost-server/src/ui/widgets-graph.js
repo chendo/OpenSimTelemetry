@@ -1,14 +1,14 @@
 /* ==================== GraphWidget ==================== */
 class GraphWidget extends Widget {
     static DEFAULT_METRICS = [
-        { path: 'vehicle.speed',              color: '#00d68f' },
-        { path: 'vehicle.rpm',                color: '#ff6b6b' },
-        { path: 'vehicle.throttle',           color: '#4ecdc4' },
-        { path: 'vehicle.brake',              color: '#ff4757' },
-        { path: 'vehicle.clutch',             color: '#a78bfa' },
-        { path: 'motion.yaw_rate',             color: '#eab308' },
-        { path: 'electronics.abs_active',     color: '#f59e0b', norm: 'boolean' },
-        { path: 'vehicle.steering_angle',     color: '#ffa502' },
+        { path: 'vehicle.speed' },
+        { path: 'vehicle.rpm' },
+        { path: 'vehicle.throttle' },
+        { path: 'vehicle.brake' },
+        { path: 'vehicle.clutch' },
+        { path: 'motion.yaw_rate' },
+        { path: 'electronics.abs_active', norm: 'boolean' },
+        { path: 'vehicle.steering_angle' },
     ];
 
     constructor(id, defaultLayout, defaultEnabled) {
@@ -25,7 +25,7 @@ class GraphWidget extends Widget {
                 this.customMetrics.set(d.path, {
                     path: d.path,
                     label: deriveLabel(d.path),
-                    color: d.color,
+                    color: getMetricColor(d.path),
                     unit: unitInfo.unit,
                     norm: unitInfo.norm,
                     parts: d.path.split('.'),
@@ -527,7 +527,7 @@ class GraphWidget extends Widget {
             this.customMetrics.set(path, {
                 path,
                 label: deriveLabel(path),
-                color: nextCustomColor(),
+                color: getMetricColor(path),
                 unit: unitInfo.unit,
                 norm: unitInfo.norm,
                 parts,

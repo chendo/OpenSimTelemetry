@@ -25,6 +25,7 @@ All notable changes to OpenSimTelemetry are documented in this file.
 - **GridStack.js layout** for drag-and-drop widget arrangement
 - **Graph presets** with naming, suggestions, and management via settings modal
 - **Lap navigation** and lap time computation from SessionTime deltas
+- **Semantic colour scheme** for metrics: throttle=green, brake=red, clutch=blue, ABS=reddish; axis convention X=red, Y=green, Z=blue; motion categories differentiated by brightness/hue shift (g-force bright, rotation warm-shifted, rates lighter)
 
 ### API & Data
 

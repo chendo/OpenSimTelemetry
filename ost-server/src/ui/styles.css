@@ -615,8 +615,8 @@ body {
     bottom: 0;
 }
 
-.pedal-throttle { background: var(--accent); }
-.pedal-brake { background: #ff4757; }
+.pedal-throttle { background: #22c55e; }
+.pedal-brake { background: #ef4444; }
 .pedal-clutch { background: #3b82f6; }
 
 .vehicle-pedal-pct {

@@ -2,7 +2,7 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Interface: Devise common colour scheme for colours. Throttle should should be green, brake red, clutch blue. Brake-related things like ABS should be red-ish. X axis is red, Y is green, Z is blue. Ideally it will be clear and consistent. For motion, we will need to use different colours for its various XYZ but we should have a consistent way we change the colours so it's easy to tell if it's g-force, rotation, or velocity
+* API: Add endpoint that accepts an ibt file and streams back a OST.ZSTD.
 
 ## WIP: do not work on these
 
