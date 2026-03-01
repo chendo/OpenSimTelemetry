@@ -91,8 +91,14 @@ pub struct MotionData {
     /// Rotation (pitch, yaw, roll) in degrees
     pub rotation: Option<Vector3<Degrees>>,
 
-    /// Angular velocity (deg/s)
-    pub angular_velocity: Option<Vector3<DegreesPerSecond>>,
+    /// Pitch rate (deg/s) — rotation around lateral axis
+    pub pitch_rate: Option<DegreesPerSecond>,
+
+    /// Yaw rate (deg/s) — rotation around vertical axis
+    pub yaw_rate: Option<DegreesPerSecond>,
+
+    /// Roll rate (deg/s) — rotation around longitudinal axis
+    pub roll_rate: Option<DegreesPerSecond>,
 
     /// Angular acceleration (deg/s²)
     pub angular_acceleration: Option<Vector3<DegreesPerSecondSquared>>,
@@ -1270,7 +1276,9 @@ mod tests {
                 acceleration: None,
                 g_force: Some(Vector3::new(GForce(0.3), GForce(1.0), GForce(-0.5))),
                 rotation: None,
-                angular_velocity: None,
+                pitch_rate: None,
+                yaw_rate: None,
+                roll_rate: None,
                 angular_acceleration: None,
                 latitude: None,
                 longitude: None,

@@ -913,26 +913,15 @@ impl IbtFile {
             _ => None,
         };
 
-        let angular_velocity = match (
-            get_f32("PitchRate"),
-            get_f32("YawRate"),
-            get_f32("RollRate"),
-        ) {
-            (Some(p), Some(y), Some(r)) => Some(Vector3::new(
-                DegreesPerSecond::from_radians(p),
-                DegreesPerSecond::from_radians(y),
-                DegreesPerSecond::from_radians(r),
-            )),
-            _ => None,
-        };
-
         let motion = Some(MotionData {
             position: None,
             velocity,
             acceleration,
             g_force,
             rotation,
-            angular_velocity,
+            pitch_rate: get_f32("PitchRate").map(DegreesPerSecond::from_radians),
+            yaw_rate: get_f32("YawRate").map(DegreesPerSecond::from_radians),
+            roll_rate: get_f32("RollRate").map(DegreesPerSecond::from_radians),
             angular_acceleration: None,
             latitude: get_f64("Lat"),
             longitude: get_f64("Lon"),

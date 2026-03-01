@@ -21,9 +21,9 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | Pitch | motion.orientation.pitch | rad |
 | Yaw | motion.orientation.yaw | rad |
 | Roll | motion.orientation.roll | rad |
-| PitchRate | motion.angular_velocity.pitch | rad/s |
-| YawRate | motion.angular_velocity.yaw | rad/s |
-| RollRate | motion.angular_velocity.roll | rad/s |
+| PitchRate | motion.pitch_rate | deg/s |
+| YawRate | motion.yaw_rate | deg/s |
+| RollRate | motion.roll_rate | deg/s |
 | Speed | vehicle.speed | m/s |
 | Lat | motion.latitude | degrees, WGS84 |
 | Lon | motion.longitude | degrees, WGS84 |

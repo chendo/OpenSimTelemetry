@@ -6,7 +6,7 @@ class GraphWidget extends Widget {
         { path: 'vehicle.throttle',           color: '#4ecdc4' },
         { path: 'vehicle.brake',              color: '#ff4757' },
         { path: 'vehicle.clutch',             color: '#a78bfa' },
-        { path: 'motion.angular_velocity.y',  color: '#eab308' },
+        { path: 'motion.yaw_rate',             color: '#eab308' },
         { path: 'electronics.abs_active',     color: '#f59e0b', norm: 'boolean' },
         { path: 'vehicle.steering_angle',     color: '#ffa502' },
     ];
@@ -439,7 +439,7 @@ class GraphWidget extends Widget {
                 const metric = GRAPH_METRICS[key];
                 const custom = this.customMetrics.get(key);
                 const label = metric ? metric.label : (custom ? custom.label : key);
-                if (filterFn(key, label)) enabledItems.push({ key, label });
+                if (filterFn(key, label)) enabledItems.push({ key, label: key.startsWith('computed:') ? label : key });
             }
             if (enabledItems.length > 0) {
                 const hdr = document.createElement('div');

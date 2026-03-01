@@ -35,7 +35,7 @@ const GRAPH_METRICS = {
     long_g:      { label: 'Long G',     color: '#ec4899', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.z ?? 0 },
     vert_g:      { label: 'Vert G',     color: '#6366f1', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.y ?? 0 },
     pitch:       { label: 'Pitch',      color: '#f97316', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.rotation?.x ?? 0 },
-    yaw_rate:    { label: 'Yaw Rate',   color: '#eab308', unit: '\u00B0/s',  norm: 'centered',  extract: f => f.motion?.angular_velocity?.y ?? 0 },
+    yaw_rate:    { label: 'Yaw Rate',   color: '#eab308', unit: '\u00B0/s',  norm: 'centered',  extract: f => f.motion?.yaw_rate ?? 0 },
     roll:        { label: 'Roll',       color: '#14b8a6', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.rotation?.z ?? 0 },
 };
 const GRAPH_METRIC_KEYS = Object.keys(GRAPH_METRICS);
@@ -110,9 +110,9 @@ const METRIC_UNIT_MAP = {
     '*.rotation.x':            { unit: '\u00B0', norm: 'centered' },
     '*.rotation.y':            { unit: '\u00B0', norm: 'centered' },
     '*.rotation.z':            { unit: '\u00B0', norm: 'centered' },
-    '*.angular_velocity.x':    { unit: '\u00B0/s', norm: 'centered' },
-    '*.angular_velocity.y':    { unit: '\u00B0/s', norm: 'centered' },
-    '*.angular_velocity.z':    { unit: '\u00B0/s', norm: 'centered' },
+    '*.pitch_rate':             { unit: '\u00B0/s', norm: 'centered' },
+    '*.yaw_rate':               { unit: '\u00B0/s', norm: 'centered' },
+    '*.roll_rate':              { unit: '\u00B0/s', norm: 'centered' },
     '*.angular_acceleration.x':{ unit: '\u00B0/s\u00B2', norm: 'centered' },
     '*.angular_acceleration.y':{ unit: '\u00B0/s\u00B2', norm: 'centered' },
     '*.angular_acceleration.z':{ unit: '\u00B0/s\u00B2', norm: 'centered' },
@@ -238,7 +238,8 @@ function nextCustomColor() {
 const LABEL_ABBREVS = {
     front_left: 'FL', front_right: 'FR', rear_left: 'RL', rear_right: 'RR',
     surface_temp: 'Surf Temp', carcass_temp: 'Carc Temp',
-    angular_velocity: 'Ang Vel', angular_acceleration: 'Ang Accel',
+    pitch_rate: 'Pitch Rate', yaw_rate: 'Yaw Rate', roll_rate: 'Roll Rate',
+    angular_acceleration: 'Ang Accel',
     g_force: 'G-Force', brake_line_pressure: 'Brake Press',
     suspension_travel: 'Susp Travel', suspension_travel_avg: 'Susp Avg',
     shock_velocity: 'Shock Vel', shock_velocity_avg: 'Shock Vel Avg',

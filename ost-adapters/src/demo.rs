@@ -495,11 +495,9 @@ impl DemoAdapter {
                 Degrees(0.0), // yaw is absolute, not useful for demo
                 Degrees::from_radians(roll),
             )),
-            angular_velocity: Some(Vector3::new(
-                DegreesPerSecond::from_radians(jitter(n * 4.1, 0.01)),
-                DegreesPerSecond::from_radians(steering * speed * 0.02), // yaw rate from steering + speed
-                DegreesPerSecond::from_radians(jitter(n * 4.2, 0.01)),
-            )),
+            pitch_rate: Some(DegreesPerSecond::from_radians(jitter(n * 4.1, 0.01))),
+            yaw_rate: Some(DegreesPerSecond::from_radians(steering * speed * 0.02)), // yaw rate from steering + speed
+            roll_rate: Some(DegreesPerSecond::from_radians(jitter(n * 4.2, 0.01))),
             angular_acceleration: Some(Vector3::new(
                 DegreesPerSecondSquared(0.0),
                 DegreesPerSecondSquared(0.0),
