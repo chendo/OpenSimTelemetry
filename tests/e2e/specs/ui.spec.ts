@@ -14,7 +14,7 @@ test.describe('UI: Header', () => {
 
     // All header buttons
     for (const id of [
-      '#header-add-graph', '#header-add-gauge', '#header-add-custom',
+      '#header-add-graph', '#header-add-custom',
       '#settings-btn', '#header-load-ibt', '#header-browse-replays',
       '#header-reset-layout', '#header-pause-btn', '#header-computed-metrics',
       '#sources-btn',
@@ -87,14 +87,6 @@ test.describe('UI: Widget Actions', () => {
     await waitForPageReady(page);
     const countBefore = await page.locator('.grid-stack-item').count();
     await page.evaluate(() => document.getElementById('header-add-graph')!.click());
-    await expect(page.locator('.grid-stack-item')).toHaveCount(countBefore + 1, { timeout: 5_000 });
-  });
-
-  test('add gauge widget', async ({ page }) => {
-    await page.goto('/');
-    await waitForPageReady(page);
-    const countBefore = await page.locator('.grid-stack-item').count();
-    await page.evaluate(() => document.getElementById('header-add-gauge')!.click());
     await expect(page.locator('.grid-stack-item')).toHaveCount(countBefore + 1, { timeout: 5_000 });
   });
 
