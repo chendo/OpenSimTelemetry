@@ -10,6 +10,7 @@ use ost_server::{
     api::create_router,
     state::{AppState, SinkConfig},
 };
+use std::path::Path;
 use tower::ServiceExt;
 
 /// Helper: build a router with fresh AppState (no adapters registered)
@@ -568,4 +569,364 @@ async fn test_app_state_default() {
     let state = AppState::default();
     let adapters = state.adapters.read().await;
     assert_eq!(adapters.len(), 0);
+}
+
+// ==================== Fixture helpers ====================
+
+fn fixture_path() -> std::path::PathBuf {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir.join("../fixtures/race.ibt")
+}
+
+fn has_fixture() -> bool {
+    fixture_path().exists()
+}
+
+/// Build a multipart body with a single file field
+fn multipart_body(file_name: &str, data: &[u8]) -> (String, Vec<u8>) {
+    let boundary = "----TestBoundary7MA4YWxkTrZu0gW";
+    let mut body = Vec::new();
+    body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+    body.extend_from_slice(
+        format!("Content-Disposition: form-data; name=\"file\"; filename=\"{file_name}\"\r\n")
+            .as_bytes(),
+    );
+    body.extend_from_slice(b"Content-Type: application/octet-stream\r\n\r\n");
+    body.extend_from_slice(data);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (boundary.to_string(), body)
+}
+
+// ==================== POST /api/convert/ibt ====================
+
+#[tokio::test]
+async fn test_convert_ibt_returns_zstd_stream() {
+    if !has_fixture() {
+        return;
+    }
+
+    let app = app();
+    let ibt_data = std::fs::read(fixture_path()).expect("Failed to read fixture");
+    let (boundary, body) = multipart_body("race.ibt", &ibt_data);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/convert/ibt")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "POST /api/convert/ibt should return 200"
+    );
+
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert_eq!(content_type, "application/zstd");
+
+    let disposition = response
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        disposition.contains(".ost.ndjson.zstd"),
+        "Content-Disposition should suggest .ost.ndjson.zstd filename, got: {}",
+        disposition
+    );
+
+    // Collect and decompress the streamed response
+    let compressed = body_bytes(response.into_body()).await;
+    assert!(!compressed.is_empty(), "Response body should not be empty");
+
+    // Verify it's valid ZSTD containing NDJSON
+    let decompressed = zstd::decode_all(compressed.as_slice()).expect("Should be valid ZSTD");
+    let text = String::from_utf8(decompressed).expect("Should be valid UTF-8");
+    let lines: Vec<&str> = text.lines().collect();
+
+    assert!(
+        lines.len() > 1000,
+        "Should have many NDJSON lines, got {}",
+        lines.len()
+    );
+
+    // Parse first and last lines as valid TelemetryFrame JSON
+    let first: serde_json::Value =
+        serde_json::from_str(lines[0]).expect("First line should be valid JSON");
+    assert_eq!(first["game"], "iRacing Replay");
+    assert!(first["vehicle"].is_object());
+
+    let last: serde_json::Value =
+        serde_json::from_str(lines.last().unwrap()).expect("Last line should be valid JSON");
+    assert_eq!(last["game"], "iRacing Replay");
+}
+
+#[tokio::test]
+async fn test_convert_ibt_rejects_non_ibt() {
+    let app = app();
+    let (boundary, body) = multipart_body("data.csv", b"not an ibt file");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/convert/ibt")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 400, "Non-.ibt upload should return 400");
+}
+
+// ==================== POST /api/replay/upload ====================
+
+#[tokio::test]
+async fn test_replay_upload_parses_ibt_and_returns_info() {
+    if !has_fixture() {
+        return;
+    }
+
+    let (app, _state) = app_with_state();
+    let ibt_data = std::fs::read(fixture_path()).expect("Failed to read fixture");
+    let (boundary, body) = multipart_body("race.ibt", &ibt_data);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/replay/upload")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "POST /api/replay/upload should return 200"
+    );
+
+    let text = body_string(response.into_body()).await;
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+
+    assert_eq!(parsed["status"], "ok");
+    let info = &parsed["info"];
+    assert!(
+        info["total_frames"].as_u64().unwrap() > 10000,
+        "Should have many frames"
+    );
+    assert_eq!(info["tick_rate"], 60);
+    assert_eq!(info["track_name"], "Red Bull Ring");
+    assert!(
+        info["duration_secs"].as_f64().unwrap() > 200.0,
+        "Duration should be > 200s"
+    );
+    assert!(!info["replay_id"].as_str().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_replay_upload_rejects_non_ibt() {
+    let app = app();
+    let (boundary, body) = multipart_body("data.csv", b"not an ibt file");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/replay/upload")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 400, "Non-.ibt upload should return 400");
+}
+
+// ==================== Persistence download round-trip ====================
+
+#[tokio::test]
+async fn test_persistence_download_round_trip() {
+    let (app, state) = app_with_state();
+
+    // Push some frames into the history buffer
+    let mut adapter = ost_adapters::DemoAdapter::new();
+    adapter.start().unwrap();
+    {
+        let mut history = state.history.write().await;
+        for _ in 0..10 {
+            let frame = adapter.read_frame().unwrap().unwrap();
+            history.push(frame);
+        }
+    }
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/persistence/download")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "GET /api/persistence/download should return 200"
+    );
+
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert_eq!(content_type, "application/zstd");
+
+    let compressed = body_bytes(response.into_body()).await;
+    let decompressed = zstd::decode_all(compressed.as_slice()).expect("Should be valid ZSTD");
+    let text = String::from_utf8(decompressed).expect("Should be valid UTF-8");
+    let lines: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+
+    assert_eq!(lines.len(), 10, "Should have 10 NDJSON lines");
+
+    for line in &lines {
+        let frame: serde_json::Value = serde_json::from_str(line).expect("Valid JSON");
+        assert_eq!(frame["game"], "Demo");
+    }
+}
+
+#[tokio::test]
+async fn test_persistence_download_empty_returns_404() {
+    let app = app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/persistence/download")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        404,
+        "Download with empty buffer should return 404"
+    );
+}
+
+// ==================== Golden/snapshot test: IBT frame structure ====================
+
+#[tokio::test]
+async fn test_ibt_frame_golden_structure() {
+    if !has_fixture() {
+        return;
+    }
+
+    use ost_adapters::ibt_parser::IbtFile;
+
+    let ibt = IbtFile::open(&fixture_path()).expect("Failed to open fixture");
+
+    // Read frame at index 1800 (~30s in, car on track)
+    let sample = ibt.read_sample(1800).expect("Failed to read sample");
+    let frame = ibt.sample_to_frame(&sample);
+    let json = serde_json::to_value(&frame).expect("Frame should serialize");
+
+    // Verify top-level structure
+    assert_eq!(json["game"], "iRacing Replay");
+    assert!(json["timestamp"].is_string());
+    assert!(json["tick"].is_number());
+
+    // Vehicle section
+    let vehicle = &json["vehicle"];
+    assert!(vehicle["speed"].is_number());
+    assert!(vehicle["rpm"].is_number());
+    assert!(vehicle["gear"].is_number());
+    assert!(vehicle["throttle"].is_number());
+    assert!(vehicle["brake"].is_number());
+    assert!(vehicle["clutch"].is_number());
+    assert!(vehicle["steering_angle"].is_number());
+
+    // Motion section
+    let motion = &json["motion"];
+    assert!(motion["velocity"].is_object());
+    assert!(motion["g_force"].is_object());
+    assert!(motion["g_force"]["x"].is_number());
+    assert!(motion["g_force"]["y"].is_number());
+    assert!(motion["g_force"]["z"].is_number());
+
+    // Engine section
+    let engine = &json["engine"];
+    assert!(engine["water_temp"].is_number());
+    assert!(engine["oil_temp"].is_number());
+
+    // Wheels section — per-corner data
+    let wheels = &json["wheels"];
+    for corner in &["front_left", "front_right", "rear_left", "rear_right"] {
+        let w = &wheels[corner];
+        assert!(
+            w["tyre_pressure"].is_number(),
+            "Missing tyre_pressure for {}",
+            corner
+        );
+        assert!(
+            w["suspension_travel"].is_number(),
+            "Missing suspension_travel for {}",
+            corner
+        );
+    }
+
+    // Timing section
+    let timing = &json["timing"];
+    assert!(timing["lap_number"].is_number());
+
+    // Session section
+    let session = &json["session"];
+    assert_eq!(session["track_name"], "Red Bull Ring");
+    assert_eq!(session["session_type"], "Qualifying");
+
+    // Extras should contain iRacing-specific data
+    let extras = &json["extras"];
+    assert!(extras.is_object());
+    assert!(
+        extras
+            .as_object()
+            .unwrap()
+            .keys()
+            .any(|k| k.starts_with("iracing/")),
+        "Extras should contain iracing/ prefixed keys"
+    );
 }

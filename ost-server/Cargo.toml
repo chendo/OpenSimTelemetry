@@ -43,3 +43,5 @@ base64 = "0.22"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 hyper = "1.0"
+ost-adapters = { path = "../ost-adapters" }
+zstd = "0.13"

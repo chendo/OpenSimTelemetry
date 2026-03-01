@@ -1620,6 +1620,81 @@ SessionInfo:
     }
 
     #[test]
+    fn test_ibt_frame_snapshot_values() {
+        if !has_fixture() {
+            return;
+        }
+        let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
+
+        // Frame 1800 (~30s in) — car should be on track with stable values
+        let sample = ibt.read_sample(1800).unwrap();
+        let frame = ibt.sample_to_frame(&sample);
+
+        // Vehicle data assertions
+        let vehicle = frame.vehicle.as_ref().expect("vehicle");
+        let speed_ms = vehicle.speed.expect("speed").0;
+        assert!(
+            speed_ms > 30.0 && speed_ms < 100.0,
+            "Speed at frame 1800 should be 30-100 m/s, got {speed_ms}"
+        );
+        let rpm = vehicle.rpm.expect("rpm").0;
+        assert!(
+            rpm > 3000.0 && rpm < 12000.0,
+            "RPM should be 3000-12000, got {rpm}"
+        );
+        assert!(
+            vehicle.gear.expect("gear") > 0,
+            "Should be in a forward gear"
+        );
+        let throttle = vehicle.throttle.expect("throttle").0;
+        assert!(
+            (0.0..=1.0).contains(&throttle),
+            "Throttle should be 0-1, got {throttle}"
+        );
+        let brake = vehicle.brake.expect("brake").0;
+        assert!(
+            (0.0..=1.0).contains(&brake),
+            "Brake should be 0-1, got {brake}"
+        );
+
+        // Motion data
+        let motion = frame.motion.as_ref().expect("motion");
+        let g = motion.g_force.as_ref().expect("g_force");
+        assert!(
+            g.x.0.abs() < 5.0 && g.y.0.abs() < 5.0 && g.z.0.abs() < 5.0,
+            "G-forces should be within ±5g"
+        );
+        // Wheels — all four corners should have tyre pressure
+        let wheels = frame.wheels.as_ref().expect("wheels");
+        for (name, corner) in [
+            ("FL", &wheels.front_left),
+            ("FR", &wheels.front_right),
+            ("RL", &wheels.rear_left),
+            ("RR", &wheels.rear_right),
+        ] {
+            let pressure = corner
+                .tyre_pressure
+                .unwrap_or_else(|| panic!("{name} pressure"));
+            assert!(
+                pressure.0 > 100.0 && pressure.0 < 300.0,
+                "{name} tyre pressure {:.1} kPa out of range",
+                pressure.0
+            );
+        }
+
+        // Session data should match fixture
+        let session = frame.session.as_ref().expect("session");
+        assert_eq!(session.track_name.as_deref(), Some("Red Bull Ring"));
+        assert_eq!(session.session_type, Some(SessionType::Qualifying));
+
+        // Extras should contain unmapped iRacing vars
+        assert!(
+            !frame.extras.is_empty(),
+            "Should have extras from unmapped iRacing variables"
+        );
+    }
+
+    #[test]
     fn test_ibt_sequential_read_consistency() {
         if !has_fixture() {
             return;
