@@ -1,0 +1,5 @@
+# Ignore all .ibt files by default (they can be very large)
+*.ibt
+
+# Allow specific test fixtures
+!bmwm4gt3_bathurst 2026-02-20 21-45-59.ibt

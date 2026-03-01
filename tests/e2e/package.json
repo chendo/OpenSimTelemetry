@@ -1,0 +1,11 @@
+{
+  "name": "ost-e2e-tests",
+  "private": true,
+  "scripts": {
+    "test": "npx playwright test",
+    "install-browsers": "npx playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

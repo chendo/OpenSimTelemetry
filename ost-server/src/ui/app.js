@@ -1221,7 +1221,7 @@ document.body.addEventListener('drop', (e) => {
 });
 
 // Check for existing replay on page load
-(async () => {
+async function checkReplayOnLoad() {
     try {
         const resp = await fetch(apiBase() + '/api/replay/info');
         if (resp.ok) {
@@ -1236,5 +1236,5 @@ document.body.addEventListener('drop', (e) => {
     } catch (e) {
         console.error('Failed to restore replay state:', e);
     }
-})();
-</script>
+}
+checkReplayOnLoad();
