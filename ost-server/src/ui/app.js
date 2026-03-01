@@ -204,7 +204,7 @@ for (const cfg of savedGauges) {
 }
 
 // Restore saved custom widgets
-_restoreCustomWidgets(grid, widgets);
+_restoreCustomWidgets(grid);
 
 grid.gs.batchUpdate(false);
 grid.restoreLayout();
@@ -246,7 +246,6 @@ document.getElementById('header-add-custom').addEventListener('click', () => {
     cw.onTitleChange = () => _saveCustomWidgetConfigs();
     cw.init();
     grid.addWidget(cw);
-    widgets.push(cw);
     grid.saveLayout();
     _saveCustomWidgetConfigs();
     cw.showConfigDialog();

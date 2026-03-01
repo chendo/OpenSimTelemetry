@@ -93,21 +93,19 @@ class CustomWidget extends Widget {
 
 function _saveCustomWidgetConfigs() {
     const configs = [];
-    if (typeof widgets !== 'undefined') {
-        for (const w of widgets) {
-            if (w instanceof CustomWidget) {
-                configs.push({
-                    id: w.id,
-                    title: w.title,
-                    url: w.iframeUrl,
-                });
-            }
+    for (const [id, w] of grid.widgets) {
+        if (w instanceof CustomWidget) {
+            configs.push({
+                id: w.id,
+                title: w.title,
+                url: w.iframeUrl,
+            });
         }
     }
     localStorage.setItem('ost-custom-widgets', JSON.stringify(configs));
 }
 
-function _restoreCustomWidgets(grid, widgets) {
+function _restoreCustomWidgets(grid) {
     try {
         const configs = JSON.parse(localStorage.getItem('ost-custom-widgets') || '[]');
         for (const cfg of configs) {
@@ -115,7 +113,6 @@ function _restoreCustomWidgets(grid, widgets) {
             if (cfg.title) w.setTitle(cfg.title);
             w.onTitleChange = () => _saveCustomWidgetConfigs();
             grid.addWidget(w);
-            widgets.push(w);
         }
     } catch (e) {
         console.warn('Failed to restore custom widgets:', e);
