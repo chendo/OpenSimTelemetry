@@ -702,12 +702,21 @@ setInterval(fetchHistoryInfo, 10000);
 
 // ==================== Settings Modal ====================
 const PRESETS_KEY = 'ost-user-presets';
+const PRESET_OVERRIDES_KEY = 'ost-preset-overrides';
 
 function getUserPresets() {
     try { return JSON.parse(localStorage.getItem(PRESETS_KEY)) || []; } catch { return []; }
 }
 function saveUserPresets(presets) { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); }
-function getAllPresets() { return [...GRAPH_PRESETS, ...getUserPresets()]; }
+function getPresetOverrides() {
+    try { return JSON.parse(localStorage.getItem(PRESET_OVERRIDES_KEY)) || {}; } catch { return {}; }
+}
+function savePresetOverrides(ov) { localStorage.setItem(PRESET_OVERRIDES_KEY, JSON.stringify(ov)); }
+function getAllPresets() {
+    const overrides = getPresetOverrides();
+    const builtIn = GRAPH_PRESETS.map(p => overrides[p.name] || p);
+    return [...builtIn, ...getUserPresets()];
+}
 
 function openSettingsModal() {
     if (document.getElementById('settings-modal')) return;
@@ -964,16 +973,33 @@ function openSettingsModal() {
     function renderPresetsList() {
         presetsListEl.innerHTML = '';
         const userPresets = getUserPresets();
+        const overrides = getPresetOverrides();
 
-        // Built-in presets (read-only)
-        for (const preset of GRAPH_PRESETS) {
+        // Built-in presets (editable via overrides)
+        for (const builtIn of GRAPH_PRESETS) {
+            const isOverridden = !!overrides[builtIn.name];
+            const preset = isOverridden ? overrides[builtIn.name] : builtIn;
             const item = document.createElement('div');
             item.className = 'cm-list-item';
+            const badge = isOverridden ? 'modified' : 'built-in';
             item.innerHTML = `
                 <div style="flex:1;min-width:0">
-                    <div class="preset-name">${preset.name} <span class="preset-builtin">built-in</span></div>
+                    <div class="preset-name">${preset.name} <span class="preset-builtin">${badge}</span></div>
                     <div class="preset-metrics">${preset.metrics.join(', ')}</div>
-                </div>`;
+                </div>
+                <button class="cm-btn-edit preset-edit-btn">Edit</button>
+                ${isOverridden ? '<button class="cm-btn-del preset-reset-btn">Reset</button>' : ''}`;
+            item.querySelector('.preset-edit-btn').addEventListener('click', () => {
+                openBuiltinPresetEditor(builtIn.name, preset);
+            });
+            if (isOverridden) {
+                item.querySelector('.preset-reset-btn').addEventListener('click', () => {
+                    const ov = getPresetOverrides();
+                    delete ov[builtIn.name];
+                    savePresetOverrides(ov);
+                    renderPresetsList();
+                });
+            }
             presetsListEl.appendChild(item);
         }
 
@@ -999,10 +1025,36 @@ function openSettingsModal() {
         }
     }
 
+    function openBuiltinPresetEditor(originalName, preset) {
+        presetsListEl.innerHTML = `
+            <div class="cm-form-row">
+                <span class="cm-form-label">Name</span>
+                <input type="text" class="cm-form-input" id="preset-name" value="${originalName}" disabled>
+            </div>
+            <div style="margin-bottom:4px">
+                <span class="cm-form-label">Metrics</span>
+            </div>
+            <textarea class="cm-code-input" id="preset-metrics" rows="4">${preset.metrics.join('\n')}</textarea>
+            <div class="cm-btn-row">
+                <button class="cm-btn cm-btn-cancel" id="preset-cancel">Cancel</button>
+                <button class="cm-btn cm-btn-save" id="preset-save">Save</button>
+            </div>`;
+
+        presetsListEl.querySelector('#preset-cancel').addEventListener('click', renderPresetsList);
+        presetsListEl.querySelector('#preset-save').addEventListener('click', () => {
+            const metricsText = presetsListEl.querySelector('#preset-metrics').value.trim();
+            if (!metricsText) return;
+            const metrics = metricsText.split('\n').map(l => l.trim()).filter(Boolean);
+            const ov = getPresetOverrides();
+            ov[originalName] = { name: originalName, metrics };
+            savePresetOverrides(ov);
+            renderPresetsList();
+        });
+    }
+
     function openPresetEditor(editIndex) {
         const userPresets = getUserPresets();
         const existing = editIndex !== undefined ? userPresets[editIndex] : null;
-        // Replace presets list with editor form
         presetsListEl.innerHTML = `
             <div class="cm-form-row">
                 <span class="cm-form-label">Name</span>
