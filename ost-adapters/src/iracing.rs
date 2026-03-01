@@ -391,22 +391,7 @@ mod windows_impl {
                 })
             });
 
-            let track_surface = get_i32("PlayerTrackSurface").map(|idx| match idx {
-                -1 => TrackSurface::NotInWorld,
-                0 => TrackSurface::Undefined,
-                1..=4 => TrackSurface::Asphalt,
-                6 | 7 => TrackSurface::Concrete,
-                8 | 9 => TrackSurface::RacingDirt,
-                10 | 11 => TrackSurface::Paint,
-                12..=15 => TrackSurface::Rumble,
-                16..=19 => TrackSurface::Grass,
-                20..=23 => TrackSurface::Dirt,
-                24 => TrackSurface::Sand,
-                25..=28 => TrackSurface::Gravel,
-                29 => TrackSurface::Grasscrete,
-                30 => TrackSurface::Astroturf,
-                _ => TrackSurface::Unknown,
-            });
+            let track_surface = get_i32("PlayerTrackSurface").map(crate::iracing_track_surface);
 
             // Session info for RPM limits
             let (max_rpm, idle_rpm) = self.session_details.as_ref().map_or((None, None), |s| {
@@ -965,25 +950,9 @@ mod windows_impl {
                                 })
                         });
 
-                let track_surface_val =
-                    track_surfaces
-                        .and_then(|v| v.get(i).copied())
-                        .map(|idx| match idx {
-                            -1 => TrackSurface::NotInWorld,
-                            0 => TrackSurface::Undefined,
-                            1..=4 => TrackSurface::Asphalt,
-                            6 | 7 => TrackSurface::Concrete,
-                            8 | 9 => TrackSurface::RacingDirt,
-                            10 | 11 => TrackSurface::Paint,
-                            12..=15 => TrackSurface::Rumble,
-                            16..=19 => TrackSurface::Grass,
-                            20..=23 => TrackSurface::Dirt,
-                            24 => TrackSurface::Sand,
-                            25..=28 => TrackSurface::Gravel,
-                            29 => TrackSurface::Grasscrete,
-                            30 => TrackSurface::Astroturf,
-                            _ => TrackSurface::Unknown,
-                        });
+                let track_surface_val = track_surfaces
+                    .and_then(|v| v.get(i).copied())
+                    .map(crate::iracing_track_surface);
 
                 competitors.push(CompetitorData {
                     car_index: i as u32,

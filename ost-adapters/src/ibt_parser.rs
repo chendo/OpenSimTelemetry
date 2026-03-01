@@ -937,22 +937,7 @@ impl IbtFile {
                 .map(|v| MetersPerSecond((v.x.0.powi(2) + v.y.0.powi(2) + v.z.0.powi(2)).sqrt()))
         });
 
-        let track_surface = get_i32("PlayerTrackSurface").map(|idx| match idx {
-            -1 => TrackSurface::NotInWorld,
-            0 => TrackSurface::Undefined,
-            1..=4 => TrackSurface::Asphalt,
-            6 | 7 => TrackSurface::Concrete,
-            8 | 9 => TrackSurface::RacingDirt,
-            10 | 11 => TrackSurface::Paint,
-            12..=15 => TrackSurface::Rumble,
-            16..=19 => TrackSurface::Grass,
-            20..=23 => TrackSurface::Dirt,
-            24 => TrackSurface::Sand,
-            25..=28 => TrackSurface::Gravel,
-            29 => TrackSurface::Grasscrete,
-            30 => TrackSurface::Astroturf,
-            _ => TrackSurface::Unknown,
-        });
+        let track_surface = get_i32("PlayerTrackSurface").map(crate::iracing_track_surface);
 
         let vehicle = Some(VehicleData {
             speed,

@@ -192,17 +192,6 @@ if (savedGraphs && savedGraphs.length > 0) {
     grid.addWidget(defaultGraph);
 }
 
-// Restore saved gauge widgets
-const savedGauges = (() => {
-    try { return JSON.parse(localStorage.getItem('ost-dashboard-gauges')) || []; } catch { return []; }
-})();
-for (const cfg of savedGauges) {
-    const gw = new GaugeWidget(cfg.id, null, cfg);
-    gw.init();
-    gw.applyConfig(cfg);
-    grid.addWidget(gw);
-}
-
 // Restore saved custom widgets
 _restoreCustomWidgets(grid);
 
@@ -224,19 +213,6 @@ document.getElementById('header-add-graph').addEventListener('click', () => {
     grid.addWidget(gw);
     grid.saveLayout();
     grid.saveGraphConfigs();
-});
-
-// Add Gauge button
-document.getElementById('header-add-gauge').addEventListener('click', () => {
-    const id = 'gauge-' + (graphCounter++);
-    const gw = new GaugeWidget(id, null, GAUGE_PRESETS['vehicle.rpm']);
-    gw.metricPath = 'vehicle.rpm';
-    gw._metricParts = ['vehicle', 'rpm'];
-    gw.init();
-    grid.addWidget(gw);
-    grid.saveLayout();
-    gw._saveGaugeConfigs();
-    gw._openConfig();
 });
 
 // + Custom widget button
@@ -772,10 +748,6 @@ function openSettingsModal() {
             <span class="settings-label">Save Rate</span>
             <select class="settings-select" id="settings-save-freq">${freqOptions}</select>
         </div>
-        <div class="settings-row">
-            <span class="settings-label"></span>
-            <button class="cm-btn cm-btn-test" id="settings-download-buf">Download Buffer</button>
-        </div>
         <div class="settings-section-title" style="margin-top:12px">Retention</div>
         <div class="settings-row">
             <span class="settings-label">Max Sessions</span>
@@ -918,15 +890,6 @@ function openSettingsModal() {
     }
     retMaxSessions.addEventListener('change', syncRetentionConfig);
     retMaxAge.addEventListener('change', syncRetentionConfig);
-
-    modal.querySelector('#settings-download-buf').addEventListener('click', () => {
-        const a = document.createElement('a');
-        a.href = '/api/persistence/download';
-        a.download = '';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-    });
 
     // Unit preferences
     modal.querySelectorAll('.unit-pref-select').forEach(sel => {
