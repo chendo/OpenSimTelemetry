@@ -3,6 +3,7 @@ class GraphWidget extends Widget {
     constructor(id, defaultLayout, defaultEnabled) {
         super(id || 'graph', 'Graph', defaultLayout || { col: 1, row: 7, width: 12, height: 6 });
         this.enabledMetrics = new Set(defaultEnabled || ['speed', 'rpm', 'throttle', 'brake', 'clutch', 'yaw_rate', 'abs_active', 'steering']);
+        this.hiddenMetrics = new Set(); // metrics that are enabled but visually hidden
         this.customMetrics = new Map(); // path -> { path, label, color, unit, norm, parts }
         this.timeWindowMs = 10000;
         this.maxSeen = {};
@@ -86,44 +87,74 @@ class GraphWidget extends Widget {
         this.legendEl.innerHTML = '';
         this.legendItems = {};
 
-        // Only show enabled preset metrics (disabled ones can be re-added via the picker)
-        for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
-            if (!this.enabledMetrics.has(key)) continue;
+        // Helper to create a legend item for a metric key
+        const makeLegendItem = (key, color, label, isCustom) => {
+            const hidden = this.hiddenMetrics.has(key);
             const item = document.createElement('span');
-            item.className = 'graph-legend-item active';
-            item.innerHTML = `<span class="graph-legend-dot" style="background:${metric.color}"></span>${metric.label}<span class="custom-legend-remove" title="Remove">\u00D7</span>`;
-            item.addEventListener('click', (e) => {
-                if (e.target.classList.contains('custom-legend-remove')) {
-                    this.enabledMetrics.delete(key);
-                    this.rebuildLegend();
-                    if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
-                    requestRedraw();
-                    return;
-                }
+            item.className = 'graph-legend-item active' + (hidden ? ' legend-hidden' : '');
+            item.dataset.metricKey = key;
+            if (isCustom) item.title = key;
+
+            const dot = document.createElement('span');
+            dot.className = 'graph-legend-dot';
+            dot.style.background = color;
+            dot.title = 'Remove';
+            // Click dot (shows as × on hover) to remove the metric
+            dot.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (isCustom) this.customMetrics.delete(key);
+                this.enabledMetrics.delete(key);
+                this.hiddenMetrics.delete(key);
+                this.rebuildLegend();
+                if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+                requestRedraw();
             });
+
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'legend-label';
+            labelSpan.textContent = label;
+
+            item.appendChild(dot);
+            item.appendChild(labelSpan);
+
+            // Click label to toggle visibility
+            labelSpan.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.hiddenMetrics.has(key)) {
+                    this.hiddenMetrics.delete(key);
+                    item.classList.remove('legend-hidden');
+                } else {
+                    this.hiddenMetrics.add(key);
+                    item.classList.add('legend-hidden');
+                }
+                if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+                requestRedraw();
+            });
+
+            // Hover label to dim other series
+            labelSpan.addEventListener('mouseenter', () => {
+                this.legendEl.classList.add('legend-hovering');
+                item.classList.add('legend-hovered');
+            });
+            labelSpan.addEventListener('mouseleave', () => {
+                this.legendEl.classList.remove('legend-hovering');
+                item.classList.remove('legend-hovered');
+            });
+
             this.legendEl.appendChild(item);
             this.legendItems[key] = item;
+        };
+
+        // Preset metrics
+        for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
+            if (!this.enabledMetrics.has(key)) continue;
+            makeLegendItem(key, metric.color, metric.label, false);
         }
 
-        // Custom metrics (only show enabled)
+        // Custom metrics
         for (const [path, meta] of this.customMetrics) {
             if (!this.enabledMetrics.has(path)) continue;
-            const item = document.createElement('span');
-            item.className = 'graph-legend-item active';
-            item.innerHTML = `<span class="graph-legend-dot" style="background:${meta.color}"></span>${meta.label}<span class="custom-legend-remove" title="Remove">\u00D7</span>`;
-            item.title = path;
-            item.addEventListener('click', (e) => {
-                if (e.target.classList.contains('custom-legend-remove')) {
-                    this.customMetrics.delete(path);
-                    this.enabledMetrics.delete(path);
-                    this.rebuildLegend();
-                    if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
-                    requestRedraw();
-                    return;
-                }
-            });
-            this.legendEl.appendChild(item);
-            this.legendItems[path] = item;
+            makeLegendItem(path, meta.color, meta.label, true);
         }
 
         // "+ Metric" button
@@ -180,6 +211,7 @@ class GraphWidget extends Widget {
     _applyPreset(preset) {
         // Clear existing metrics
         this.enabledMetrics.clear();
+        this.hiddenMetrics.clear();
         this.customMetrics.clear();
         this.maxSeen = {};
         // Set graph name
@@ -508,10 +540,11 @@ class GraphWidget extends Widget {
         }
         if (dataCount < 2) { ctx.clearRect(0, 0, w, h); return; }
 
-        // Build unified traces array from enabled metrics, with display conversion
+        // Build unified traces array from enabled (non-hidden) metrics, with display conversion
         const traces = [];
         const boolTraces = [];
         for (const key of this.enabledMetrics) {
+            if (this.hiddenMetrics.has(key)) continue;
             const preset = GRAPH_METRICS[key];
             if (preset) {
                 if (preset.norm === 'boolean') {
@@ -862,6 +895,7 @@ class GraphWidget extends Widget {
     getConfig() {
         const cfg = { id: this.id, enabledMetrics: [...this.enabledMetrics], timeWindowMs: this.timeWindowMs };
         if (this.title !== 'Graph') cfg.graphName = this.title;
+        if (this.hiddenMetrics.size > 0) cfg.hiddenMetrics = [...this.hiddenMetrics];
         if (this.customMetrics.size > 0) {
             cfg.customMetrics = [];
             for (const [path, meta] of this.customMetrics) {
@@ -873,6 +907,7 @@ class GraphWidget extends Widget {
 
     applyConfig(cfg) {
         if (cfg.enabledMetrics) this.enabledMetrics = new Set(cfg.enabledMetrics);
+        if (cfg.hiddenMetrics) this.hiddenMetrics = new Set(cfg.hiddenMetrics);
         if (cfg.timeWindowMs) this.timeWindowMs = cfg.timeWindowMs;
         if (cfg.graphName) this.setTitle(cfg.graphName);
         // Restore custom metrics

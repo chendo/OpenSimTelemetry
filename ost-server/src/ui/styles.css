@@ -774,16 +774,49 @@ body {
     color: var(--text-primary);
 }
 
-.custom-legend-remove {
-    margin-left: 3px;
-    opacity: 0;
-    font-size: 0.8rem;
+/* Legend dot → × on hover for removal */
+.graph-legend-dot {
+    position: relative;
+    overflow: hidden;
+}
+.graph-legend-item .graph-legend-dot::after {
+    content: '\00D7';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
     line-height: 1;
-    cursor: pointer;
+    color: white;
+    background: var(--status-inactive);
+    border-radius: 50%;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+.graph-legend-item:hover .graph-legend-dot::after { opacity: 1; }
+.graph-legend-item .graph-legend-dot:hover::after { background: #ff4757; }
+
+/* Hidden (toggled-off) series */
+.graph-legend-item.legend-hidden {
+    opacity: 0.35;
+}
+.graph-legend-item.legend-hidden .legend-label {
+    text-decoration: line-through;
+}
+
+/* Hover one series dims all others */
+.graph-legend.legend-hovering .graph-legend-item.active {
+    opacity: 0.3;
     transition: opacity 0.1s;
 }
-.graph-legend-item:hover .custom-legend-remove { opacity: 0.6; }
-.custom-legend-remove:hover { opacity: 1 !important; color: var(--status-inactive); }
+.graph-legend.legend-hovering .graph-legend-item.legend-hovered {
+    opacity: 1;
+}
+.graph-legend.legend-hovering .graph-legend-item.legend-hidden.legend-hovered {
+    opacity: 0.5;
+}
 
 .metric-picker-popover {
     width: 340px;
