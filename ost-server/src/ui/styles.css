@@ -61,9 +61,12 @@ body {
     background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
     color: var(--text-primary); font-size: 0.65rem; font-family: inherit;
     padding: 3px 8px; border-radius: 4px; width: 180px; outline: none;
+    transition: border-color 0.2s, background 0.2s;
 }
 .remote-input:focus { border-color: var(--accent); }
-.remote-input.remote-active { border-color: #4caf50; background: rgba(76,175,80,0.1); }
+.remote-input.remote-connected { border-color: #4caf50; background: rgba(76,175,80,0.1); }
+.remote-input.remote-connecting { border-color: #ff9800; background: rgba(255,152,0,0.1); }
+.remote-input.remote-error { border-color: #f44336; background: rgba(244,67,54,0.1); }
 .remote-clear-btn {
     background: none; border: none; color: var(--text-muted); font-size: 0.8rem;
     cursor: pointer; padding: 0 4px; line-height: 1;
