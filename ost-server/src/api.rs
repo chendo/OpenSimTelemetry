@@ -190,7 +190,7 @@ pub fn create_router(state: AppState) -> Router {
         // Replay endpoints
         .route(
             "/api/replay/upload",
-            post(replay_upload).layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+            post(replay_upload).layer(DefaultBodyLimit::max(1024 * 1024 * 1024)),
         )
         .route("/api/replay/info", get(replay_info))
         .route("/api/replay/frames", get(replay_frames))
@@ -202,7 +202,7 @@ pub fn create_router(state: AppState) -> Router {
         // Conversion endpoints
         .route(
             "/api/convert/ibt",
-            post(convert_ibt).layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+            post(convert_ibt).layer(DefaultBodyLimit::max(1024 * 1024 * 1024)),
         )
         // Persistence endpoints
         .route(

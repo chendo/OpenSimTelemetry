@@ -1518,6 +1518,21 @@ body {
     margin: 0 auto 14px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.upload-progress-bar {
+    width: 200px;
+    height: 6px;
+    background: var(--bg-inset);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 10px auto 0;
+}
+.upload-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.2s ease-out;
+}
 
 /* Replay controls bar */
 .replay-bar {

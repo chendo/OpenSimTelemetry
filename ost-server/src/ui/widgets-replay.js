@@ -48,22 +48,58 @@ class ReplayPlayer {
     }
 
     async upload(file) {
+        const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024; // 1 GB
         if (!file || !file.name.toLowerCase().endsWith('.ibt')) {
             alert('Please select a valid .ibt file');
+            return;
+        }
+        if (file.size > MAX_UPLOAD_BYTES) {
+            alert(`File is too large (${(file.size / 1024 / 1024).toFixed(0)} MB). Maximum upload size is 1 GB.`);
             return;
         }
 
         const overlay = document.getElementById('upload-overlay');
         const status = document.getElementById('upload-status');
+        const progressFill = document.getElementById('upload-progress-fill');
         overlay.classList.add('active');
-        status.textContent = `Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)...`;
+        progressFill.style.width = '0%';
+        const totalMB = (file.size / 1024 / 1024).toFixed(1);
+        status.textContent = `Uploading ${file.name} — 0 / ${totalMB} MB (0%)`;
 
         try {
-            const formData = new FormData();
-            formData.append('file', file);
-            const resp = await fetch(apiBase() + '/api/replay/upload', { method: 'POST', body: formData });
-            if (!resp.ok) throw new Error(await resp.text());
-            const result = await resp.json();
+            const result = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', apiBase() + '/api/replay/upload');
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const pct = Math.round((e.loaded / e.total) * 100);
+                        const loadedMB = (e.loaded / 1024 / 1024).toFixed(1);
+                        status.textContent = `Uploading ${file.name} — ${loadedMB} / ${totalMB} MB (${pct}%)`;
+                        progressFill.style.width = pct + '%';
+                    }
+                };
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try { resolve(JSON.parse(xhr.responseText)); }
+                        catch (e) { reject(new Error('Invalid server response')); }
+                    } else {
+                        reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+                    }
+                };
+                xhr.onerror = () => reject(new Error('Network error'));
+                xhr.onloadend = () => {
+                    if (xhr.status === 0 && !xhr.responseText) return; // handled by onerror
+                };
+                status.textContent = `Processing ${file.name}...`;
+                const formData = new FormData();
+                formData.append('file', file);
+                xhr.send(formData);
+                // Show "Processing..." once upload completes (before server responds)
+                xhr.upload.onload = () => {
+                    progressFill.style.width = '100%';
+                    status.textContent = `Processing ${file.name}...`;
+                };
+            });
             this.info = result.info;
             this.active = true;
             this.currentSpeed = 1;
@@ -73,6 +109,7 @@ class ReplayPlayer {
             alert('Failed to upload .ibt file: ' + e.message);
         } finally {
             overlay.classList.remove('active');
+            progressFill.style.width = '0%';
         }
     }
 
