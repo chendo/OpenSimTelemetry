@@ -863,7 +863,6 @@ body {
 }
 .metric-picker-item {
     display: flex;
-    justify-content: space-between;
     align-items: center;
     padding: 4px 10px;
     font-size: 0.7rem;
@@ -871,6 +870,8 @@ body {
     cursor: pointer;
     border-bottom: 1px solid var(--border-color);
 }
+.metric-picker-item .metric-picker-path { flex: 1; }
+.metric-picker-item .metric-picker-value { margin-left: auto; white-space: nowrap; }
 .metric-picker-item:hover { background: rgba(255,255,255,0.06); }
 .metric-picker-path { color: var(--accent); }
 .metric-picker-value { color: var(--text-secondary); font-size: 0.65rem; }

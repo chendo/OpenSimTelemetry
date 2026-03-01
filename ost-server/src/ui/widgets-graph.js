@@ -1,10 +1,36 @@
 /* ==================== GraphWidget ==================== */
 class GraphWidget extends Widget {
+    static DEFAULT_METRICS = [
+        { path: 'vehicle.speed',              color: '#00d68f', unit: 'm/s',  norm: 'autoscale' },
+        { path: 'vehicle.rpm',                color: '#ff6b6b', unit: 'rpm',  norm: 'autoscale' },
+        { path: 'vehicle.throttle',           color: '#4ecdc4', unit: '%',    norm: 'pct' },
+        { path: 'vehicle.brake',              color: '#ff4757', unit: '%',    norm: 'pct' },
+        { path: 'vehicle.clutch',             color: '#a78bfa', unit: '%',    norm: 'pct' },
+        { path: 'motion.angular_velocity.y',  color: '#eab308', unit: 'rad/s', norm: 'centered' },
+        { path: 'electronics.abs_active',     color: '#f59e0b', unit: '',     norm: 'boolean' },
+        { path: 'vehicle.steering_angle',     color: '#ffa502', unit: 'rad',  norm: 'centered' },
+    ];
+
     constructor(id, defaultLayout, defaultEnabled) {
         super(id || 'graph', 'Graph', defaultLayout || { col: 1, row: 7, width: 12, height: 6 });
-        this.enabledMetrics = new Set(defaultEnabled || ['speed', 'rpm', 'throttle', 'brake', 'clutch', 'yaw_rate', 'abs_active', 'steering']);
         this.hiddenMetrics = new Set(); // metrics that are enabled but visually hidden
         this.customMetrics = new Map(); // path -> { path, label, color, unit, norm, parts }
+        if (defaultEnabled) {
+            this.enabledMetrics = new Set(defaultEnabled);
+        } else {
+            this.enabledMetrics = new Set();
+            for (const d of GraphWidget.DEFAULT_METRICS) {
+                this.enabledMetrics.add(d.path);
+                this.customMetrics.set(d.path, {
+                    path: d.path,
+                    label: deriveLabel(d.path),
+                    color: d.color,
+                    unit: d.unit,
+                    norm: d.norm,
+                    parts: d.path.split('.'),
+                });
+            }
+        }
         this.timeWindowMs = 10000;
         this.maxSeen = {};
         this.closable = !!id && id !== 'graph';
@@ -408,20 +434,6 @@ class GraphWidget extends Widget {
                 for (const m of enabledItems) list.appendChild(createItem(m.key, m.label, true));
             }
 
-            // Available presets (non-computed, not enabled)
-            const presetItems = [];
-            for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
-                if (key.startsWith('computed:') || this.enabledMetrics.has(key)) continue;
-                if (filterFn(key, metric.label)) presetItems.push({ key, label: metric.label });
-            }
-            if (presetItems.length > 0) {
-                const hdr = document.createElement('div');
-                hdr.className = 'metric-picker-section';
-                hdr.textContent = 'Presets';
-                list.appendChild(hdr);
-                for (const m of presetItems) list.appendChild(createItem(m.key, m.label, false));
-            }
-
             // Available computed metrics (not enabled)
             const computedItems = [];
             for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
@@ -438,7 +450,7 @@ class GraphWidget extends Widget {
 
             // Raw metrics from frame (not already listed)
             if (frame) {
-                const listedKeys = new Set([...enabledItems.map(m => m.key), ...presetItems.map(m => m.key), ...computedItems.map(m => m.key)]);
+                const listedKeys = new Set([...enabledItems.map(m => m.key), ...computedItems.map(m => m.key)]);
                 const uncheckedRaw = [];
                 for (const [section, paths] of Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]))) {
                     const filtered = paths.filter(p => !listedKeys.has(p) && filterFn(p, p));
