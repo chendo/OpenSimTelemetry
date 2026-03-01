@@ -126,20 +126,6 @@ class GraphWidget extends Widget {
             this.legendItems[path] = item;
         }
 
-        // Metric suggestions (siblings/cousins of current custom metrics)
-        const suggestions = this._computeSuggestions();
-        for (const sug of suggestions) {
-            const item = document.createElement('span');
-            item.className = 'graph-legend-item graph-suggestion';
-            item.innerHTML = `<span class="graph-suggestion-plus">+</span>${sug.label}`;
-            item.title = sug.path;
-            item.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.addCustomMetric(sug.path);
-            });
-            this.legendEl.appendChild(item);
-        }
-
         // "+ Metric" button
         const addBtn = document.createElement('span');
         addBtn.className = 'graph-legend-item graph-add-metric-btn';
@@ -231,47 +217,6 @@ class GraphWidget extends Widget {
         return paths;
     }
 
-    _computeSuggestions() {
-        const frame = store.currentFrame;
-        if (!frame) return [];
-        const suggestions = [];
-        const seen = new Set(this.enabledMetrics);
-
-        for (const path of this.enabledMetrics) {
-            if (GRAPH_METRICS[path]) continue; // skip presets
-            const parts = path.split('.');
-            if (parts.length < 2) continue;
-
-            // Siblings: same parent, different leaf
-            const parentParts = parts.slice(0, -1);
-            const parentObj = this._resolve(frame, parentParts);
-            if (parentObj && typeof parentObj === 'object') {
-                for (const [k, v] of Object.entries(parentObj)) {
-                    if (typeof v === 'number' || typeof v === 'boolean') {
-                        const sibPath = [...parentParts, k].join('.');
-                        if (!seen.has(sibPath)) { suggestions.push({ path: sibPath, label: deriveLabel(sibPath) }); seen.add(sibPath); }
-                    }
-                }
-            }
-
-            // Cousins: same grandparent + same leaf, different intermediate segment
-            if (parts.length >= 3) {
-                const gpParts = parts.slice(0, -2);
-                const leaf = parts[parts.length - 1];
-                const gpObj = this._resolve(frame, gpParts);
-                if (gpObj && typeof gpObj === 'object') {
-                    for (const [k, v] of Object.entries(gpObj)) {
-                        if (v && typeof v === 'object' && leaf in v && (typeof v[leaf] === 'number' || typeof v[leaf] === 'boolean')) {
-                            const cousinPath = [...gpParts, k, leaf].join('.');
-                            if (!seen.has(cousinPath)) { suggestions.push({ path: cousinPath, label: deriveLabel(cousinPath) }); seen.add(cousinPath); }
-                        }
-                    }
-                }
-            }
-        }
-        return suggestions.slice(0, 6);
-    }
-
     _resolve(obj, parts) {
         let cur = obj;
         for (const p of parts) {
@@ -318,7 +263,7 @@ class GraphWidget extends Widget {
         list.className = 'metric-picker-list';
         popover.appendChild(list);
 
-        // Append popover to DOM before rendering list so it's visible even if renderList errors
+        // Append popover to DOM before rendering list
         const rect = anchorEl.getBoundingClientRect();
         popover.style.position = 'fixed';
         popover.style.top = (rect.bottom + 4) + 'px';
@@ -328,124 +273,162 @@ class GraphWidget extends Widget {
 
         // Close on outside click
         this._pickerClickOutside = (e) => {
-            if (!popover.contains(e.target) && e.target !== anchorEl) {
+            if (!popover.contains(e.target) && !e.target.closest('.graph-add-metric-btn')) {
                 this.closeMetricPicker();
             }
         };
         setTimeout(() => document.addEventListener('click', this._pickerClickOutside), 0);
 
-        const alreadyAdded = new Set([...this.enabledMetrics]);
-
         const isPatternFilter = (f) => f.includes('*') || f.startsWith('/');
+
+        // Helper: get metric display value HTML
+        const getValHtml = (key) => {
+            if (!frame) return '';
+            try {
+                const metric = GRAPH_METRICS[key];
+                if (metric) {
+                    const extract = metric.extract(frame);
+                    if (extract != null && typeof extract === 'number') {
+                        const val = Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2);
+                        return `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>`;
+                    }
+                } else {
+                    const parts = key.split('.');
+                    const rawVal = resolveMetricPathRaw(frame, parts);
+                    if (typeof rawVal === 'boolean') {
+                        return `<span class="metric-picker-value">${rawVal ? 'true' : 'false'} <span class="metric-picker-unit">bool</span></span>`;
+                    } else if (typeof rawVal === 'number') {
+                        const fmt = formatMetricValue(key, rawVal);
+                        return `<span class="metric-picker-value">${fmt.text}${fmt.unit ? ' <span class="metric-picker-unit">' + fmt.unit + '</span>' : ''}</span>`;
+                    }
+                }
+            } catch (e) { /* ignore */ }
+            return '';
+        };
+
+        // Create a metric item with checkbox
+        const createItem = (key, label, checked) => {
+            const item = document.createElement('div');
+            item.className = 'metric-picker-item';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'metric-picker-checkbox';
+            checkbox.checked = checked;
+
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'metric-picker-path';
+            labelSpan.textContent = label;
+
+            item.appendChild(checkbox);
+            item.appendChild(labelSpan);
+
+            const valHtml = getValHtml(key);
+            if (valHtml) {
+                const valWrap = document.createElement('span');
+                valWrap.innerHTML = valHtml;
+                while (valWrap.firstChild) item.appendChild(valWrap.firstChild);
+            }
+
+            const handleToggle = () => {
+                if (checkbox.checked) {
+                    this.addCustomMetric(key);
+                } else {
+                    this.enabledMetrics.delete(key);
+                    if (!GRAPH_METRICS[key]) this.customMetrics.delete(key);
+                    this.rebuildLegend();
+                    if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
+                    requestRedraw();
+                }
+            };
+
+            item.addEventListener('click', (e) => {
+                if (e.target === checkbox) return;
+                e.stopPropagation();
+                checkbox.checked = !checkbox.checked;
+                handleToggle();
+            });
+            checkbox.addEventListener('change', handleToggle);
+
+            return item;
+        };
 
         const renderList = (filter) => {
             list.innerHTML = '';
             const hasPattern = filter && isPatternFilter(filter);
+            const filterFn = filter
+                ? (key, label) => matchMetricFilter(key, filter) || matchMetricFilter(label, filter)
+                : () => true;
 
-            // Computed metrics section
-            const computedEntries = Object.entries(GRAPH_METRICS).filter(([key]) => key.startsWith('computed:'));
-            const filteredComputed = filter
-                ? computedEntries.filter(([key, m]) => matchMetricFilter(key, filter) || matchMetricFilter(m.label, filter))
-                : computedEntries;
-            if (filteredComputed.length > 0) {
+            // Enabled metrics at top
+            const enabledItems = [];
+            for (const key of this.enabledMetrics) {
+                const metric = GRAPH_METRICS[key];
+                const custom = this.customMetrics.get(key);
+                const label = metric ? metric.label : (custom ? custom.label : key);
+                if (filterFn(key, label)) enabledItems.push({ key, label });
+            }
+            if (enabledItems.length > 0) {
                 const hdr = document.createElement('div');
                 hdr.className = 'metric-picker-section';
-                hdr.textContent = 'Computed';
+                hdr.textContent = 'Enabled';
                 list.appendChild(hdr);
-                for (const [key, metric] of filteredComputed) {
-                    const added = alreadyAdded.has(key);
-                    const item = document.createElement('div');
-                    item.className = 'metric-picker-item' + (added ? ' dimmed' : '');
-                    let valHtml = '';
-                    try {
-                        if (frame) {
-                            const extract = metric.extract(frame);
-                            if (extract != null && typeof extract === 'number') {
-                                const val = Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2);
-                                valHtml = `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>`;
-                            }
-                        }
-                    } catch (e) { /* ignore runtime errors */ }
-                    item.innerHTML = `<span class="metric-picker-path">${metric.label}</span>${valHtml}`;
-                    if (!added) {
-                        item.addEventListener('click', () => { this.addCustomMetric(key); this.closeMetricPicker(); });
-                    }
-                    list.appendChild(item);
-                }
+                for (const m of enabledItems) list.appendChild(createItem(m.key, m.label, true));
             }
 
-            // Preset metrics section (show un-enabled presets, excluding computed)
-            const presetEntries = Object.entries(GRAPH_METRICS).filter(([key]) => !key.startsWith('computed:') && !alreadyAdded.has(key));
-            const filteredPresets = filter ? presetEntries.filter(([key, m]) => matchMetricFilter(key, filter) || matchMetricFilter(m.label, filter)) : presetEntries;
-            if (filteredPresets.length > 0) {
+            // Available presets (non-computed, not enabled)
+            const presetItems = [];
+            for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
+                if (key.startsWith('computed:') || this.enabledMetrics.has(key)) continue;
+                if (filterFn(key, metric.label)) presetItems.push({ key, label: metric.label });
+            }
+            if (presetItems.length > 0) {
                 const hdr = document.createElement('div');
                 hdr.className = 'metric-picker-section';
                 hdr.textContent = 'Presets';
                 list.appendChild(hdr);
-                for (const [key, metric] of filteredPresets) {
-                    const item = document.createElement('div');
-                    item.className = 'metric-picker-item';
-                    let valHtml = '';
-                    try {
-                        if (frame) {
-                            const extract = metric.extract(frame);
-                            const val = extract != null ? (Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2)) : null;
-                            if (val != null) valHtml = `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>`;
-                        }
-                    } catch (e) { /* ignore runtime errors */ }
-                    item.innerHTML = `<span class="metric-picker-path">${metric.label}</span>${valHtml}`;
-                    item.addEventListener('click', () => { this.addCustomMetric(key); this.closeMetricPicker(); });
-                    list.appendChild(item);
-                }
+                for (const m of presetItems) list.appendChild(createItem(m.key, m.label, false));
             }
 
-            // Raw metric sections (only when frame data available)
-            if (frame) {
-                const addablePaths = [];
-                for (const [section, paths] of Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]))) {
-                    const filtered = filter ? paths.filter(p => matchMetricFilter(p, filter)) : paths;
-                    if (filtered.length === 0) continue;
+            // Available computed metrics (not enabled)
+            const computedItems = [];
+            for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
+                if (!key.startsWith('computed:') || this.enabledMetrics.has(key)) continue;
+                if (filterFn(key, metric.label)) computedItems.push({ key, label: metric.label });
+            }
+            if (computedItems.length > 0) {
+                const hdr = document.createElement('div');
+                hdr.className = 'metric-picker-section';
+                hdr.textContent = 'Computed';
+                list.appendChild(hdr);
+                for (const m of computedItems) list.appendChild(createItem(m.key, m.label, false));
+            }
 
+            // Raw metrics from frame (not already listed)
+            if (frame) {
+                const listedKeys = new Set([...enabledItems.map(m => m.key), ...presetItems.map(m => m.key), ...computedItems.map(m => m.key)]);
+                const uncheckedRaw = [];
+                for (const [section, paths] of Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]))) {
+                    const filtered = paths.filter(p => !listedKeys.has(p) && filterFn(p, p));
+                    if (filtered.length === 0) continue;
                     const hdr = document.createElement('div');
                     hdr.className = 'metric-picker-section';
                     hdr.textContent = section.charAt(0).toUpperCase() + section.slice(1);
                     list.appendChild(hdr);
-
                     for (const path of filtered) {
-                        const item = document.createElement('div');
-                        const added = alreadyAdded.has(path);
-                        item.className = 'metric-picker-item' + (added ? ' dimmed' : '');
-                        const parts = path.split('.');
-                        let valHtml = '';
-                        try {
-                            const rawVal = resolveMetricPathRaw(frame, parts);
-                            if (typeof rawVal === 'boolean') {
-                                valHtml = `<span class="metric-picker-value">${rawVal ? 'true' : 'false'} <span class="metric-picker-unit">bool</span></span>`;
-                            } else if (typeof rawVal === 'number') {
-                                const fmt = formatMetricValue(path, rawVal);
-                                valHtml = `<span class="metric-picker-value">${fmt.text}${fmt.unit ? ' <span class="metric-picker-unit">' + fmt.unit + '</span>' : ''}</span>`;
-                            }
-                        } catch (e) { /* ignore runtime errors */ }
-                        item.innerHTML = `<span class="metric-picker-path">${path}</span>${valHtml}`;
-                        if (!added) {
-                            addablePaths.push(path);
-                            item.addEventListener('click', () => {
-                                this.addCustomMetric(path);
-                                this.closeMetricPicker();
-                            });
-                        }
-                        list.appendChild(item);
+                        list.appendChild(createItem(path, path, false));
+                        uncheckedRaw.push(path);
                     }
                 }
 
-                // "Add all" button when using wildcard/regex with multiple matches
-                if (hasPattern && addablePaths.length > 1) {
+                // "Add all" button for wildcard/regex
+                if (hasPattern && uncheckedRaw.length > 1) {
                     const btn = document.createElement('div');
                     btn.className = 'metric-picker-add-all';
-                    btn.textContent = `+ Add all ${addablePaths.length} matches`;
+                    btn.textContent = `+ Add all ${uncheckedRaw.length} matches`;
                     btn.addEventListener('click', () => {
-                        for (const p of addablePaths) this.addCustomMetric(p);
-                        this.closeMetricPicker();
+                        for (const p of uncheckedRaw) this.addCustomMetric(p);
+                        renderList(search.value);
                     });
                     list.insertBefore(btn, list.firstChild);
                 }
@@ -454,8 +437,6 @@ class GraphWidget extends Widget {
         renderList('');
 
         search.addEventListener('input', () => renderList(search.value));
-
-        // Focus search
         requestAnimationFrame(() => search.focus());
     }
 

@@ -734,22 +734,11 @@ body {
     background: transparent !important;
 }
 
-.graph-suggestion {
-    border: 1px dashed rgba(255,255,255,0.08) !important;
-    color: var(--text-muted) !important;
-    opacity: 0.6;
-    font-style: italic;
-}
-.graph-suggestion:hover {
-    opacity: 1;
-    border-color: var(--accent) !important;
-    color: var(--accent) !important;
-}
-.graph-suggestion-plus {
-    color: var(--accent);
-    font-weight: 700;
-    font-style: normal;
-    margin-right: 2px;
+.metric-picker-checkbox {
+    margin: 0 6px 0 0;
+    cursor: pointer;
+    accent-color: var(--accent);
+    flex-shrink: 0;
 }
 
 .graph-preset-btn {
@@ -847,8 +836,6 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 .metric-picker-item:hover { background: rgba(255,255,255,0.06); }
-.metric-picker-item.dimmed { opacity: 0.35; cursor: default; }
-.metric-picker-item.dimmed:hover { background: transparent; }
 .metric-picker-path { color: var(--accent); }
 .metric-picker-value { color: var(--text-secondary); font-size: 0.65rem; }
 .metric-picker-unit { color: var(--text-muted); font-size: 0.6rem; }
