@@ -8,7 +8,7 @@ class VehicleWidget extends Widget {
                 <div class="vehicle-stats-row">
                     <div class="metric-cell">
                         <div class="metric-label">SPEED</div>
-                        <div class="vehicle-stat-val"><span id="v-speed">---</span><span class="metric-unit">km/h</span></div>
+                        <div class="vehicle-stat-val"><span id="v-speed">---</span><span class="metric-unit" id="v-speed-unit">m/s</span></div>
                     </div>
                     <div class="metric-cell">
                         <div class="metric-label">GEAR</div>
@@ -43,7 +43,7 @@ class VehicleWidget extends Widget {
         this.canvas = c.querySelector('#v-wheel-canvas');
         this.ctx = this.canvas.getContext('2d');
         this._steerAngle = 0;
-        this._cache(c, { speed: '#v-speed', rpm: '#v-rpm', gear: '#v-gear',
+        this._cache(c, { speed: '#v-speed', speedUnit: '#v-speed-unit', rpm: '#v-rpm', gear: '#v-gear',
             thrBar: '#v-thr-bar', thrPct: '#v-thr-pct',
             brkBar: '#v-brk-bar', brkPct: '#v-brk-pct',
             cltBar: '#v-clt-bar', cltPct: '#v-clt-pct' });
@@ -55,7 +55,13 @@ class VehicleWidget extends Widget {
     update(store) {
         const f = store.currentFrame;
         const v = f?.vehicle;
-        this.els.speed.textContent = v?.speed != null ? Math.round(v.speed * 3.6) : '---';
+        if (v?.speed != null) {
+            const sp = applyUnitPref('m/s', v.speed);
+            this.els.speed.textContent = Math.round(sp.value);
+            this.els.speedUnit.textContent = sp.unit;
+        } else {
+            this.els.speed.textContent = '---';
+        }
         this.els.rpm.textContent = v?.rpm != null ? Math.round(v.rpm) : '---';
         this.els.gear.textContent = v?.gear != null ? (v.gear === -1 ? 'R' : v.gear === 0 ? 'N' : v.gear) : 'N';
 
@@ -337,15 +343,19 @@ class WheelsWidget extends Widget {
     constructor() {
         super('wheels', 'Wheels', { col: 9, row: 1, width: 4, height: 8 });
         this.suspRange = { min: Infinity, max: -Infinity };
-        this.shockMax = 1; // track absolute max for symmetric scaling
+        this.shockMax = 1;
+        // Shock velocity ring buffers per corner (~2s at 60Hz)
+        this._shockHistLen = 120;
+        this._shockHist = {};
+        for (const w of ['fl', 'fr', 'rl', 'rr']) {
+            this._shockHist[w] = { buf: new Float32Array(120), head: 0, count: 0 };
+        }
     }
 
     buildContent(c) {
         const corners = ['fl', 'fr', 'rl', 'rr'];
         const labels = { fl: 'FL', fr: 'FR', rl: 'RL', rr: 'RR' };
         const positions = { fl: 'grid-column:1;grid-row:1', fr: 'grid-column:3;grid-row:1', rl: 'grid-column:1;grid-row:2', rr: 'grid-column:3;grid-row:2' };
-        // Left wheels: outer-middle-inner (O nearest edge, I nearest car)
-        // Right wheels: inner-middle-outer (I nearest car, O nearest edge)
         const isLeft = { fl: true, fr: false, rl: true, rr: false };
 
         c.innerHTML = `
@@ -360,13 +370,13 @@ class WheelsWidget extends Widget {
                 <div class="wheel-corner" style="${positions[w]}">
                     <span class="wheel-label">${labels[w]}</span>
                     <div class="wheel-load-row">
-                        <div class="wheel-tire" id="w-${w}-tire"></div>
-                        <div class="wheel-load-info">
+                        <div class="wheel-susp-col">
+                            <div class="wheel-susp-track"><div class="wheel-susp-fill" id="w-${w}-suspbar"></div></div>
                             <span class="wheel-val" id="w-${w}-susp">--</span>
-                            <div class="wheel-shock-wrap">
-                                <div class="wheel-bar-track wheel-shock-track"><div class="wheel-bar-center"></div><div class="wheel-shock-fill" id="w-${w}-shbar"></div></div>
-                                <span class="wheel-val" id="w-${w}-shock">--</span>
-                            </div>
+                        </div>
+                        <div class="wheel-shock-col">
+                            <canvas class="wheel-shock-canvas" id="w-${w}-shcanvas"></canvas>
+                            <span class="wheel-val" id="w-${w}-shock">--</span>
                         </div>
                     </div>
                     <div class="wheel-temp-row">
@@ -400,9 +410,9 @@ class WheelsWidget extends Widget {
         this.wEls = {};
         for (const w of corners) {
             this.wEls[w] = {
-                tire: c.querySelector(`#w-${w}-tire`),
+                suspbar: c.querySelector(`#w-${w}-suspbar`),
                 susp: c.querySelector(`#w-${w}-susp`),
-                shbar: c.querySelector(`#w-${w}-shbar`),
+                shcanvas: c.querySelector(`#w-${w}-shcanvas`),
                 shock: c.querySelector(`#w-${w}-shock`),
                 ti: c.querySelector(`#w-${w}-ti`),
                 tm: c.querySelector(`#w-${w}-tm`),
@@ -416,14 +426,65 @@ class WheelsWidget extends Widget {
         }
     }
 
-    // Map suspension travel (normalized 0-1) to a load color: green → yellow → red
+    // Map suspension compression (normalized 0-1) to color: green → yellow → red
     _loadColor(t) {
         t = Math.max(0, Math.min(1, t));
-        if (t <= 0.5) {
-            const f = t / 0.5;
-            return _lerpColor('#22c55e', '#eab308', f);
-        }
+        if (t <= 0.5) return _lerpColor('#22c55e', '#eab308', t / 0.5);
         return _lerpColor('#eab308', '#ef4444', (t - 0.5) / 0.5);
+    }
+
+    _renderShockSparkline(canvas, hist) {
+        const dpr = window.devicePixelRatio || 1;
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        if (w <= 0 || h <= 0) return;
+        const tw = w * dpr, th = h * dpr;
+        if (canvas.width !== tw || canvas.height !== th) {
+            canvas.width = tw;
+            canvas.height = th;
+        }
+        const ctx = canvas.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+
+        const cy = h / 2;
+        // Center line
+        ctx.beginPath();
+        ctx.moveTo(0, cy);
+        ctx.lineTo(w, cy);
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        if (hist.count < 2) return;
+
+        const n = hist.count;
+        const len = hist.buf.length;
+        const start = hist.count < len ? 0 : hist.head;
+        const scale = this.shockMax > 0 ? (cy - 1) / this.shockMax : 1;
+        const dx = w / (this._shockHistLen - 1);
+
+        // Draw filled area: positive = orange (bump), negative = blue (rebound)
+        // We draw two passes: one for positive, one for negative
+        for (let pass = 0; pass < 2; pass++) {
+            ctx.beginPath();
+            let started = false;
+            for (let i = 0; i < n; i++) {
+                const idx = (start + i) % len;
+                const v = hist.buf[idx];
+                const x = (n < this._shockHistLen) ? i * (w / (n - 1)) : i * dx;
+                const clampedV = (pass === 0) ? Math.max(0, v) : Math.min(0, v);
+                const y = cy - clampedV * scale;
+                if (!started) { ctx.moveTo(x, cy); ctx.lineTo(x, y); started = true; }
+                else ctx.lineTo(x, y);
+            }
+            // Close back to center line
+            const lastX = (n < this._shockHistLen) ? (n - 1) * (w / (n - 1)) : (n - 1) * dx;
+            ctx.lineTo(lastX, cy);
+            ctx.closePath();
+            ctx.fillStyle = pass === 0 ? 'rgba(251,146,60,0.5)' : 'rgba(56,189,248,0.5)';
+            ctx.fill();
+        }
     }
 
     update(store) {
@@ -449,33 +510,28 @@ class WheelsWidget extends Widget {
         for (const [key, wd] of Object.entries(map)) {
             const els = this.wEls[key];
 
-            // Tire load rectangle — colored by suspension travel
+            // Suspension travel — vertical bar filling top-down
             if (wd?.suspension_travel != null) {
                 const mm = wd.suspension_travel * 1000;
                 const t = sRange > 0.1 ? (mm - sMin) / sRange : 0.5;
-                els.tire.style.background = this._loadColor(t);
+                const pct = Math.max(0, Math.min(1, t)) * 100;
+                els.suspbar.style.height = pct + '%';
+                els.suspbar.style.background = this._loadColor(t);
                 els.susp.textContent = mm.toFixed(1);
             }
 
-            // Shock velocity centered bar
+            // Shock velocity — push to ring buffer and render sparkline
             if (wd?.shock_velocity != null) {
                 const mmps = wd.shock_velocity * 1000;
-                const halfPct = Math.min(Math.abs(mmps) / this.shockMax, 1) * 50;
-                if (mmps >= 0) {
-                    els.shbar.style.bottom = '50%';
-                    els.shbar.style.top = '';
-                    els.shbar.style.height = halfPct + '%';
-                    els.shbar.style.background = '#fb923c';
-                } else {
-                    els.shbar.style.top = '50%';
-                    els.shbar.style.bottom = '';
-                    els.shbar.style.height = halfPct + '%';
-                    els.shbar.style.background = '#38bdf8';
-                }
+                const hist = this._shockHist[key];
+                hist.buf[hist.head] = mmps;
+                hist.head = (hist.head + 1) % hist.buf.length;
+                if (hist.count < hist.buf.length) hist.count++;
+                this._renderShockSparkline(els.shcanvas, hist);
                 els.shock.textContent = mmps.toFixed(0);
             }
 
-            // Tire surface temps — show value per segment
+            // Tire surface temps
             const ti = wd?.surface_temp_inner, tm = wd?.surface_temp_middle, to = wd?.surface_temp_outer;
             if (ti != null) { els.ti.style.background = tireTemperatureColor(ti); els.tiv.textContent = Math.round(ti) + '\u00B0'; }
             if (tm != null) { els.tm.style.background = tireTemperatureColor(tm); els.tmv.textContent = Math.round(tm) + '\u00B0'; }

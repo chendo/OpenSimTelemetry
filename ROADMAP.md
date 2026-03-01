@@ -2,9 +2,6 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Interface: Top bar is getting crowded. Streamline with dropdown menus. Data Export doesn't belong in settings, move it out.
-* Interface: Wheel pane should show suspension travel with vertical bars, where higher number indicates more compression on the wheel. Show shock velocity as sparkline trails.
-
 ## WIP: do not work on these
 
 * 

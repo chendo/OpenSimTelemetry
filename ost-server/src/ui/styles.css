@@ -1035,61 +1035,52 @@ body {
     min-width: 32px;
 }
 
-/* Tire load rectangle + shock info row */
+/* Suspension bar + shock sparkline row */
 .wheel-load-row {
     display: flex;
-    align-items: center;
-    gap: 6px;
+    align-items: stretch;
+    gap: 4px;
+    height: 42px;
 }
 
-.wheel-tire {
-    width: 22px;
-    height: 34px;
-    border-radius: 5px;
-    background: var(--bg-inset);
-    transition: background 0.1s ease-out;
-    flex-shrink: 0;
-}
-
-.wheel-load-info {
+.wheel-susp-col {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    min-width: 28px;
+    flex-shrink: 0;
 }
 
-.wheel-shock-wrap {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-}
-
-.wheel-bar-track {
-    width: 6px;
-    height: 24px;
+.wheel-susp-track {
+    width: 8px;
+    flex: 1;
     background: var(--bg-inset);
     border-radius: 3px;
     overflow: hidden;
     position: relative;
-    flex-shrink: 0;
 }
 
-/* Shock velocity centered bar */
-.wheel-shock-track { position: relative; }
-.wheel-bar-center {
-    position: absolute;
-    left: 0; right: 0;
-    top: 50%;
-    height: 1px;
-    background: var(--text-muted);
-    opacity: 0.5;
-}
-.wheel-shock-fill {
+.wheel-susp-fill {
     width: 100%;
     position: absolute;
+    top: 0;
     border-radius: 3px;
-    transition: height 0.08s ease-out;
+    transition: height 0.08s ease-out, background 0.1s ease-out;
+}
+
+.wheel-shock-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 50px;
+}
+
+.wheel-shock-canvas {
+    width: 100%;
+    flex: 1;
+    border-radius: 3px;
+    background: var(--bg-inset);
 }
 
 /* Tire temperature row: 3 cells with color block + value */
