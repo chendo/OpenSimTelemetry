@@ -203,6 +203,9 @@ for (const cfg of savedGauges) {
     grid.addWidget(gw);
 }
 
+// Restore saved custom widgets
+_restoreCustomWidgets(grid, widgets);
+
 grid.gs.batchUpdate(false);
 grid.restoreLayout();
 
@@ -234,6 +237,19 @@ document.getElementById('header-add-gauge').addEventListener('click', () => {
     grid.saveLayout();
     gw._saveGaugeConfigs();
     gw._openConfig();
+});
+
+// + Custom widget button
+document.getElementById('header-add-custom').addEventListener('click', () => {
+    const id = 'custom-' + (graphCounter++);
+    const cw = new CustomWidget(id, '');
+    cw.onTitleChange = () => _saveCustomWidgetConfigs();
+    cw.init();
+    grid.addWidget(cw);
+    widgets.push(cw);
+    grid.saveLayout();
+    _saveCustomWidgetConfigs();
+    cw.showConfigDialog();
 });
 
 // Sources dropdown
@@ -761,6 +777,33 @@ function openSettingsModal() {
             <span class="settings-label"></span>
             <button class="cm-btn cm-btn-test" id="settings-download-buf">Download Buffer</button>
         </div>
+        <div class="settings-section-title" style="margin-top:12px">Retention</div>
+        <div class="settings-row">
+            <span class="settings-label">Max Sessions</span>
+            <select class="settings-select" id="settings-retention-max-sessions">
+                <option value="">Unlimited</option>
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+        </div>
+        <div class="settings-row">
+            <span class="settings-label">Max Age</span>
+            <select class="settings-select" id="settings-retention-max-age">
+                <option value="">Unlimited</option>
+                <option value="7">7 days</option>
+                <option value="14">14 days</option>
+                <option value="30">30 days</option>
+                <option value="60">60 days</option>
+                <option value="90">90 days</option>
+            </select>
+        </div>
+        <div class="settings-row">
+            <span class="settings-label">Disk Usage</span>
+            <span id="settings-disk-usage" style="color:#888;font-size:12px;">Loading...</span>
+        </div>
         <div class="settings-divider"></div>
         <div class="settings-section-title">Dashboard Profiles</div>
         <div id="settings-profiles-list"></div>
@@ -843,6 +886,39 @@ function openSettingsModal() {
     }
     autoSaveCb.addEventListener('change', syncPersistenceConfig);
     freqSelect.addEventListener('change', syncPersistenceConfig);
+
+    // Retention settings
+    const retMaxSessions = modal.querySelector('#settings-retention-max-sessions');
+    const retMaxAge = modal.querySelector('#settings-retention-max-age');
+    const diskUsageSpan = modal.querySelector('#settings-disk-usage');
+
+    // Load current retention config and stats
+    fetch(apiBase() + '/api/persistence/config').then(r => r.json()).then(cfg => {
+        if (cfg.retention) {
+            retMaxSessions.value = cfg.retention.max_sessions != null ? String(cfg.retention.max_sessions) : '';
+            retMaxAge.value = cfg.retention.max_age_days != null ? String(cfg.retention.max_age_days) : '';
+        }
+    }).catch(() => {});
+    fetch(apiBase() + '/api/persistence/stats').then(r => r.json()).then(stats => {
+        diskUsageSpan.textContent = `${stats.file_count} files, ${stats.total_size_mb} MB`;
+    }).catch(() => { diskUsageSpan.textContent = 'N/A'; });
+
+    function syncRetentionConfig() {
+        const maxSessions = retMaxSessions.value ? parseInt(retMaxSessions.value) : null;
+        const maxAge = retMaxAge.value ? parseInt(retMaxAge.value) : null;
+        fetch(apiBase() + '/api/persistence/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max_sessions: maxSessions, max_age_days: maxAge })
+        }).then(() => {
+            // Refresh disk usage after cleanup
+            fetch(apiBase() + '/api/persistence/stats').then(r => r.json()).then(stats => {
+                diskUsageSpan.textContent = `${stats.file_count} files, ${stats.total_size_mb} MB`;
+            }).catch(() => {});
+        }).catch(() => {});
+    }
+    retMaxSessions.addEventListener('change', syncRetentionConfig);
+    retMaxAge.addEventListener('change', syncRetentionConfig);
 
     modal.querySelector('#settings-download-buf').addEventListener('click', () => {
         const a = document.createElement('a');

@@ -16,6 +16,8 @@ pub struct PersistenceConfig {
     pub enabled: bool,
     pub frequency_hz: u32,
     pub auto_save: bool,
+    #[serde(default)]
+    pub retention: RetentionConfig,
 }
 
 impl Default for PersistenceConfig {
@@ -24,8 +26,18 @@ impl Default for PersistenceConfig {
             enabled: false,
             frequency_hz: 60,
             auto_save: false,
+            retention: RetentionConfig::default(),
         }
     }
+}
+
+/// Retention policy for automatic cleanup of old session files
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct RetentionConfig {
+    /// Maximum number of session files to keep (None = unlimited)
+    pub max_sessions: Option<usize>,
+    /// Maximum age in days for session files (None = unlimited)
+    pub max_age_days: Option<u32>,
 }
 
 /// Get the default telemetry storage directory
@@ -225,6 +237,99 @@ pub async fn run(
             error!("Persistence: failed to finish file on shutdown: {}", e);
         }
     }
+}
+
+/// Run retention policy cleanup: delete old session files based on config.
+/// Called after session save completes and on server startup.
+pub fn cleanup_old_sessions(config: &RetentionConfig) {
+    let dir = telemetry_dir();
+    let mut files: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if !name.ends_with(".ost.ndjson.zstd") {
+                continue;
+            }
+            let modified = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            files.push((path, modified));
+        }
+    }
+
+    // Sort newest first
+    files.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // Enforce max_age_days: delete files older than N days
+    if let Some(max_days) = config.max_age_days {
+        let cutoff =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(max_days as u64 * 86400);
+        let before = files.len();
+        files.retain(|(path, modified)| {
+            if *modified < cutoff {
+                info!("Retention: deleting old file {}", path.display());
+                let _ = std::fs::remove_file(path);
+                false
+            } else {
+                true
+            }
+        });
+        let removed = before - files.len();
+        if removed > 0 {
+            info!(
+                "Retention: removed {} files older than {} days",
+                removed, max_days
+            );
+        }
+    }
+
+    // Enforce max_sessions: keep only the newest N files
+    if let Some(max) = config.max_sessions {
+        if files.len() > max {
+            let excess = &files[max..];
+            info!(
+                "Retention: removing {} excess files (keeping {})",
+                excess.len(),
+                max
+            );
+            for (path, _) in excess {
+                info!("Retention: deleting excess file {}", path.display());
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+/// Compute storage stats for the telemetry directory
+pub fn storage_stats() -> serde_json::Value {
+    let dir = telemetry_dir();
+    let mut total_size: u64 = 0;
+    let mut file_count: usize = 0;
+
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".ost.ndjson.zstd") {
+                file_count += 1;
+                total_size += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+
+    serde_json::json!({
+        "file_count": file_count,
+        "total_size_bytes": total_size,
+        "total_size_mb": (total_size as f64 / 1_048_576.0 * 100.0).round() / 100.0,
+        "directory": dir.to_string_lossy(),
+    })
 }
 
 /// Download the history buffer as NDJSON+ZSTD bytes

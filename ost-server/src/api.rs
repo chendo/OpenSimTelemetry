@@ -154,6 +154,7 @@ pub fn create_router(state: AppState) -> Router {
             get(persistence_get_config).post(persistence_set_config),
         )
         .route("/api/persistence/download", get(persistence_download))
+        .route("/api/persistence/stats", get(persistence_stats))
         .route("/api/persistence/files", get(persistence_list_files))
         .route("/api/persistence/load", post(persistence_load_file))
         .route(
@@ -1101,6 +1102,7 @@ async fn persistence_get_config(State(state): State<AppState>) -> Json<serde_jso
         "enabled": config.enabled,
         "frequency_hz": config.frequency_hz,
         "auto_save": config.auto_save,
+        "retention": config.retention,
         "directory": dir.to_string_lossy(),
     }))
 }
@@ -1110,6 +1112,8 @@ struct PersistenceConfigRequest {
     enabled: Option<bool>,
     frequency_hz: Option<u32>,
     auto_save: Option<bool>,
+    max_sessions: Option<Option<usize>>,
+    max_age_days: Option<Option<u32>>,
 }
 
 async fn persistence_set_config(
@@ -1126,12 +1130,32 @@ async fn persistence_set_config(
     if let Some(auto_save) = req.auto_save {
         config.auto_save = auto_save;
     }
+    if let Some(max_sessions) = req.max_sessions {
+        config.retention.max_sessions = max_sessions;
+    }
+    if let Some(max_age_days) = req.max_age_days {
+        config.retention.max_age_days = max_age_days;
+    }
+
+    // Run cleanup after config change
+    let retention = config.retention.clone();
+    drop(config);
+    tokio::task::spawn_blocking(move || {
+        crate::persistence::cleanup_old_sessions(&retention);
+    });
+
+    let config = state.persistence_config.read().await;
     Json(serde_json::json!({
         "status": "ok",
         "enabled": config.enabled,
         "frequency_hz": config.frequency_hz,
         "auto_save": config.auto_save,
+        "retention": config.retention,
     }))
+}
+
+async fn persistence_stats() -> Json<serde_json::Value> {
+    Json(crate::persistence::storage_stats())
 }
 
 // === Conversion Endpoints ===
