@@ -1,14 +1,14 @@
 /* ==================== GraphWidget ==================== */
 class GraphWidget extends Widget {
     static DEFAULT_METRICS = [
-        { path: 'vehicle.speed',              color: '#00d68f', unit: 'm/s',  norm: 'autoscale' },
-        { path: 'vehicle.rpm',                color: '#ff6b6b', unit: 'rpm',  norm: 'autoscale' },
-        { path: 'vehicle.throttle',           color: '#4ecdc4', unit: '%',    norm: 'pct' },
-        { path: 'vehicle.brake',              color: '#ff4757', unit: '%',    norm: 'pct' },
-        { path: 'vehicle.clutch',             color: '#a78bfa', unit: '%',    norm: 'pct' },
-        { path: 'motion.angular_velocity.y',  color: '#eab308', unit: 'rad/s', norm: 'centered' },
-        { path: 'electronics.abs_active',     color: '#f59e0b', unit: '',     norm: 'boolean' },
-        { path: 'vehicle.steering_angle',     color: '#ffa502', unit: 'rad',  norm: 'centered' },
+        { path: 'vehicle.speed',              color: '#00d68f' },
+        { path: 'vehicle.rpm',                color: '#ff6b6b' },
+        { path: 'vehicle.throttle',           color: '#4ecdc4' },
+        { path: 'vehicle.brake',              color: '#ff4757' },
+        { path: 'vehicle.clutch',             color: '#a78bfa' },
+        { path: 'motion.angular_velocity.y',  color: '#eab308' },
+        { path: 'electronics.abs_active',     color: '#f59e0b', norm: 'boolean' },
+        { path: 'vehicle.steering_angle',     color: '#ffa502' },
     ];
 
     constructor(id, defaultLayout, defaultEnabled) {
@@ -21,12 +21,13 @@ class GraphWidget extends Widget {
             this.enabledMetrics = new Set();
             for (const d of GraphWidget.DEFAULT_METRICS) {
                 this.enabledMetrics.add(d.path);
+                const unitInfo = d.norm ? { unit: '', norm: d.norm } : getMetricUnitInfo(d.path);
                 this.customMetrics.set(d.path, {
                     path: d.path,
                     label: deriveLabel(d.path),
                     color: d.color,
-                    unit: d.unit,
-                    norm: d.norm,
+                    unit: unitInfo.unit,
+                    norm: unitInfo.norm,
                     parts: d.path.split('.'),
                 });
             }
