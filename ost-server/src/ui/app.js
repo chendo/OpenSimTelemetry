@@ -198,11 +198,31 @@ _restoreCustomWidgets(grid);
 grid.gs.batchUpdate(false);
 grid.restoreLayout();
 
+// Header dropdown menus — generic toggle logic
+function setupDropdown(btnId, menuId) {
+    const btn = document.getElementById(btnId);
+    const menu = document.getElementById(menuId);
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Close other dropdowns first
+        document.querySelectorAll('.header-dropdown-menu.open').forEach(m => {
+            if (m !== menu) m.classList.remove('open');
+        });
+        menu.classList.toggle('open');
+    });
+    menu.addEventListener('click', (e) => e.stopPropagation());
+}
+setupDropdown('data-btn', 'data-menu');
+setupDropdown('widget-btn', 'widget-menu');
+// Close all dropdowns on outside click
+document.addEventListener('click', () => {
+    document.querySelectorAll('.header-dropdown-menu.open').forEach(m => m.classList.remove('open'));
+});
+
 // Add Graph button
 let graphCounter = Date.now();
-document.getElementById('header-add-graph').addEventListener('click', () => {
+document.getElementById('menu-add-graph').addEventListener('click', () => {
     const id = 'graph-' + (graphCounter++);
-    // Find the bottom of existing graph widgets to place new graph directly below
     let maxBottom = 0;
     for (const node of grid.gs.getGridItems()) {
         const n = node.gridstackNode;
@@ -213,10 +233,11 @@ document.getElementById('header-add-graph').addEventListener('click', () => {
     grid.addWidget(gw);
     grid.saveLayout();
     grid.saveGraphConfigs();
+    document.getElementById('widget-menu').classList.remove('open');
 });
 
 // + Custom widget button
-document.getElementById('header-add-custom').addEventListener('click', () => {
+document.getElementById('menu-add-custom').addEventListener('click', () => {
     const id = 'custom-' + (graphCounter++);
     const cw = new CustomWidget(id, '');
     cw.onTitleChange = () => _saveCustomWidgetConfigs();
@@ -225,20 +246,11 @@ document.getElementById('header-add-custom').addEventListener('click', () => {
     grid.saveLayout();
     _saveCustomWidgetConfigs();
     cw.showConfigDialog();
+    document.getElementById('widget-menu').classList.remove('open');
 });
 
-// Sources dropdown
-const sourcesBtn = document.getElementById('sources-btn');
+// Sources section within Data dropdown
 const sourcesMenu = document.getElementById('sources-menu');
-let sourcesOpen = false;
-
-sourcesBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    sourcesOpen = !sourcesOpen;
-    sourcesMenu.classList.toggle('open', sourcesOpen);
-});
-document.addEventListener('click', () => { sourcesOpen = false; sourcesMenu.classList.remove('open'); });
-sourcesMenu.addEventListener('click', (e) => e.stopPropagation());
 
 function updateHeaderAdapters() {
     sourcesMenu.innerHTML = store.adapters.map(a => {
@@ -261,18 +273,18 @@ function updateHeaderAdapters() {
             } catch (e) { console.error('Toggle adapter failed:', e); }
         });
     });
-    // Update button to show active count
+    // Update Data dropdown button to show active source count
     const activeCount = store.adapters.filter(a => a.active).length;
-    sourcesBtn.textContent = activeCount > 0 ? `Sources (${activeCount})` : 'Sources';
+    const dataBtn = document.getElementById('data-btn');
+    dataBtn.innerHTML = activeCount > 0 ? `Data (${activeCount}) &#9662;` : 'Data &#9662;';
 }
 
-// Pause/resume streaming button
+// Pause/resume streaming button (in seek bar)
 const pauseBtn = document.getElementById('header-pause-btn');
 pauseBtn.addEventListener('click', () => {
     streamPaused = !streamPaused;
-    pauseBtn.textContent = streamPaused ? 'Resume' : 'Pause';
-    pauseBtn.style.borderColor = streamPaused ? 'var(--accent)' : '';
-    pauseBtn.style.color = streamPaused ? 'var(--accent)' : '';
+    pauseBtn.innerHTML = streamPaused ? '&#9654;' : '&#9646;&#9646;';
+    pauseBtn.classList.toggle('paused', streamPaused);
     // Sync pause state to server history buffer
     fetch(apiBase() + '/api/replay/control', {
         method: 'POST',
@@ -288,9 +300,12 @@ document.getElementById('header-reset-layout').addEventListener('click', () => g
 // Computed metrics button
 document.getElementById('header-computed-metrics').addEventListener('click', () => computedMetrics.openListModal());
 
-// Load .ibt button
+// Load .ibt menu item
 const ibtFileInput = document.getElementById('ibt-file-input');
-document.getElementById('header-load-ibt').addEventListener('click', () => ibtFileInput.click());
+document.getElementById('menu-load-ibt').addEventListener('click', () => {
+    ibtFileInput.click();
+    document.getElementById('data-menu').classList.remove('open');
+});
 ibtFileInput.addEventListener('change', () => {
     const file = ibtFileInput.files[0];
     if (file && file.name.toLowerCase().endsWith('.ibt')) replayPlayer.upload(file);
@@ -298,7 +313,8 @@ ibtFileInput.addEventListener('change', () => {
 });
 
 // Browse saved replays
-document.getElementById('header-browse-replays').addEventListener('click', async () => {
+document.getElementById('menu-browse-replays').addEventListener('click', async () => {
+    document.getElementById('data-menu').classList.remove('open');
     if (document.getElementById('replays-modal')) return;
 
     const overlay = document.createElement('div');
@@ -418,6 +434,97 @@ document.getElementById('header-browse-replays').addEventListener('click', async
     } catch (e) {
         list.innerHTML = '<div class="no-data">Failed to load file list</div>';
     }
+});
+
+// Export Data (standalone modal from Data dropdown)
+document.getElementById('menu-export-data').addEventListener('click', () => {
+    document.getElementById('data-menu').classList.remove('open');
+    if (document.getElementById('export-modal')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'export-modal';
+    overlay.className = 'cm-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'cm-modal';
+    modal.style.width = '360px';
+    modal.innerHTML = `
+        <div class="cm-modal-title">Export Data</div>
+        <div class="settings-row">
+            <span class="settings-label">Last N seconds</span>
+            <input type="number" class="cm-form-input" id="export-duration" value="60" min="1" max="3600" style="width:80px">
+        </div>
+        <div class="settings-row">
+            <span class="settings-label">Format</span>
+            <select class="settings-select" id="export-format">
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+            </select>
+        </div>
+        <div class="cm-btn-row">
+            <button class="cm-btn cm-btn-cancel" id="export-cancel">Cancel</button>
+            <button class="cm-btn cm-btn-save" id="export-go">Export</button>
+        </div>`;
+
+    overlay.appendChild(modal);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+
+    modal.querySelector('#export-cancel').addEventListener('click', () => overlay.remove());
+    modal.querySelector('#export-go').addEventListener('click', () => {
+        const duration = parseInt(modal.querySelector('#export-duration').value) || 60;
+        const format = modal.querySelector('#export-format').value;
+        const count = store._count;
+        if (count === 0) { alert('No data in buffer'); return; }
+
+        const now = performance.now();
+        const cutoff = now - duration * 1000;
+        const frames = [];
+        for (let i = 0; i < count; i++) {
+            const idx = (store._head - count + i + store._ring.length) % store._ring.length;
+            const entry = store._ring[idx];
+            if (entry && entry.t >= cutoff && entry._frame) frames.push(entry._frame);
+        }
+        if (frames.length === 0) { alert('No data in the selected time range'); return; }
+
+        let blob, filename;
+        if (format === 'csv') {
+            const paths = [];
+            function collectPaths(obj, prefix) {
+                for (const [k, v] of Object.entries(obj)) {
+                    const p = prefix ? prefix + '.' + k : k;
+                    if (typeof v === 'number') paths.push(p);
+                    else if (v && typeof v === 'object' && !Array.isArray(v)) collectPaths(v, p);
+                }
+            }
+            collectPaths(frames[0], '');
+            const header = ['timestamp', ...paths].join(',');
+            const rows = frames.map(f => {
+                const vals = paths.map(p => {
+                    const parts = p.split('.');
+                    let cur = f;
+                    for (const part of parts) { cur = cur?.[part]; }
+                    return typeof cur === 'number' ? cur : '';
+                });
+                return [f.timestamp || '', ...vals].join(',');
+            });
+            blob = new Blob([header + '\n' + rows.join('\n')], { type: 'text/csv' });
+            filename = `telemetry_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+        } else {
+            blob = new Blob([JSON.stringify(frames, null, 2)], { type: 'application/json' });
+            filename = `telemetry_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        overlay.remove();
+    });
 });
 
 // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
@@ -802,23 +909,6 @@ function openSettingsModal() {
             </div>`;
         }).join('')}
         <div class="settings-divider"></div>
-        <div class="settings-section-title">Data Export</div>
-        <div class="settings-row">
-            <span class="settings-label">Last N seconds</span>
-            <input type="number" class="cm-form-input" id="export-duration" value="60" min="1" max="3600" style="width:80px">
-        </div>
-        <div class="settings-row">
-            <span class="settings-label">Format</span>
-            <select class="settings-select" id="export-format">
-                <option value="csv">CSV</option>
-                <option value="json">JSON</option>
-            </select>
-        </div>
-        <div class="settings-row">
-            <span class="settings-label"></span>
-            <button class="cm-btn cm-btn-test" id="settings-export-data">Export</button>
-        </div>
-        <div class="settings-divider"></div>
         <div class="settings-section-title">Graph Presets</div>
         <div id="settings-presets-list"></div>
         <div style="margin-top:8px">
@@ -907,64 +997,6 @@ function openSettingsModal() {
             prefs[sel.dataset.unitKey] = sel.value;
             saveUnitPrefs(prefs);
         });
-    });
-
-    // Data export
-    modal.querySelector('#settings-export-data').addEventListener('click', () => {
-        const duration = parseInt(modal.querySelector('#export-duration').value) || 60;
-        const format = modal.querySelector('#export-format').value;
-        const count = store._count;
-        if (count === 0) { alert('No data in buffer'); return; }
-
-        // Collect frames from ring buffer for last N seconds
-        const now = performance.now();
-        const cutoff = now - duration * 1000;
-        const frames = [];
-        for (let i = 0; i < count; i++) {
-            const idx = (store._head - count + i + store._ring.length) % store._ring.length;
-            const entry = store._ring[idx];
-            if (entry && entry.t >= cutoff && entry._frame) frames.push(entry._frame);
-        }
-        if (frames.length === 0) { alert('No data in the selected time range'); return; }
-
-        let blob, filename;
-        if (format === 'csv') {
-            // Build CSV from all numeric fields in first frame
-            const paths = [];
-            function collectPaths(obj, prefix) {
-                for (const [k, v] of Object.entries(obj)) {
-                    const p = prefix ? prefix + '.' + k : k;
-                    if (typeof v === 'number') paths.push(p);
-                    else if (v && typeof v === 'object' && !Array.isArray(v)) collectPaths(v, p);
-                }
-            }
-            collectPaths(frames[0], '');
-
-            const header = ['timestamp', ...paths].join(',');
-            const rows = frames.map(f => {
-                const vals = paths.map(p => {
-                    const parts = p.split('.');
-                    let cur = f;
-                    for (const part of parts) { cur = cur?.[part]; }
-                    return typeof cur === 'number' ? cur : '';
-                });
-                return [f.timestamp || '', ...vals].join(',');
-            });
-            blob = new Blob([header + '\n' + rows.join('\n')], { type: 'text/csv' });
-            filename = `telemetry_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
-        } else {
-            blob = new Blob([JSON.stringify(frames, null, 2)], { type: 'application/json' });
-            filename = `telemetry_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-        }
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
     });
 
     // Presets

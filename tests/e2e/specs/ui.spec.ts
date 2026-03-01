@@ -12,15 +12,15 @@ test.describe('UI: Header', () => {
     await expect(page.locator('.logo-sim')).toHaveText('SIM');
     await expect(page.locator('.logo-tel')).toHaveText('TELEMETRY');
 
-    // All header buttons
+    // Header dropdown buttons and standalone buttons
     for (const id of [
-      '#header-add-graph', '#header-add-custom',
-      '#settings-btn', '#header-load-ibt', '#header-browse-replays',
-      '#header-reset-layout', '#header-pause-btn', '#header-computed-metrics',
-      '#sources-btn',
+      '#data-btn', '#widget-btn',
+      '#settings-btn', '#header-reset-layout', '#header-computed-metrics',
     ]) {
       await expect(page.locator(id)).toBeVisible();
     }
+    // Pause button is in seek bar
+    await expect(page.locator('#header-pause-btn')).toBeAttached();
 
     // Remote URL input
     await expect(page.locator('#remote-url')).toBeVisible();
@@ -82,19 +82,19 @@ test.describe('UI: Default Widgets', () => {
 });
 
 test.describe('UI: Widget Actions', () => {
-  test('add graph widget', async ({ page }) => {
+  test('add graph widget via menu', async ({ page }) => {
     await page.goto('/');
     await waitForPageReady(page);
     const countBefore = await page.locator('.grid-stack-item').count();
-    await page.evaluate(() => document.getElementById('header-add-graph')!.click());
+    await page.evaluate(() => document.getElementById('menu-add-graph')!.click());
     await expect(page.locator('.grid-stack-item')).toHaveCount(countBefore + 1, { timeout: 5_000 });
   });
 
-  test('add custom widget', async ({ page }) => {
+  test('add custom widget via menu', async ({ page }) => {
     await page.goto('/');
     await waitForPageReady(page);
     const countBefore = await page.locator('.grid-stack-item').count();
-    await page.evaluate(() => document.getElementById('header-add-custom')!.click());
+    await page.evaluate(() => document.getElementById('menu-add-custom')!.click());
     await expect(page.locator('.grid-stack-item')).toHaveCount(countBefore + 1, { timeout: 5_000 });
   });
 });
@@ -128,11 +128,6 @@ test.describe('UI: Settings Modal', () => {
     await expect(modal.locator('text=Units')).toBeVisible();
     const unitSelects = modal.locator('.unit-pref-select');
     expect(await unitSelects.count()).toBeGreaterThanOrEqual(3);
-
-    // Data Export section
-    await expect(modal.locator('text=Data Export')).toBeVisible();
-    await expect(modal.locator('#export-duration')).toBeVisible();
-    await expect(modal.locator('#export-format')).toBeVisible();
 
     // Graph Presets
     await expect(modal.locator('text=Graph Presets')).toBeVisible();
@@ -192,11 +187,12 @@ test.describe('UI: Controls', () => {
     await page.goto('/');
     await waitForPageReady(page);
 
-    await expect(page.locator('#header-pause-btn')).toHaveText('Pause');
+    // Pause button is in the seek bar, uses CSS class for state
+    await expect(page.locator('#header-pause-btn')).not.toHaveClass(/paused/);
     await page.evaluate(() => document.getElementById('header-pause-btn')!.click());
-    await expect(page.locator('#header-pause-btn')).toHaveText('Resume');
+    await expect(page.locator('#header-pause-btn')).toHaveClass(/paused/);
     await page.evaluate(() => document.getElementById('header-pause-btn')!.click());
-    await expect(page.locator('#header-pause-btn')).toHaveText('Pause');
+    await expect(page.locator('#header-pause-btn')).not.toHaveClass(/paused/);
   });
 
   test('seek bar visible in non-replay mode', async ({ page }) => {

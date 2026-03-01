@@ -45,16 +45,26 @@
             <span class="header-throughput" id="header-throughput"></span>
             <span class="header-memory" id="header-memory"></span>
             <span class="recording-dot" id="recording-dot" title="Auto-save active"></span>
-            <div class="sources-dropdown" id="sources-dropdown">
-                <button class="header-reset-btn sources-btn" id="sources-btn">Sources</button>
-                <div class="sources-menu" id="sources-menu"></div>
+            <div class="header-dropdown" id="data-dropdown">
+                <button class="header-reset-btn header-dropdown-btn" id="data-btn">Data &#9662;</button>
+                <div class="header-dropdown-menu" id="data-menu">
+                    <div class="dropdown-section-title">Sources</div>
+                    <div id="sources-menu"></div>
+                    <div class="dropdown-divider"></div>
+                    <button class="dropdown-item" id="menu-load-ibt">Load .ibt</button>
+                    <button class="dropdown-item" id="menu-browse-replays">Replays</button>
+                    <div class="dropdown-divider"></div>
+                    <button class="dropdown-item" id="menu-export-data">Export Data</button>
+                </div>
             </div>
-            <button class="header-reset-btn" id="header-load-ibt">Load .ibt</button>
-            <button class="header-reset-btn" id="header-browse-replays">Replays</button>
             <input type="file" id="ibt-file-input" accept=".ibt" style="display:none">
-            <button class="header-reset-btn" id="header-pause-btn">Pause</button>
-            <button class="header-reset-btn" id="header-add-graph">+ Graph</button>
-            <button class="header-reset-btn" id="header-add-custom">+ Custom</button>
+            <div class="header-dropdown" id="widget-dropdown">
+                <button class="header-reset-btn header-dropdown-btn" id="widget-btn">+ Widget &#9662;</button>
+                <div class="header-dropdown-menu" id="widget-menu">
+                    <button class="dropdown-item" id="menu-add-graph">+ Graph</button>
+                    <button class="dropdown-item" id="menu-add-custom">+ Custom</button>
+                </div>
+            </div>
             <button class="header-reset-btn" id="header-computed-metrics">f(x)</button>
             <button class="header-reset-btn" id="header-reset-layout">Reset Layout</button>
             <button class="header-reset-btn" id="settings-btn">Settings</button>
@@ -63,6 +73,7 @@
 
     <!-- History seek bar (always visible when no replay active) -->
     <div class="seek-bar" id="seek-bar">
+        <button class="seek-pause-btn" id="header-pause-btn" title="Pause/Resume">&#9646;&#9646;</button>
         <span class="seek-time" id="seek-time">0:00</span>
         <div class="seek-track-wrap" id="seek-track-wrap">
             <input type="range" class="seek-slider" id="seek-slider" min="0" max="0" value="0">
