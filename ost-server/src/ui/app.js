@@ -192,6 +192,17 @@ if (savedGraphs && savedGraphs.length > 0) {
     grid.addWidget(defaultGraph);
 }
 
+// Restore saved gauge widgets
+const savedGauges = (() => {
+    try { return JSON.parse(localStorage.getItem('ost-dashboard-gauges')) || []; } catch { return []; }
+})();
+for (const cfg of savedGauges) {
+    const gw = new GaugeWidget(cfg.id, null, cfg);
+    gw.init();
+    gw.applyConfig(cfg);
+    grid.addWidget(gw);
+}
+
 grid.gs.batchUpdate(false);
 grid.restoreLayout();
 
@@ -210,6 +221,19 @@ document.getElementById('header-add-graph').addEventListener('click', () => {
     grid.addWidget(gw);
     grid.saveLayout();
     grid.saveGraphConfigs();
+});
+
+// Add Gauge button
+document.getElementById('header-add-gauge').addEventListener('click', () => {
+    const id = 'gauge-' + (graphCounter++);
+    const gw = new GaugeWidget(id, null, GAUGE_PRESETS['vehicle.rpm']);
+    gw.metricPath = 'vehicle.rpm';
+    gw._metricParts = ['vehicle', 'rpm'];
+    gw.init();
+    grid.addWidget(gw);
+    grid.saveLayout();
+    gw._saveGaugeConfigs();
+    gw._openConfig();
 });
 
 // Sources dropdown
