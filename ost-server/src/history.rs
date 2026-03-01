@@ -192,6 +192,20 @@ impl HistoryBuffer {
     pub fn max_duration_secs(&self) -> u32 {
         self.max_duration_secs
     }
+
+    /// Get all frames from the last N seconds (based on timestamps)
+    pub fn get_frames_since_secs(&self, duration_secs: f64) -> Vec<&TelemetryFrame> {
+        if self.frames.is_empty() {
+            return Vec::new();
+        }
+        let newest = self.frames.back().unwrap();
+        let cutoff =
+            newest.timestamp - chrono::Duration::milliseconds((duration_secs * 1000.0) as i64);
+        self.frames
+            .iter()
+            .filter(|f| f.timestamp >= cutoff)
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -353,6 +367,36 @@ mod tests {
 
         buf.resize(1); // Shrink to 60 frames
         assert_eq!(buf.frame_count(), 60);
+    }
+
+    #[test]
+    fn test_get_frames_since_secs() {
+        let mut buf = HistoryBuffer::new(60);
+        // Push frames with staggered timestamps
+        let base = Utc::now();
+        for i in 0..10 {
+            let mut frame = make_frame(Some(1), None);
+            frame.timestamp = base + chrono::Duration::seconds(i);
+            buf.push(frame);
+        }
+        // All 10 frames are within the last 60 seconds
+        let recent = buf.get_frames_since_secs(60.0);
+        assert_eq!(recent.len(), 10);
+
+        // Only the last 5 seconds should give us frames from second 5..9
+        let recent5 = buf.get_frames_since_secs(5.0);
+        assert!(
+            recent5.len() >= 5 && recent5.len() <= 6,
+            "Expected 5-6 frames, got {}",
+            recent5.len()
+        );
+    }
+
+    #[test]
+    fn test_get_frames_since_empty() {
+        let buf = HistoryBuffer::new(10);
+        let recent = buf.get_frames_since_secs(60.0);
+        assert!(recent.is_empty());
     }
 
     #[test]

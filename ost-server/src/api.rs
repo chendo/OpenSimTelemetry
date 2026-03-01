@@ -140,8 +140,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/replay/frames", get(replay_frames))
         .route("/api/replay/control", post(replay_control))
         .route("/api/replay", delete(replay_delete))
-        // History buffer config
+        // History buffer config & aggregation
         .route("/api/history/config", post(history_config))
+        .route("/api/history/aggregate", get(history_aggregate))
         // Conversion endpoints
         .route(
             "/api/convert/ibt",
@@ -337,6 +338,10 @@ async fn unified_stream(
     // Telemetry frames (with optional metric mask filtering and rate limiting)
     let metric_mask = query.metric_mask.map(|f| MetricMask::parse(&f));
     let min_interval = rate_to_interval(query.rate);
+    let use_msgpack = query
+        .format
+        .as_deref()
+        .is_some_and(|f| f.eq_ignore_ascii_case("msgpack"));
     let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
     let telemetry = BroadcastStream::new(telemetry_rx).filter_map(move |result| {
         let mask = metric_mask.clone();
@@ -351,9 +356,13 @@ async fn unified_stream(
                         }
                         *guard = tokio::time::Instant::now();
                     }
-                    match frame.to_json_filtered(mask.as_ref()) {
-                        Ok(json) => Some(Ok(Event::default().event("frame").data(json))),
-                        Err(_) => None,
+                    if use_msgpack {
+                        serialize_frame_msgpack(&frame, mask.as_ref())
+                    } else {
+                        match frame.to_json_filtered(mask.as_ref()) {
+                            Ok(json) => Some(Ok(Event::default().event("frame").data(json))),
+                            Err(_) => None,
+                        }
                     }
                 }
                 Err(_) => None,
@@ -459,6 +468,8 @@ struct StreamQuery {
     metric_mask: Option<String>,
     /// Frames per second (0.0–60.0). Defaults to 60.
     rate: Option<f64>,
+    /// Wire format: "json" (default) or "msgpack" (base64-encoded MessagePack)
+    format: Option<String>,
 }
 
 async fn telemetry_stream(
@@ -468,6 +479,10 @@ async fn telemetry_stream(
     let rx = state.subscribe();
     let metric_mask = query.metric_mask.map(|f| MetricMask::parse(&f));
     let min_interval = rate_to_interval(query.rate);
+    let use_msgpack = query
+        .format
+        .as_deref()
+        .is_some_and(|f| f.eq_ignore_ascii_case("msgpack"));
 
     let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
@@ -483,11 +498,15 @@ async fn telemetry_stream(
                         }
                         *guard = tokio::time::Instant::now();
                     }
-                    match frame.to_json_filtered(mask.as_ref()) {
-                        Ok(json) => Some(Ok(Event::default().data(json))),
-                        Err(e) => {
-                            tracing::error!("Failed to serialize frame: {}", e);
-                            None
+                    if use_msgpack {
+                        serialize_frame_msgpack(&frame, mask.as_ref())
+                    } else {
+                        match frame.to_json_filtered(mask.as_ref()) {
+                            Ok(json) => Some(Ok(Event::default().data(json))),
+                            Err(e) => {
+                                tracing::error!("Failed to serialize frame: {}", e);
+                                None
+                            }
                         }
                     }
                 }
@@ -500,6 +519,24 @@ async fn telemetry_stream(
     });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// Serialize a frame to base64-encoded MessagePack for SSE transport.
+fn serialize_frame_msgpack(
+    frame: &TelemetryFrame,
+    mask: Option<&MetricMask>,
+) -> Option<Result<Event, Infallible>> {
+    // If there's a metric mask, filter through JSON first then serialize the filtered value
+    let bytes = if let Some(mask) = mask {
+        let json_str = frame.to_json_filtered(Some(mask)).ok()?;
+        let val: serde_json::Value = serde_json::from_str(&json_str).ok()?;
+        rmp_serde::to_vec(&val).ok()?
+    } else {
+        rmp_serde::to_vec(frame).ok()?
+    };
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Some(Ok(Event::default().event("msgpack").data(encoded)))
 }
 
 // === Sink Management Endpoints ===
@@ -863,6 +900,86 @@ async fn history_config(
     let mut history = state.history.write().await;
     history.resize(clamped);
     Json(serde_json::json!({"status": "ok", "max_duration_secs": clamped}))
+}
+
+// === History Aggregation ===
+
+#[derive(Deserialize)]
+struct AggregateQuery {
+    /// Duration to aggregate over, e.g. "60s", "5m", "1h". Defaults to 60s.
+    duration: Option<String>,
+    /// Comma-separated metric paths, e.g. "vehicle.speed,engine.rpm"
+    metrics: String,
+}
+
+/// Parse a human-readable duration string into seconds.
+/// Supports "60s", "5m", "1h", or bare numbers (treated as seconds).
+fn parse_duration_str(s: &str) -> f64 {
+    let s = s.trim();
+    if let Some(secs) = s.strip_suffix('s') {
+        secs.parse().unwrap_or(60.0)
+    } else if let Some(mins) = s.strip_suffix('m') {
+        mins.parse::<f64>().unwrap_or(1.0) * 60.0
+    } else if let Some(hours) = s.strip_suffix('h') {
+        hours.parse::<f64>().unwrap_or(1.0) * 3600.0
+    } else {
+        s.parse().unwrap_or(60.0)
+    }
+}
+
+/// Extract a numeric value from a TelemetryFrame by dot-separated path.
+/// e.g. "vehicle.speed" → frame.vehicle.speed, "engine.rpm" → frame.engine.rpm
+fn extract_metric_value(frame: &TelemetryFrame, path: &str) -> Option<f64> {
+    let json = serde_json::to_value(frame).ok()?;
+    let mut current = &json;
+    for part in path.split('.') {
+        current = current.get(part)?;
+    }
+    current.as_f64()
+}
+
+async fn history_aggregate(
+    State(state): State<AppState>,
+    Query(params): Query<AggregateQuery>,
+) -> Json<serde_json::Value> {
+    let duration_secs = parse_duration_str(&params.duration.unwrap_or_else(|| "60s".to_string()));
+    let history = state.history.read().await;
+    let frames = history.get_frames_since_secs(duration_secs);
+
+    let metrics: Vec<&str> = params.metrics.split(',').map(|s| s.trim()).collect();
+    let mut result = serde_json::Map::new();
+
+    for metric_path in &metrics {
+        let values: Vec<f64> = frames
+            .iter()
+            .filter_map(|f| extract_metric_value(f, metric_path))
+            .collect();
+
+        if values.is_empty() {
+            continue;
+        }
+
+        let count = values.len();
+        let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let sum: f64 = values.iter().sum();
+        let avg = sum / count as f64;
+        let variance = values.iter().map(|v| (v - avg).powi(2)).sum::<f64>() / count as f64;
+        let stddev = variance.sqrt();
+
+        result.insert(
+            metric_path.to_string(),
+            serde_json::json!({
+                "min": (min * 100_000.0).round() / 100_000.0,
+                "max": (max * 100_000.0).round() / 100_000.0,
+                "avg": (avg * 100_000.0).round() / 100_000.0,
+                "stddev": (stddev * 100_000.0).round() / 100_000.0,
+                "count": count,
+            }),
+        );
+    }
+
+    Json(serde_json::Value::Object(result))
 }
 
 /// Start the playback background task that pushes frames through the broadcast channel

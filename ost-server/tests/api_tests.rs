@@ -968,3 +968,116 @@ async fn test_ibt_frame_golden_structure() {
         "Extras should contain iracing/ prefixed keys"
     );
 }
+
+// ==================== GET /api/history/aggregate ====================
+
+#[tokio::test]
+async fn test_history_aggregate_returns_stats() {
+    let (app, state) = app_with_state();
+
+    // Push some frames with known values into the history buffer
+    {
+        let mut history = state.history.write().await;
+        for i in 0..10 {
+            let json = serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "game": "test",
+                "tick": i,
+                "vehicle": {
+                    "speed": 10.0 + i as f64,
+                    "rpm": 3000.0 + (i as f64 * 500.0)
+                }
+            });
+            let frame: ost_core::model::TelemetryFrame = serde_json::from_value(json).unwrap();
+            history.push(frame);
+        }
+    }
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/history/aggregate?duration=60s&metrics=vehicle.speed,vehicle.rpm")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    let body = body_string(response.into_body()).await;
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+    // Check vehicle.speed stats (values 10..19)
+    let speed = &json["vehicle.speed"];
+    assert!(speed.is_object(), "Should have vehicle.speed stats");
+    assert_eq!(speed["count"], 10);
+    assert!(speed["min"].as_f64().unwrap() >= 9.9);
+    assert!(speed["max"].as_f64().unwrap() <= 19.1);
+    assert!(speed["avg"].as_f64().unwrap() > 13.0);
+    assert!(speed["avg"].as_f64().unwrap() < 16.0);
+    assert!(speed["stddev"].as_f64().unwrap() > 0.0);
+
+    // Check vehicle.rpm stats (values 3000..7500)
+    let rpm = &json["vehicle.rpm"];
+    assert!(rpm.is_object(), "Should have vehicle.rpm stats");
+    assert_eq!(rpm["count"], 10);
+    assert!(rpm["min"].as_f64().unwrap() >= 2999.0);
+    assert!(rpm["max"].as_f64().unwrap() <= 7501.0);
+}
+
+#[tokio::test]
+async fn test_history_aggregate_empty_buffer() {
+    let app = app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/history/aggregate?duration=60s&metrics=vehicle.speed")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    let body = body_string(response.into_body()).await;
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    // Empty object since no frames matched
+    assert!(json.as_object().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_history_aggregate_unknown_metric() {
+    let (app, state) = app_with_state();
+
+    // Push a frame
+    {
+        let mut history = state.history.write().await;
+        let json = serde_json::json!({
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "game": "test",
+            "tick": 0
+        });
+        let frame: ost_core::model::TelemetryFrame = serde_json::from_value(json).unwrap();
+        history.push(frame);
+    }
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/history/aggregate?duration=60s&metrics=nonexistent.metric")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    let body = body_string(response.into_body()).await;
+    let json: serde_json::Value = serde_json::from_str(&body).unwrap();
+    // Nonexistent metric should be omitted
+    assert!(json.as_object().unwrap().is_empty());
+}

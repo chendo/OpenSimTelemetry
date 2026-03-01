@@ -22,14 +22,6 @@ Agent Instructions: Pick idea from the top, ask any clarifying questions, make a
 
 17. Persistence: Retention policies and storage management — auto-cleanup rules (keep last N sessions, delete older than X days), show disk usage per session
 
-### Adapters
-
-20. Adapter: Assetto Corsa Competizione (ACC) — shared memory reader on Windows for car telemetry, track data, weather
-21. Adapter: F1 series (EA) — UDP packet receiver for F1 2024+ telemetry protocol, cross-platform
-22. Adapter: rFactor 2 — shared memory adapter with multi-class and competitor data
-23. Adapter: BeamNG.drive — soft-body physics telemetry with deformation and structural integrity data
-24. Adapter: Generic UDP receiver — configurable NDJSON/binary/msgpack UDP listener so users can pipe arbitrary telemetry sources
-
 ### Performance & Infrastructure
 
 26. Infra: Adaptive frame rate throttling — detect client connection quality, dynamically adjust SSE frame rate to maintain smooth UI
@@ -38,3 +30,11 @@ Agent Instructions: Pick idea from the top, ask any clarifying questions, make a
 30. Infra: Adapter developer guide + template — `cargo generate` template crate with walkthrough docs for mapping game vars to TelemetryFrame
 
 ## WIP: do not work on these
+
+### Adapters
+
+20. Adapter: Assetto Corsa Competizione (ACC) — shared memory reader on Windows for car telemetry, track data, weather
+21. Adapter: F1 series (EA) — UDP packet receiver for F1 2024+ telemetry protocol, cross-platform
+22. Adapter: rFactor 2 — shared memory adapter with multi-class and competitor data
+23. Adapter: BeamNG.drive — soft-body physics telemetry with deformation and structural integrity data
+24. Adapter: Generic UDP receiver — configurable NDJSON/binary/msgpack UDP listener so users can pipe arbitrary telemetry sources
