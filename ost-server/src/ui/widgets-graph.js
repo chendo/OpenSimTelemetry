@@ -280,7 +280,7 @@ class GraphWidget extends Widget {
                 if (key === '_frame') continue;
                 const path = prefix ? `${prefix}.${key}` : key;
                 if (value && typeof value === 'object' && !Array.isArray(value)) walk(value, path);
-                else if (typeof value === 'number' || typeof value === 'boolean') paths.push(path);
+                else if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') paths.push(path);
             }
         };
         walk(frame, '');
@@ -300,7 +300,7 @@ class GraphWidget extends Widget {
         if (this._picker) { this.closeMetricPicker(); return; }
         const frame = store.currentFrame;
 
-        // Collect all numeric and boolean fields grouped by top-level section
+        // Collect all numeric, boolean, and string fields grouped by top-level section
         const sections = {};
         if (frame) {
             const walk = (obj, prefix) => {
@@ -309,7 +309,7 @@ class GraphWidget extends Widget {
                     const path = prefix ? `${prefix}.${key}` : key;
                     if (value && typeof value === 'object' && !Array.isArray(value)) {
                         walk(value, path);
-                    } else if (typeof value === 'number' || typeof value === 'boolean') {
+                    } else if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {
                         const section = path.split('.')[0];
                         if (!sections[section]) sections[section] = [];
                         sections[section].push(path);
@@ -365,7 +365,9 @@ class GraphWidget extends Widget {
                 } else {
                     const parts = key.split('.');
                     const rawVal = resolveMetricPathRaw(frame, parts);
-                    if (typeof rawVal === 'boolean') {
+                    if (typeof rawVal === 'string') {
+                        return `<span class="metric-picker-value">${rawVal} <span class="metric-picker-unit">text</span></span>`;
+                    } else if (typeof rawVal === 'boolean') {
                         return `<span class="metric-picker-value">${rawVal ? 'true' : 'false'} <span class="metric-picker-unit">bool</span></span>`;
                     } else if (typeof rawVal === 'number') {
                         const fmt = formatMetricValue(key, rawVal);
@@ -519,7 +521,8 @@ class GraphWidget extends Widget {
             const frame = store.currentFrame;
             const rawVal = frame ? resolveMetricPathRaw(frame, parts) : undefined;
             const isBool = typeof rawVal === 'boolean';
-            const unitInfo = isBool ? { unit: '', norm: 'boolean' } : getMetricUnitInfo(path);
+            const isText = typeof rawVal === 'string';
+            const unitInfo = isBool ? { unit: '', norm: 'boolean' } : isText ? { unit: '', norm: 'text' } : getMetricUnitInfo(path);
             this.customMetrics.set(path, {
                 path,
                 label: deriveLabel(path),
@@ -567,6 +570,7 @@ class GraphWidget extends Widget {
         // Build unified traces array from enabled (non-hidden) metrics, with display conversion
         const traces = [];
         const boolTraces = [];
+        const textTraces = [];
         for (const key of this.enabledMetrics) {
             if (this.hiddenMetrics.has(key)) continue;
             const preset = GRAPH_METRICS[key];
@@ -592,6 +596,14 @@ class GraphWidget extends Widget {
                                 return typeof v === 'boolean' ? v : null;
                             }
                         });
+                    } else if (custom.norm === 'text') {
+                        textTraces.push({ key, color: custom.color, label: custom.label,
+                            getValue: (entry) => {
+                                if (!entry._frame) return null;
+                                const v = resolveMetricPathRaw(entry._frame, parts);
+                                return typeof v === 'string' ? v : null;
+                            }
+                        });
                     } else {
                         const leaf = parts[parts.length - 1];
                         let dU = custom.unit, dM = 1;
@@ -603,7 +615,7 @@ class GraphWidget extends Widget {
                 }
             }
         }
-        if (traces.length === 0 && boolTraces.length === 0) { ctx.clearRect(0, 0, w, h); return; }
+        if (traces.length === 0 && boolTraces.length === 0 && textTraces.length === 0) { ctx.clearRect(0, 0, w, h); return; }
 
         // Compute time range — for replay, always use the full desired window
         // centered on cursor so the timescale doesn't shrink at boundaries
@@ -657,7 +669,8 @@ class GraphWidget extends Widget {
         const axes = [...axisMap.values()];
 
         const boolBarH = 10, boolBarGap = 2;
-        const boolAreaH = boolTraces.length > 0 ? boolTraces.length * (boolBarH + boolBarGap) + 4 : 0;
+        const barTraceCount = boolTraces.length + textTraces.length;
+        const boolAreaH = barTraceCount > 0 ? barTraceCount * (boolBarH + boolBarGap) + 4 : 0;
         const padLeft = axes.length >= 1 ? 52 : 36;
         const padRight = axes.length >= 2 ? 52 : 8;
         const pad = { top: 8 + boolAreaH, right: padRight, bottom: 16, left: padLeft };
@@ -822,6 +835,50 @@ class GraphWidget extends Widget {
             ctx.globalAlpha = 1.0;
         }
 
+        // Text/enum bars: colored rectangles with value labels above the chart
+        for (let ti = 0; ti < textTraces.length; ti++) {
+            const tt = textTraces[ti];
+            const barY = 8 + (boolTraces.length + ti) * (boolBarH + boolBarGap);
+            // Draw label
+            ctx.font = '8px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.textAlign = 'right';
+            ctx.fillText(tt.label, pad.left - 4, barY + boolBarH - 1);
+            // Draw bar background
+            ctx.fillStyle = 'rgba(255,255,255,0.03)';
+            ctx.fillRect(pad.left, barY, pw, boolBarH);
+            // Draw value spans with unique color per value
+            let spanStart = null, spanVal = null;
+            const drawSpan = (startX, endX, val) => {
+                const spanW = Math.max(endX - startX, 1);
+                ctx.fillStyle = hashStringColor(val);
+                ctx.globalAlpha = 0.5;
+                ctx.fillRect(startX, barY, spanW, boolBarH);
+                ctx.globalAlpha = 1.0;
+                // Draw text label at start of span (clipped to span width)
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(startX, barY, spanW, boolBarH);
+                ctx.clip();
+                ctx.fillStyle = '#fff';
+                ctx.font = '7px sans-serif';
+                ctx.textAlign = 'left';
+                ctx.fillText(val, startX + 2, barY + boolBarH - 2);
+                ctx.restore();
+            };
+            for (let i = 0; i < dataCount; i++) {
+                const entry = getEntry(i);
+                const val = entry ? tt.getValue(entry) : null;
+                const x = pad.left + ((entryTime(i) - tMin) / tRange) * pw;
+                if (val !== spanVal) {
+                    if (spanStart != null && spanVal != null) drawSpan(spanStart, x, spanVal);
+                    spanStart = (val != null) ? x : null;
+                    spanVal = val;
+                }
+            }
+            if (spanStart != null && spanVal != null) {
+                drawSpan(spanStart, pad.left + ((entryTime(dataCount - 1) - tMin) / tRange) * pw, spanVal);
+            }
+        }
+
         // Crosshair: vertical line + value dots + tooltip
         if (crosshair.t != null) {
             const cx = pad.left + ((crosshair.t - tMin) / tRange) * pw;
@@ -829,7 +886,7 @@ class GraphWidget extends Widget {
                 ctx.strokeStyle = 'rgba(255,255,255,0.3)';
                 ctx.lineWidth = 1;
                 ctx.setLineDash([4, 3]);
-                const crosshairTop = boolTraces.length > 0 ? 8 : pad.top;
+                const crosshairTop = barTraceCount > 0 ? 8 : pad.top;
                 ctx.beginPath(); ctx.moveTo(cx, crosshairTop); ctx.lineTo(cx, pad.top + ph); ctx.stroke();
                 ctx.setLineDash([]);
 
@@ -860,6 +917,11 @@ class GraphWidget extends Widget {
                         const val = bt.getValue(entry);
                         if (val == null) continue;
                         tipItems.push({ color: bt.color, label: bt.label, displayVal: null, dU: '', _valStr: val ? 'ON' : 'OFF' });
+                    }
+                    for (const tt of textTraces) {
+                        const val = tt.getValue(entry);
+                        if (val == null) continue;
+                        tipItems.push({ color: hashStringColor(val), label: tt.label, displayVal: null, dU: '', _valStr: val });
                     }
                 }
 
