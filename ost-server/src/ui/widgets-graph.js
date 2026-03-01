@@ -284,24 +284,25 @@ class GraphWidget extends Widget {
     openMetricPicker(anchorEl) {
         if (this._picker) { this.closeMetricPicker(); return; }
         const frame = store.currentFrame;
-        if (!frame) return;
 
         // Collect all numeric and boolean fields grouped by top-level section
         const sections = {};
-        const walk = (obj, prefix) => {
-            for (const [key, value] of Object.entries(obj)) {
-                if (key === '_frame') continue;
-                const path = prefix ? `${prefix}.${key}` : key;
-                if (value && typeof value === 'object' && !Array.isArray(value)) {
-                    walk(value, path);
-                } else if (typeof value === 'number' || typeof value === 'boolean') {
-                    const section = path.split('.')[0];
-                    if (!sections[section]) sections[section] = [];
-                    sections[section].push(path);
+        if (frame) {
+            const walk = (obj, prefix) => {
+                for (const [key, value] of Object.entries(obj)) {
+                    if (key === '_frame') continue;
+                    const path = prefix ? `${prefix}.${key}` : key;
+                    if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        walk(value, path);
+                    } else if (typeof value === 'number' || typeof value === 'boolean') {
+                        const section = path.split('.')[0];
+                        if (!sections[section]) sections[section] = [];
+                        sections[section].push(path);
+                    }
                 }
-            }
-        };
-        walk(frame, '');
+            };
+            walk(frame, '');
+        }
 
         // Build popover
         const popover = document.createElement('div');
@@ -316,6 +317,22 @@ class GraphWidget extends Widget {
         const list = document.createElement('div');
         list.className = 'metric-picker-list';
         popover.appendChild(list);
+
+        // Append popover to DOM before rendering list so it's visible even if renderList errors
+        const rect = anchorEl.getBoundingClientRect();
+        popover.style.position = 'fixed';
+        popover.style.top = (rect.bottom + 4) + 'px';
+        popover.style.left = rect.left + 'px';
+        document.body.appendChild(popover);
+        this._picker = popover;
+
+        // Close on outside click
+        this._pickerClickOutside = (e) => {
+            if (!popover.contains(e.target) && e.target !== anchorEl) {
+                this.closeMetricPicker();
+            }
+        };
+        setTimeout(() => document.addEventListener('click', this._pickerClickOutside), 0);
 
         const alreadyAdded = new Set([...this.enabledMetrics]);
 
@@ -341,10 +358,12 @@ class GraphWidget extends Widget {
                     item.className = 'metric-picker-item' + (added ? ' dimmed' : '');
                     let valHtml = '';
                     try {
-                        const extract = metric.extract(frame);
-                        if (extract != null && typeof extract === 'number') {
-                            const val = Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2);
-                            valHtml = `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>`;
+                        if (frame) {
+                            const extract = metric.extract(frame);
+                            if (extract != null && typeof extract === 'number') {
+                                const val = Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2);
+                                valHtml = `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>`;
+                            }
                         }
                     } catch (e) { /* ignore runtime errors */ }
                     item.innerHTML = `<span class="metric-picker-path">${metric.label}</span>${valHtml}`;
@@ -366,85 +385,78 @@ class GraphWidget extends Widget {
                 for (const [key, metric] of filteredPresets) {
                     const item = document.createElement('div');
                     item.className = 'metric-picker-item';
-                    const extract = metric.extract(frame);
-                    const val = extract != null ? (Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2)) : null;
-                    const valHtml = val != null ? `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>` : '';
+                    let valHtml = '';
+                    try {
+                        if (frame) {
+                            const extract = metric.extract(frame);
+                            const val = extract != null ? (Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2)) : null;
+                            if (val != null) valHtml = `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>`;
+                        }
+                    } catch (e) { /* ignore runtime errors */ }
                     item.innerHTML = `<span class="metric-picker-path">${metric.label}</span>${valHtml}`;
                     item.addEventListener('click', () => { this.addCustomMetric(key); this.closeMetricPicker(); });
                     list.appendChild(item);
                 }
             }
 
-            // Raw metric sections — collect all addable matches for "Add all" button
-            const addablePaths = [];
-            for (const [section, paths] of Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]))) {
-                const filtered = filter ? paths.filter(p => matchMetricFilter(p, filter)) : paths;
-                if (filtered.length === 0) continue;
+            // Raw metric sections (only when frame data available)
+            if (frame) {
+                const addablePaths = [];
+                for (const [section, paths] of Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]))) {
+                    const filtered = filter ? paths.filter(p => matchMetricFilter(p, filter)) : paths;
+                    if (filtered.length === 0) continue;
 
-                const hdr = document.createElement('div');
-                hdr.className = 'metric-picker-section';
-                hdr.textContent = section.charAt(0).toUpperCase() + section.slice(1);
-                list.appendChild(hdr);
+                    const hdr = document.createElement('div');
+                    hdr.className = 'metric-picker-section';
+                    hdr.textContent = section.charAt(0).toUpperCase() + section.slice(1);
+                    list.appendChild(hdr);
 
-                for (const path of filtered) {
-                    const item = document.createElement('div');
-                    const added = alreadyAdded.has(path);
-                    item.className = 'metric-picker-item' + (added ? ' dimmed' : '');
-                    const parts = path.split('.');
-                    const rawVal = resolveMetricPathRaw(frame, parts);
-                    let valHtml = '';
-                    if (typeof rawVal === 'boolean') {
-                        valHtml = `<span class="metric-picker-value">${rawVal ? 'true' : 'false'} <span class="metric-picker-unit">bool</span></span>`;
-                    } else if (typeof rawVal === 'number') {
-                        const fmt = formatMetricValue(path, rawVal);
-                        valHtml = `<span class="metric-picker-value">${fmt.text}${fmt.unit ? ' <span class="metric-picker-unit">' + fmt.unit + '</span>' : ''}</span>`;
+                    for (const path of filtered) {
+                        const item = document.createElement('div');
+                        const added = alreadyAdded.has(path);
+                        item.className = 'metric-picker-item' + (added ? ' dimmed' : '');
+                        const parts = path.split('.');
+                        let valHtml = '';
+                        try {
+                            const rawVal = resolveMetricPathRaw(frame, parts);
+                            if (typeof rawVal === 'boolean') {
+                                valHtml = `<span class="metric-picker-value">${rawVal ? 'true' : 'false'} <span class="metric-picker-unit">bool</span></span>`;
+                            } else if (typeof rawVal === 'number') {
+                                const fmt = formatMetricValue(path, rawVal);
+                                valHtml = `<span class="metric-picker-value">${fmt.text}${fmt.unit ? ' <span class="metric-picker-unit">' + fmt.unit + '</span>' : ''}</span>`;
+                            }
+                        } catch (e) { /* ignore runtime errors */ }
+                        item.innerHTML = `<span class="metric-picker-path">${path}</span>${valHtml}`;
+                        if (!added) {
+                            addablePaths.push(path);
+                            item.addEventListener('click', () => {
+                                this.addCustomMetric(path);
+                                this.closeMetricPicker();
+                            });
+                        }
+                        list.appendChild(item);
                     }
-                    item.innerHTML = `<span class="metric-picker-path">${path}</span>${valHtml}`;
-                    if (!added) {
-                        addablePaths.push(path);
-                        item.addEventListener('click', () => {
-                            this.addCustomMetric(path);
-                            this.closeMetricPicker();
-                        });
-                    }
-                    list.appendChild(item);
                 }
-            }
 
-            // "Add all" button when using wildcard/regex with multiple matches
-            if (hasPattern && addablePaths.length > 1) {
-                const btn = document.createElement('div');
-                btn.className = 'metric-picker-add-all';
-                btn.textContent = `+ Add all ${addablePaths.length} matches`;
-                btn.addEventListener('click', () => {
-                    for (const p of addablePaths) this.addCustomMetric(p);
-                    this.closeMetricPicker();
-                });
-                list.insertBefore(btn, list.firstChild);
+                // "Add all" button when using wildcard/regex with multiple matches
+                if (hasPattern && addablePaths.length > 1) {
+                    const btn = document.createElement('div');
+                    btn.className = 'metric-picker-add-all';
+                    btn.textContent = `+ Add all ${addablePaths.length} matches`;
+                    btn.addEventListener('click', () => {
+                        for (const p of addablePaths) this.addCustomMetric(p);
+                        this.closeMetricPicker();
+                    });
+                    list.insertBefore(btn, list.firstChild);
+                }
             }
         };
         renderList('');
 
         search.addEventListener('input', () => renderList(search.value));
 
-        // Position near anchor using fixed positioning to escape overflow:hidden
-        const rect = anchorEl.getBoundingClientRect();
-        popover.style.position = 'fixed';
-        popover.style.top = (rect.bottom + 4) + 'px';
-        popover.style.left = rect.left + 'px';
-        document.body.appendChild(popover);
-        this._picker = popover;
-
         // Focus search
         requestAnimationFrame(() => search.focus());
-
-        // Close on outside click
-        this._pickerClickOutside = (e) => {
-            if (!popover.contains(e.target) && e.target !== anchorEl) {
-                this.closeMetricPicker();
-            }
-        };
-        setTimeout(() => document.addEventListener('click', this._pickerClickOutside), 0);
     }
 
     closeMetricPicker() {

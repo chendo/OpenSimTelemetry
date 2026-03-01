@@ -807,7 +807,6 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    margin-top: 4px;
 }
 .metric-picker-search {
     background: var(--bg-inset);
