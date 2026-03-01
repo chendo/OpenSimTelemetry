@@ -581,8 +581,13 @@ class GraphWidget extends Widget {
                         getValue: (entry) => { const v = entry[key]; return typeof v === 'boolean' ? v : null; }
                     });
                 } else {
-                    const dM = preset.norm === 'pct' ? 100 : 1;
-                    const dU = preset.norm === 'pct' ? '%' : (preset.unit || '');
+                    let dM = 1, dU = preset.unit || '';
+                    if (preset.norm === 'pct') { dM = 100; dU = '%'; }
+                    else {
+                        const conv = applyUnitPref(preset.unit || '', 1);
+                        dU = conv.unit;
+                        dM = conv.value;
+                    }
                     traces.push({ key, color: preset.color, norm: preset.norm, unit: preset.unit || '', dU, dM, getValue: (entry) => entry[key] });
                 }
             } else {
@@ -606,12 +611,14 @@ class GraphWidget extends Widget {
                             }
                         });
                     } else {
-                        const leaf = parts[parts.length - 1];
                         const unitInfo = getMetricUnitInfo(key);
                         let dU = custom.unit, dM = unitInfo.multiplier || 1;
                         if (custom.norm === 'pct') { dU = '%'; dM = 100; }
-                        else if (custom.unit === 'm' && METERS_TO_MM_METRICS.test(leaf)) { dU = 'mm'; dM = 1000; }
-                        else if (custom.unit === 'm/s' && MPS_TO_MMPS_METRICS.test(leaf)) { dU = 'mm/s'; dM = 1000; }
+                        else {
+                            const conv = applyUnitPref(custom.unit, 1);
+                            dU = conv.unit;
+                            dM = conv.value * (unitInfo.multiplier || 1);
+                        }
                         traces.push({ key, color: custom.color, norm: custom.norm, unit: custom.unit, dU, dM, getValue: (entry) => entry._frame ? resolveMetricPathParts(entry._frame, parts) : null });
                     }
                 }

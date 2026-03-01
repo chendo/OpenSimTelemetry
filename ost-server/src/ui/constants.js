@@ -82,7 +82,7 @@ function getMetricColor(path) {
 
 /* ==================== Graph Metrics Registry ==================== */
 const GRAPH_METRICS = {
-    speed:       { label: 'Speed',      color: '#38bdf8', unit: 'km/h',  norm: 'autoscale', extract: f => (f.vehicle?.speed ?? 0) * 3.6 },
+    speed:       { label: 'Speed',      color: '#38bdf8', unit: 'm/s',   norm: 'autoscale', extract: f => f.vehicle?.speed ?? 0 },
     rpm:         { label: 'RPM',        color: '#a855f6', unit: 'rpm',   norm: 'autoscale', extract: f => f.vehicle?.rpm ?? 0 },
     throttle:    { label: 'Throttle',   color: '#22c55e', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.throttle ?? 0 },
     brake:       { label: 'Brake',      color: '#ef4444', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.brake ?? 0 },
@@ -115,7 +115,7 @@ const GRAPH_PRESETS = [
 // Lookup: exact match first, then suffix match (*.metric_name).
 const METRIC_UNIT_MAP = {
     // Exact paths with special handling
-    'vehicle.speed':          { unit: 'km/h', norm: 'autoscale', multiplier: 3.6 },
+    'vehicle.speed':          { unit: 'm/s', norm: 'autoscale' },
     'vehicle.gear':           { unit: '',     norm: 'autoscale' },
     'vehicle.max_gears':      { unit: '',     norm: 'autoscale' },
     // Suffix patterns (matched when exact fails)
@@ -233,26 +233,54 @@ function getMetricUnitInfo(path) {
     return { unit: '', norm: 'autoscale' };
 }
 
+// Apply user unit preferences to a base unit and value.
+// Returns { value, unit } with the converted value and display unit string.
+// Handles unit families via prefix matching (e.g. '°' matches '°/s' and '°/s²').
+function applyUnitPref(baseUnit, value) {
+    if (!baseUnit) return { value, unit: baseUnit };
+    const prefs = getUnitPrefs();
+    // Two passes: exact match first, then prefix match for unit families
+    for (let pass = 0; pass < 2; pass++) {
+        for (const [sysKey] of Object.entries(UNIT_SYSTEMS)) {
+            const selected = prefs[sysKey];
+            const conv = UNIT_CONVERSIONS[selected];
+            if (!conv) continue;
+            if (pass === 0 && baseUnit === conv.from) {
+                return {
+                    value: value * conv.factor + (conv.offset || 0),
+                    unit: selected,
+                };
+            }
+            if (pass === 1 && baseUnit !== conv.from && baseUnit.startsWith(conv.from)) {
+                const suffix = baseUnit.slice(conv.from.length);
+                // Only match if suffix starts with a separator (/, ², etc.), not a letter
+                if (suffix && /^[a-zA-Z]/.test(suffix)) continue;
+                return {
+                    value: value * conv.factor + (conv.offset || 0),
+                    unit: selected + suffix,
+                };
+            }
+        }
+    }
+    return { value, unit: baseUnit };
+}
+
 // Format a numeric metric value for display with unit conversion
-// Some metrics are stored in SI units but displayed in friendlier units
-const METERS_TO_MM_METRICS = /suspension_travel|ride_height/;
-const MPS_TO_MMPS_METRICS = /shock_velocity/;
 function formatMetricValue(path, value) {
     if (typeof value !== 'number') return { text: JSON.stringify(value), unit: '' };
     const info = getMetricUnitInfo(path);
-    const leaf = path.split('.').pop();
-    // Apply multiplier from METRIC_UNIT_MAP (e.g., m/s → km/h)
+    // Apply multiplier from METRIC_UNIT_MAP (legacy, if any remain)
     if (info.multiplier) value = value * info.multiplier;
-    // Meters → mm for suspension/ride height
-    if (info.unit === 'm' && METERS_TO_MM_METRICS.test(leaf)) return { text: (value * 1000).toFixed(2), unit: 'mm' };
-    // m/s → mm/s for shock velocity
-    if (info.unit === 'm/s' && MPS_TO_MMPS_METRICS.test(leaf)) return { text: (value * 1000).toFixed(1), unit: 'mm/s' };
     // 0-1 → % for percentage metrics
     if (info.unit === '%' && info.norm === 'pct') return { text: (value * 100).toFixed(1), unit: '%' };
+    // Apply user unit preferences
+    const converted = applyUnitPref(info.unit, value);
+    value = converted.value;
+    const displayUnit = converted.unit;
     // Smart precision: more decimals for small numbers
     const av = Math.abs(value);
     const text = av >= 1000 ? value.toFixed(0) : av >= 10 ? value.toFixed(1) : av >= 0.01 ? value.toFixed(3) : value.toFixed(4);
-    return { text, unit: info.unit };
+    return { text, unit: displayUnit };
 }
 
 function resolveMetricPathParts(obj, parts) {
@@ -290,6 +318,7 @@ const UNIT_SYSTEMS = {
     temperature: { options: ['\u00b0C', '\u00b0F'],   default: '\u00b0C' },
     pressure:    { options: ['kPa', 'psi', 'bar'],    default: 'kPa' },
     distance:    { options: ['mm', 'in'],             default: 'mm' },
+    rotation:    { options: ['deg', 'rad'],            default: 'deg' },
 };
 const UNIT_CONVERSIONS = {
     'km/h':  { from: 'm/s', factor: 3.6 },
@@ -302,6 +331,8 @@ const UNIT_CONVERSIONS = {
     'bar':   { from: 'kPa', factor: 0.01 },
     'mm':    { from: 'm', factor: 1000 },
     'in':    { from: 'm', factor: 39.3701 },
+    'deg':   { from: '\u00b0', factor: 1 },
+    'rad':   { from: '\u00b0', factor: Math.PI / 180 },
 };
 
 function getUnitPrefs() {
