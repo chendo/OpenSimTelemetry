@@ -12,9 +12,9 @@ test.describe('UI: Header', () => {
     await expect(page.locator('.logo-sim')).toHaveText('SIM');
     await expect(page.locator('.logo-tel')).toHaveText('TELEMETRY');
 
-    // Header dropdown buttons and standalone buttons
+    // Header buttons
     for (const id of [
-      '#data-btn', '#widget-btn',
+      '#data-btn', '#menu-add-graph',
       '#settings-btn', '#header-reset-layout', '#header-computed-metrics',
     ]) {
       await expect(page.locator(id)).toBeVisible();
@@ -82,19 +82,11 @@ test.describe('UI: Default Widgets', () => {
 });
 
 test.describe('UI: Widget Actions', () => {
-  test('add graph widget via menu', async ({ page }) => {
+  test('add graph widget', async ({ page }) => {
     await page.goto('/');
     await waitForPageReady(page);
     const countBefore = await page.locator('.grid-stack-item').count();
     await page.evaluate(() => document.getElementById('menu-add-graph')!.click());
-    await expect(page.locator('.grid-stack-item')).toHaveCount(countBefore + 1, { timeout: 5_000 });
-  });
-
-  test('add custom widget via menu', async ({ page }) => {
-    await page.goto('/');
-    await waitForPageReady(page);
-    const countBefore = await page.locator('.grid-stack-item').count();
-    await page.evaluate(() => document.getElementById('menu-add-custom')!.click());
     await expect(page.locator('.grid-stack-item')).toHaveCount(countBefore + 1, { timeout: 5_000 });
   });
 });

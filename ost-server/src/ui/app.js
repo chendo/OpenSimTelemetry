@@ -192,9 +192,6 @@ if (savedGraphs && savedGraphs.length > 0) {
     grid.addWidget(defaultGraph);
 }
 
-// Restore saved custom widgets
-_restoreCustomWidgets(grid);
-
 grid.gs.batchUpdate(false);
 grid.restoreLayout();
 
@@ -213,7 +210,6 @@ function setupDropdown(btnId, menuId) {
     menu.addEventListener('click', (e) => e.stopPropagation());
 }
 setupDropdown('data-btn', 'data-menu');
-setupDropdown('widget-btn', 'widget-menu');
 // Close all dropdowns on outside click
 document.addEventListener('click', () => {
     document.querySelectorAll('.header-dropdown-menu.open').forEach(m => m.classList.remove('open'));
@@ -233,20 +229,6 @@ document.getElementById('menu-add-graph').addEventListener('click', () => {
     grid.addWidget(gw);
     grid.saveLayout();
     grid.saveGraphConfigs();
-    document.getElementById('widget-menu').classList.remove('open');
-});
-
-// + Custom widget button
-document.getElementById('menu-add-custom').addEventListener('click', () => {
-    const id = 'custom-' + (graphCounter++);
-    const cw = new CustomWidget(id, '');
-    cw.onTitleChange = () => _saveCustomWidgetConfigs();
-    cw.init();
-    grid.addWidget(cw);
-    grid.saveLayout();
-    _saveCustomWidgetConfigs();
-    cw.showConfigDialog();
-    document.getElementById('widget-menu').classList.remove('open');
 });
 
 // Sources section within Data dropdown
