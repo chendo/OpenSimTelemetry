@@ -111,6 +111,7 @@ class ReplayBuffer {
         this._maxCacheFrames = 10800; // max cached frames (tickRate * 180, set in enterReplayMode)
         this._fetchingChunks = new Set(); // in-flight chunk indices
         this._loadedChunks = new Set();   // chunk indices successfully fetched and merged
+        this._failedChunks = new Map();   // chunkIdx → error message for failed fetches
         this._ensureLoadedRunning = false; // reentrant guard for ensureLoaded
         this._fetchDebounce = null;
         this._dirty = false;
@@ -181,9 +182,11 @@ class ReplayBuffer {
             const frames = await resp.json();
             this._mergeFrames(frames);
             this._loadedChunks.add(chunkIdx);
+            this._failedChunks.delete(chunkIdx);
         } catch (e) {
             if (e.name === 'AbortError') return; // Cancelled — expected during scrubbing
             console.error(`Failed to fetch chunk ${chunkIdx}:`, e);
+            this._failedChunks.set(chunkIdx, e.message || 'Unknown error');
         } finally {
             this._fetchingChunks.delete(chunkIdx);
         }
@@ -374,6 +377,7 @@ class ReplayBuffer {
         this._dirty = false;
         this._ensureLoadedRunning = false;
         this._loadedChunks.clear();
+        this._failedChunks.clear();
         if (this._abortController) { this._abortController.abort(); this._abortController = null; }
         this.scrubbing = false;
         this.replayId = null;

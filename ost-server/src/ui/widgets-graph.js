@@ -781,6 +781,26 @@ class GraphWidget extends Widget {
                 }
             }
             if (gapStartX != null) drawHatch(gapStartX, pad.left + pw);
+
+            // Show error text for failed chunks in the visible range
+            if (replayBuf._failedChunks && replayBuf._failedChunks.size > 0) {
+                const errors = new Set();
+                for (const [chunkIdx, errMsg] of replayBuf._failedChunks) {
+                    const chunkStart = chunkIdx * chunkSize;
+                    const chunkEnd = chunkStart + chunkSize;
+                    if (chunkEnd > windowFrom && chunkStart < windowFrom + dataCount) {
+                        errors.add(errMsg);
+                    }
+                }
+                if (errors.size > 0) {
+                    ctx.font = '11px sans-serif';
+                    ctx.fillStyle = 'rgba(255, 71, 87, 0.8)';
+                    ctx.textAlign = 'center';
+                    const errText = 'Failed to load: ' + [...errors].join('; ');
+                    ctx.fillText(errText, pad.left + pw / 2, pad.top + ph / 2);
+                    ctx.textAlign = 'left';
+                }
+            }
         }
 
         // Draw each trace
