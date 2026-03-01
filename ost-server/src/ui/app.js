@@ -187,8 +187,7 @@ if (savedGraphs && savedGraphs.length > 0) {
         grid.addWidget(gw);
     }
 } else {
-    const defaultGraph = new GraphWidget('graph', { col: 1, row: 9, width: 12, height: 6 },
-        ['speed', 'rpm', 'throttle', 'brake', 'clutch', 'yaw_rate', 'abs_active', 'steering']);
+    const defaultGraph = new GraphWidget('graph', { col: 1, row: 9, width: 12, height: 6 });
     defaultGraph.init();
     grid.addWidget(defaultGraph);
 }
@@ -200,8 +199,7 @@ grid.restoreLayout();
 let graphCounter = Date.now();
 document.getElementById('header-add-graph').addEventListener('click', () => {
     const id = 'graph-' + (graphCounter++);
-    const gw = new GraphWidget(id, { col: 1, row: 100, width: 12, height: 6 },
-        ['speed', 'rpm', 'throttle', 'brake', 'clutch', 'yaw_rate', 'abs_active', 'steering']);
+    const gw = new GraphWidget(id, { col: 1, row: 100, width: 12, height: 6 });
     gw.init();
     grid.addWidget(gw);
     grid.saveLayout();

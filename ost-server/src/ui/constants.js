@@ -42,14 +42,14 @@ const GRAPH_METRIC_KEYS = Object.keys(GRAPH_METRICS);
 
 /* ==================== Graph Presets ==================== */
 const GRAPH_PRESETS = [
-    { name: 'Pedals & Speed', metrics: ['speed', 'throttle', 'brake', 'clutch', 'steering'] },
-    { name: 'G-Forces', metrics: ['lat_g', 'long_g', 'vert_g'] },
+    { name: 'Pedals & Speed', metrics: ['vehicle.speed', 'vehicle.throttle', 'vehicle.brake', 'vehicle.clutch', 'vehicle.steering_angle'] },
+    { name: 'G-Forces', metrics: ['motion.g_force.x', 'motion.g_force.z', 'motion.g_force.y'] },
     { name: 'Wheel Suspension', metrics: ['wheels.*.suspension_travel', 'wheels.*.shock_velocity', 'wheels.*.ride_height'] },
     { name: 'Tire Temps', metrics: ['wheels.*.surface_temp_*'] },
     { name: 'Tire Wear', metrics: ['wheels.*.tyre_wear'] },
     { name: 'Tire Pressure', metrics: ['wheels.*.tyre_pressure', 'wheels.*.tyre_cold_pressure'] },
     { name: 'Brake Temps', metrics: ['wheels.*.brake_temp'] },
-    { name: 'Engine', metrics: ['rpm', 'wheels.*.wheel_speed'] },
+    { name: 'Engine', metrics: ['vehicle.rpm', 'wheels.*.wheel_speed'] },
 ];
 
 /* ==================== Metric Unit Metadata ==================== */

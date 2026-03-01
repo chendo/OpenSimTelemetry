@@ -258,7 +258,7 @@ class GraphWidget extends Widget {
         const frame = store.currentFrame;
         const allPaths = frame ? this._collectAllPaths(frame) : [];
         for (const pattern of preset.metrics) {
-            if (GRAPH_METRICS[pattern]) {
+            if (pattern.startsWith('computed:') && GRAPH_METRICS[pattern]) {
                 this.enabledMetrics.add(pattern);
             } else if (pattern.includes('*')) {
                 for (const p of allPaths) {
@@ -1012,7 +1012,31 @@ class GraphWidget extends Widget {
     }
 
     applyConfig(cfg) {
-        if (cfg.enabledMetrics) this.enabledMetrics = new Set(cfg.enabledMetrics);
+        if (cfg.enabledMetrics) {
+            // Migrate legacy preset keys (e.g. 'speed') to raw paths (e.g. 'vehicle.speed')
+            this.enabledMetrics = new Set();
+            for (const key of cfg.enabledMetrics) {
+                if (GRAPH_METRICS[key] && !key.startsWith('computed:') && GRAPH_METRIC_PATHS[key]) {
+                    const rawPath = GRAPH_METRIC_PATHS[key];
+                    this.enabledMetrics.add(rawPath);
+                    // Create customMetric entry if not already in config
+                    if (!cfg.customMetrics?.find(cm => cm.path === rawPath)) {
+                        const preset = GRAPH_METRICS[key];
+                        const unitInfo = getMetricUnitInfo(rawPath);
+                        this.customMetrics.set(rawPath, {
+                            path: rawPath,
+                            label: deriveLabel(rawPath),
+                            color: preset.color,
+                            unit: unitInfo.unit,
+                            norm: unitInfo.norm,
+                            parts: rawPath.split('.'),
+                        });
+                    }
+                } else {
+                    this.enabledMetrics.add(key);
+                }
+            }
+        }
         if (cfg.hiddenMetrics) this.hiddenMetrics = new Set(cfg.hiddenMetrics);
         if (cfg.timeWindowMs) this.timeWindowMs = cfg.timeWindowMs;
         if (cfg.graphName) this.setTitle(cfg.graphName);
