@@ -1,131 +1,57 @@
 import { test, expect } from '@playwright/test';
-import path from 'path';
-import fs from 'fs';
+import { API_BASE, hasFixture, waitForPageReady, uploadAndEnterReplay } from './helpers';
 
-const IBT_FIXTURE = path.resolve(__dirname, '../../../fixtures/race.ibt');
-const API_BASE = 'http://localhost:9100';
-
-/** Wait for the page to be fully loaded and scripts executed */
-async function waitForPageReady(page: import('@playwright/test').Page) {
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForSelector('.grid-stack', { timeout: 10_000 });
-}
-
-/** Upload .ibt via API then reload the page so auto-detection enters replay mode */
-async function uploadAndEnterReplay(
-  page: import('@playwright/test').Page,
-  request: import('@playwright/test').APIRequestContext,
-) {
-  // Upload via API from host
-  const fileBuffer = fs.readFileSync(IBT_FIXTURE);
-  const resp = await request.post(`${API_BASE}/api/replay/upload`, {
-    multipart: {
-      file: {
-        name: 'race.ibt',
-        mimeType: 'application/octet-stream',
-        buffer: fileBuffer,
-      },
-    },
-  });
-  expect(resp.ok()).toBeTruthy();
-
-  // Verify the server has replay loaded
-  const infoResp = await request.get(`${API_BASE}/api/replay/info`);
-  expect(infoResp.ok()).toBeTruthy();
-  const info = await infoResp.json();
-  expect(info.mode).toBe('replay');
-
-  // Reload the page — checkReplayOnLoad() runs automatically and enters replay mode
-  await page.reload();
-  await waitForPageReady(page);
-
-  // Wait for replay bar to become active
-  await expect(page.locator('#replay-bar.active')).toBeVisible({ timeout: 10_000 });
-}
-
-test.describe('OpenSimTelemetry UI', () => {
-  test('page loads with correct title and header', async ({ page }) => {
-    await page.goto('/');
-    await waitForPageReady(page);
-    await expect(page).toHaveTitle('OpenSimTelemetry');
-    await expect(page.locator('.logo-open')).toHaveText('OPEN');
-    await expect(page.locator('.logo-sim')).toHaveText('SIM');
-    await expect(page.locator('.logo-tel')).toHaveText('TELEMETRY');
-
-    await expect(page.locator('#header-add-graph')).toBeVisible();
-    await expect(page.locator('#header-add-gauge')).toBeVisible();
-    await expect(page.locator('#settings-btn')).toBeVisible();
-    await expect(page.locator('#header-load-ibt')).toBeVisible();
-  });
-
-  test('API docs page accessible', async ({ page }) => {
-    await page.goto('/api/docs');
-    await expect(page.locator('h1')).toContainText('OpenSimTelemetry API');
-  });
-
-  test('settings modal opens and closes', async ({ page }) => {
-    await page.goto('/');
-    await waitForPageReady(page);
-
-    await page.evaluate(() => (globalThis as any).openSettingsModal());
-
-    const modal = page.locator('#settings-modal');
-    await expect(modal).toBeVisible({ timeout: 5_000 });
-    await expect(modal.locator('.cm-modal-title')).toHaveText('Settings');
-    await expect(modal.locator('text=History')).toBeVisible();
-    await expect(modal.locator('text=Retention')).toBeVisible();
-
-    await page.evaluate(() => document.getElementById('settings-close')!.click());
-    await expect(modal).not.toBeVisible();
-  });
-
-  test('add graph widget', async ({ page }) => {
-    await page.goto('/');
-    await waitForPageReady(page);
-
-    const countBefore = await page.locator('.grid-stack-item').count();
-    await page.evaluate(() => document.getElementById('header-add-graph')!.click());
-    await expect(page.locator('.grid-stack-item')).toHaveCount(countBefore + 1, { timeout: 5_000 });
-  });
-
-  test('add gauge widget', async ({ page }) => {
-    await page.goto('/');
-    await waitForPageReady(page);
-
-    const countBefore = await page.locator('.grid-stack-item').count();
-    await page.evaluate(() => document.getElementById('header-add-gauge')!.click());
-    await expect(page.locator('.grid-stack-item')).toHaveCount(countBefore + 1, { timeout: 5_000 });
-  });
-});
-
-test.describe('Replay functionality', () => {
+test.describe('Replay Mode', () => {
   test.beforeEach(async ({ request }) => {
     await request.delete(`${API_BASE}/api/replay`);
   });
 
-  test('upload .ibt file and verify replay mode', async ({ page, request }) => {
-    test.skip(!fs.existsSync(IBT_FIXTURE), 'Fixture race.ibt not found');
+  test('upload .ibt and verify replay UI', async ({ page, request }) => {
+    test.skip(!hasFixture(), 'Fixture .ibt not found');
 
     await page.goto('/');
     await waitForPageReady(page);
     await uploadAndEnterReplay(page, request);
 
-    // Track name should be displayed
+    // Replay bar active
+    await expect(page.locator('#replay-bar')).toHaveClass(/active/);
+    await expect(page.locator('#mode-badge')).toHaveText('REPLAY');
+
+    // Track and car populated
     await expect(async () => {
       const trackText = await page.locator('#replay-track').textContent();
       expect(trackText).not.toBe('--');
       expect(trackText!.length).toBeGreaterThan(0);
     }).toPass({ timeout: 5_000 });
 
+    await expect(async () => {
+      const carText = await page.locator('#replay-car').textContent();
+      expect(carText).not.toBe('--');
+      expect(carText!.length).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
+
+    // Time display and seek slider
     await expect(page.locator('#replay-time')).toBeVisible();
-    await expect(page.locator('.speed-btn[data-speed="1"]')).toBeVisible();
-    await expect(page.locator('.speed-btn[data-speed="2"]')).toBeVisible();
-    await expect(page.locator('.speed-btn[data-speed="4"]')).toBeVisible();
-    await expect(page.locator('#mode-badge')).toHaveText('REPLAY');
+    const timeText = await page.locator('#replay-time').textContent();
+    expect(timeText).toContain('/');
+
+    const slider = page.locator('#replay-seek');
+    await expect(slider).toBeVisible();
+    const max = await slider.getAttribute('max');
+    expect(parseInt(max!)).toBeGreaterThan(0);
+
+    // All 5 speed buttons visible, 1x active by default
+    for (const speed of ['0.25', '0.5', '1', '2', '4']) {
+      await expect(page.locator(`.speed-btn[data-speed="${speed}"]`)).toBeVisible();
+    }
+    await expect(page.locator('.speed-btn[data-speed="1"]')).toHaveClass(/active/);
+
+    // Play/pause visible
+    await expect(page.locator('#replay-play-pause')).toBeVisible();
   });
 
-  test('replay speed control', async ({ page, request }) => {
-    test.skip(!fs.existsSync(IBT_FIXTURE), 'Fixture race.ibt not found');
+  test('speed control toggles active state', async ({ page, request }) => {
+    test.skip(!hasFixture(), 'Fixture .ibt not found');
 
     await page.goto('/');
     await waitForPageReady(page);
@@ -133,42 +59,143 @@ test.describe('Replay functionality', () => {
 
     await expect(page.locator('.speed-btn[data-speed="1"]')).toHaveClass(/active/);
 
+    // Switch to 4x
     await page.evaluate(() =>
       (document.querySelector('.speed-btn[data-speed="4"]') as HTMLElement).click(),
     );
     await expect(page.locator('.speed-btn[data-speed="4"]')).toHaveClass(/active/);
     await expect(page.locator('.speed-btn[data-speed="1"]')).not.toHaveClass(/active/);
 
+    // Switch to 0.25x
+    await page.evaluate(() =>
+      (document.querySelector('.speed-btn[data-speed="0.25"]') as HTMLElement).click(),
+    );
+    await expect(page.locator('.speed-btn[data-speed="0.25"]')).toHaveClass(/active/);
+    await expect(page.locator('.speed-btn[data-speed="4"]')).not.toHaveClass(/active/);
+
+    // Back to 1x
     await page.evaluate(() =>
       (document.querySelector('.speed-btn[data-speed="1"]') as HTMLElement).click(),
     );
     await expect(page.locator('.speed-btn[data-speed="1"]')).toHaveClass(/active/);
-    await expect(page.locator('.speed-btn[data-speed="4"]')).not.toHaveClass(/active/);
   });
 
-  test('replay seek slider and controls', async ({ page, request }) => {
-    test.skip(!fs.existsSync(IBT_FIXTURE), 'Fixture race.ibt not found');
+  test('play/pause via API updates state', async ({ page, request }) => {
+    test.skip(!hasFixture(), 'Fixture .ibt not found');
 
     await page.goto('/');
     await waitForPageReady(page);
     await uploadAndEnterReplay(page, request);
 
-    // Verify seek slider is present with valid range
-    const slider = page.locator('#replay-seek');
-    await expect(slider).toBeVisible();
-    const max = await slider.getAttribute('max');
-    expect(parseInt(max!)).toBeGreaterThan(0);
-
-    // Verify play/pause button is present
+    // Play/pause button exists
     await expect(page.locator('#replay-play-pause')).toBeVisible();
 
-    // Verify time display shows duration
-    const timeText = await page.locator('#replay-time').textContent();
-    expect(timeText).toContain('/');
+    // Verify play via API
+    const playResp = await request.post(`${API_BASE}/api/replay/control`, {
+      data: { action: 'play' },
+    });
+    expect(playResp.ok()).toBeTruthy();
+
+    // Verify pause via API
+    const pauseResp = await request.post(`${API_BASE}/api/replay/control`, {
+      data: { action: 'pause' },
+    });
+    expect(pauseResp.ok()).toBeTruthy();
+
+    // Verify seek via API changes position
+    const seekResp = await request.post(`${API_BASE}/api/replay/control`, {
+      data: { action: 'seek', value: 500 },
+    });
+    expect(seekResp.ok()).toBeTruthy();
+  });
+
+  test('lap selector appears and navigates', async ({ page, request }) => {
+    test.skip(!hasFixture(), 'Fixture .ibt not found');
+
+    await page.goto('/');
+    await waitForPageReady(page);
+    await uploadAndEnterReplay(page, request);
+
+    // Lap group should be visible (display not 'none') if laps exist
+    await expect(async () => {
+      const display = await page.locator('#replay-lap-group').evaluate(
+        (el) => getComputedStyle(el).display,
+      );
+      expect(display).not.toBe('none');
+    }).toPass({ timeout: 5_000 });
+
+    // Lap button shows "Lap ..."
+    await expect(page.locator('#replay-lap-btn')).toContainText('Lap');
+
+    // Open lap menu
+    await page.evaluate(() => document.getElementById('replay-lap-btn')!.click());
+    await expect(page.locator('#replay-lap-menu')).toHaveClass(/open/);
+
+    // Has lap items
+    const lapItems = page.locator('.replay-lap-item');
+    expect(await lapItems.count()).toBeGreaterThan(0);
+
+    // At least one best lap
+    expect(await page.locator('.replay-lap-item.best').count()).toBeGreaterThanOrEqual(1);
+
+    // Click a lap item → menu closes
+    await lapItems.nth(1).click();
+    await expect(page.locator('#replay-lap-menu')).not.toHaveClass(/open/);
+  });
+
+  test('loop controls', async ({ page, request }) => {
+    test.skip(!hasFixture(), 'Fixture .ibt not found');
+
+    await page.goto('/');
+    await waitForPageReady(page);
+    await uploadAndEnterReplay(page, request);
+
+    // Loop buttons visible, not active
+    await expect(page.locator('#replay-loop-start')).toBeVisible();
+    await expect(page.locator('#replay-loop-start')).not.toHaveClass(/active/);
+    await expect(page.locator('#replay-loop-end')).toBeVisible();
+    await expect(page.locator('#replay-loop-end')).not.toHaveClass(/active/);
+    await expect(page.locator('#replay-loop-toggle')).toBeVisible();
+    await expect(page.locator('#replay-loop-toggle')).not.toHaveClass(/loop-on/);
+
+    // Set loop start
+    await page.evaluate(() => document.getElementById('replay-loop-start')!.click());
+    await expect(page.locator('#replay-loop-start')).toHaveClass(/active/);
+
+    // Set loop end
+    await page.evaluate(() => document.getElementById('replay-loop-end')!.click());
+    await expect(page.locator('#replay-loop-end')).toHaveClass(/active/);
+
+    // Enable loop
+    await page.evaluate(() => document.getElementById('replay-loop-toggle')!.click());
+    await expect(page.locator('#replay-loop-toggle')).toHaveClass(/loop-on/);
+
+    // Disable loop
+    await page.evaluate(() => document.getElementById('replay-loop-toggle')!.click());
+    await expect(page.locator('#replay-loop-toggle')).not.toHaveClass(/loop-on/);
+  });
+
+  test('replay populates vehicle widget with data', async ({ page, request }) => {
+    test.skip(!hasFixture(), 'Fixture .ibt not found');
+
+    await page.goto('/');
+    await waitForPageReady(page);
+    await uploadAndEnterReplay(page, request);
+
+    // After replay loads, vehicle widget should show real data (not defaults)
+    await expect(async () => {
+      const speed = await page.locator('#v-speed').textContent();
+      expect(speed).not.toBe('---');
+    }).toPass({ timeout: 10_000 });
+
+    await expect(async () => {
+      const rpm = await page.locator('#v-rpm').textContent();
+      expect(rpm).not.toBe('---');
+    }).toPass({ timeout: 10_000 });
   });
 
   test('exit replay returns to live mode', async ({ page, request }) => {
-    test.skip(!fs.existsSync(IBT_FIXTURE), 'Fixture race.ibt not found');
+    test.skip(!hasFixture(), 'Fixture .ibt not found');
 
     await page.goto('/');
     await waitForPageReady(page);
@@ -178,5 +205,10 @@ test.describe('Replay functionality', () => {
 
     await expect(page.locator('#replay-bar')).not.toHaveClass(/active/);
     await expect(page.locator('#seek-bar')).toBeVisible();
+
+    // Verify via API
+    const infoResp = await request.get(`${API_BASE}/api/replay/info`);
+    const info = await infoResp.json();
+    expect(info.mode).toBe('history');
   });
 });
