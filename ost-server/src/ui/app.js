@@ -187,7 +187,7 @@ if (savedGraphs && savedGraphs.length > 0) {
         grid.addWidget(gw);
     }
 } else {
-    const defaultGraph = new GraphWidget('graph', { col: 1, row: 9, width: 12, height: 6 });
+    const defaultGraph = new GraphWidget('graph', { col: 1, row: 9, width: 12, height: 9 });
     defaultGraph.init();
     grid.addWidget(defaultGraph);
 }
@@ -199,7 +199,13 @@ grid.restoreLayout();
 let graphCounter = Date.now();
 document.getElementById('header-add-graph').addEventListener('click', () => {
     const id = 'graph-' + (graphCounter++);
-    const gw = new GraphWidget(id, { col: 1, row: 100, width: 12, height: 6 });
+    // Find the bottom of existing graph widgets to place new graph directly below
+    let maxBottom = 0;
+    for (const node of grid.gs.getGridItems()) {
+        const n = node.gridstackNode;
+        if (n) maxBottom = Math.max(maxBottom, (n.y || 0) + (n.h || 0));
+    }
+    const gw = new GraphWidget(id, { col: 1, row: maxBottom, width: 12, height: 9 });
     gw.init();
     grid.addWidget(gw);
     grid.saveLayout();

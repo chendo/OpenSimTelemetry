@@ -12,7 +12,7 @@ class GraphWidget extends Widget {
     ];
 
     constructor(id, defaultLayout, defaultEnabled) {
-        super(id || 'graph', 'Graph', defaultLayout || { col: 1, row: 7, width: 12, height: 6 });
+        super(id || 'graph', 'Graph', defaultLayout || { col: 1, row: 7, width: 12, height: 9 });
         this.hiddenMetrics = new Set(); // metrics that are enabled but visually hidden
         this.customMetrics = new Map(); // path -> { path, label, color, unit, norm, parts }
         if (defaultEnabled) {
@@ -32,7 +32,7 @@ class GraphWidget extends Widget {
                 });
             }
         }
-        this.timeWindowMs = 10000;
+        this.timeWindowMs = 60000;
         this.maxSeen = {};
         this.closable = !!id && id !== 'graph';
         this.titleEditable = true;
@@ -607,7 +607,8 @@ class GraphWidget extends Widget {
                         });
                     } else {
                         const leaf = parts[parts.length - 1];
-                        let dU = custom.unit, dM = 1;
+                        const unitInfo = getMetricUnitInfo(key);
+                        let dU = custom.unit, dM = unitInfo.multiplier || 1;
                         if (custom.norm === 'pct') { dU = '%'; dM = 100; }
                         else if (custom.unit === 'm' && METERS_TO_MM_METRICS.test(leaf)) { dU = 'mm'; dM = 1000; }
                         else if (custom.unit === 'm/s' && MPS_TO_MMPS_METRICS.test(leaf)) { dU = 'mm/s'; dM = 1000; }

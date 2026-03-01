@@ -57,7 +57,7 @@ const GRAPH_PRESETS = [
 // Lookup: exact match first, then suffix match (*.metric_name).
 const METRIC_UNIT_MAP = {
     // Exact paths with special handling
-    'vehicle.speed':          { unit: 'm/s',  norm: 'autoscale' },
+    'vehicle.speed':          { unit: 'km/h', norm: 'autoscale', multiplier: 3.6 },
     'vehicle.gear':           { unit: '',     norm: 'autoscale' },
     'vehicle.max_gears':      { unit: '',     norm: 'autoscale' },
     // Suffix patterns (matched when exact fails)
@@ -183,6 +183,8 @@ function formatMetricValue(path, value) {
     if (typeof value !== 'number') return { text: JSON.stringify(value), unit: '' };
     const info = getMetricUnitInfo(path);
     const leaf = path.split('.').pop();
+    // Apply multiplier from METRIC_UNIT_MAP (e.g., m/s → km/h)
+    if (info.multiplier) value = value * info.multiplier;
     // Meters → mm for suspension/ride height
     if (info.unit === 'm' && METERS_TO_MM_METRICS.test(leaf)) return { text: (value * 1000).toFixed(2), unit: 'mm' };
     // m/s → mm/s for shock velocity
