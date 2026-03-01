@@ -255,30 +255,51 @@ const LABEL_ABBREVS = {
     delta_session_best: '\u0394 Sess Best', delta_optimal: '\u0394 Optimal',
 };
 
+/* ==================== Metric Aliases ==================== */
+// Alternative search terms for renamed/technical metric paths
+const METRIC_ALIASES = {
+    'motion.pitch_rate': ['angular_velocity.x', 'pitch_velocity'],
+    'motion.yaw_rate':   ['angular_velocity.y', 'yaw_velocity'],
+    'motion.roll_rate':  ['angular_velocity.z', 'roll_velocity'],
+};
+
 /* ==================== Metric Filter Matching ==================== */
 // Supports three modes:
 //   - /pattern/flags  → regex (case-insensitive by default)
 //   - contains *      → wildcard (* matches any non-dot chars within a path segment)
 //   - otherwise       → case-insensitive substring match
+// Also checks METRIC_ALIASES so renamed metrics are still discoverable.
 function matchMetricFilter(path, filter) {
     if (!filter) return true;
+    if (_matchFilter(path, filter)) return true;
+    // Check aliases for this path
+    const aliases = METRIC_ALIASES[path];
+    if (aliases) {
+        for (const alias of aliases) {
+            if (_matchFilter(alias, filter)) return true;
+        }
+    }
+    return false;
+}
+
+function _matchFilter(text, filter) {
     if (filter.startsWith('/')) {
         try {
             const end = filter.lastIndexOf('/');
             const pattern = end > 0 ? filter.slice(1, end) : filter.slice(1);
             if (!pattern) return true;
             const flags = end > 0 && end !== 0 ? filter.slice(end + 1) : 'i';
-            return new RegExp(pattern, flags || 'i').test(path);
+            return new RegExp(pattern, flags || 'i').test(text);
         } catch { return false; }
     }
     if (filter.includes('*')) {
         try {
             const parts = filter.split('*');
             const escaped = parts.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-            return new RegExp(escaped.join('[^.]*'), 'i').test(path);
+            return new RegExp(escaped.join('[^.]*'), 'i').test(text);
         } catch { return false; }
     }
-    return path.toLowerCase().includes(filter.toLowerCase());
+    return text.toLowerCase().includes(filter.toLowerCase());
 }
 
 const TOP_LEVEL_SECTIONS = new Set([
