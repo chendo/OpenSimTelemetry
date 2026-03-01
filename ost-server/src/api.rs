@@ -34,6 +34,61 @@ fn rate_to_interval(rate: Option<f64>) -> Option<Duration> {
     }
 }
 
+/// Adaptive throttle state for SSE streams.
+/// Tracks client lag and dynamically adjusts the frame skip interval.
+struct AdaptiveThrottle {
+    base_interval: Option<Duration>,
+    /// Extra skip multiplier (1 = no throttle, 2 = skip every other, etc.)
+    skip_multiplier: u32,
+    /// Frames received since last lag event (used to relax throttle)
+    frames_since_lag: u64,
+}
+
+impl AdaptiveThrottle {
+    fn new(base_interval: Option<Duration>) -> Self {
+        Self {
+            base_interval,
+            skip_multiplier: 1,
+            frames_since_lag: 0,
+        }
+    }
+
+    /// Called when a lag event is detected (client fell behind by `n` frames).
+    /// Returns the new effective FPS for logging.
+    fn on_lag(&mut self, _dropped: u64) -> u32 {
+        self.skip_multiplier = (self.skip_multiplier * 2).min(8);
+        self.frames_since_lag = 0;
+        self.effective_fps()
+    }
+
+    /// Called on every successfully received frame.
+    fn on_frame_received(&mut self) {
+        self.frames_since_lag += 1;
+        // Relax throttle after 300 consecutive frames (~5 seconds at 60fps)
+        if self.skip_multiplier > 1 && self.frames_since_lag > 300 {
+            self.skip_multiplier = (self.skip_multiplier / 2).max(1);
+            self.frames_since_lag = 0;
+        }
+    }
+
+    /// Get the effective minimum interval between emitted frames.
+    fn effective_interval(&self) -> Option<Duration> {
+        if self.skip_multiplier <= 1 {
+            self.base_interval
+        } else {
+            let base = self.base_interval.unwrap_or(Duration::from_millis(16));
+            Some(base * self.skip_multiplier)
+        }
+    }
+
+    fn effective_fps(&self) -> u32 {
+        match self.effective_interval() {
+            Some(d) => (1.0 / d.as_secs_f64()).round() as u32,
+            None => 60,
+        }
+    }
+}
+
 /// Round all floating-point numbers in a JSON value tree to 5 decimal places.
 fn round_json_floats(val: &mut serde_json::Value) {
     match val {
@@ -123,6 +178,7 @@ async fn auth_middleware(
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(web_ui::serve_ui))
+        .route("/api/docs", get(api_docs))
         .route("/api/adapters", get(list_adapters))
         .route("/api/adapters/:name/toggle", post(toggle_adapter))
         .route("/api/stream", get(unified_stream))
@@ -343,14 +399,23 @@ async fn unified_stream(
         .format
         .as_deref()
         .is_some_and(|f| f.eq_ignore_ascii_case("msgpack"));
+    // Adaptive throttling state: tracks lag and dynamically adjusts skip rate
+    let throttle_state =
+        std::sync::Arc::new(std::sync::Mutex::new(AdaptiveThrottle::new(min_interval)));
     let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
     let telemetry = BroadcastStream::new(telemetry_rx).filter_map(move |result| {
         let mask = metric_mask.clone();
         let last = last_emit.clone();
+        let throttle = throttle_state.clone();
         async move {
             match result {
                 Ok(frame) => {
-                    if let Some(interval) = min_interval {
+                    let mut ts = throttle.lock().unwrap();
+                    ts.on_frame_received();
+                    let effective_interval = ts.effective_interval();
+                    drop(ts);
+
+                    if let Some(interval) = effective_interval {
                         let mut guard = last.lock().unwrap();
                         if guard.elapsed() < interval {
                             return None;
@@ -366,7 +431,18 @@ async fn unified_stream(
                         }
                     }
                 }
-                Err(_) => None,
+                Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
+                    let mut ts = throttle.lock().unwrap();
+                    let effective_fps = ts.on_lag(n);
+                    tracing::debug!(
+                        "Client lagged {} frames, throttled to ~{} fps",
+                        n,
+                        effective_fps
+                    );
+                    Some(Ok(
+                        Event::default().comment(format!("throttled to {}fps", effective_fps))
+                    ))
+                }
             }
         }
     });
@@ -485,14 +561,22 @@ async fn telemetry_stream(
         .as_deref()
         .is_some_and(|f| f.eq_ignore_ascii_case("msgpack"));
 
+    let throttle_state =
+        std::sync::Arc::new(std::sync::Mutex::new(AdaptiveThrottle::new(min_interval)));
     let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
         let mask = metric_mask.clone();
         let last = last_emit.clone();
+        let throttle = throttle_state.clone();
         async move {
             match result {
                 Ok(frame) => {
-                    if let Some(interval) = min_interval {
+                    let mut ts = throttle.lock().unwrap();
+                    ts.on_frame_received();
+                    let effective_interval = ts.effective_interval();
+                    drop(ts);
+
+                    if let Some(interval) = effective_interval {
                         let mut guard = last.lock().unwrap();
                         if guard.elapsed() < interval {
                             return None;
@@ -511,8 +595,9 @@ async fn telemetry_stream(
                         }
                     }
                 }
-                Err(e) => {
-                    tracing::warn!("Broadcast stream error: {}", e);
+                Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
+                    let mut ts = throttle.lock().unwrap();
+                    ts.on_lag(n);
                     None
                 }
             }
@@ -1489,4 +1574,13 @@ async fn persistence_delete_file(
 
     tracing::info!("Deleted telemetry file: {}", name);
     Ok(StatusCode::NO_CONTENT)
+}
+
+// === Interactive API Docs ===
+
+async fn api_docs() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        include_str!("api_docs.html"),
+    )
 }

@@ -48,3 +48,9 @@ http-body-util = "0.1"
 hyper = "1.0"
 ost-adapters = { path = "../ost-adapters" }
 zstd = "0.13"
+criterion = { version = "0.5", features = ["html_reports"] }
+rmp-serde = "1.3"
+
+[[bench]]
+name = "frame_throughput"
+harness = false

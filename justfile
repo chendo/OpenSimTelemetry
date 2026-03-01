@@ -46,6 +46,10 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
+# Run benchmarks
+bench:
+    cargo bench --workspace
+
 # Run check + lint + test (CI-equivalent)
 ci: check lint test fmt-check
 

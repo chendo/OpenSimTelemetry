@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenSimTelemetry API Documentation</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a1a;color:#e0e0e0;line-height:1.6;padding:20px 40px}
+h1{color:#00d4ff;margin-bottom:8px}
+.subtitle{color:#888;margin-bottom:32px}
+h2{color:#9b59b6;border-bottom:1px solid #2a2a3e;padding-bottom:8px;margin:32px 0 16px}
+h3{color:#e0e0e0;margin:24px 0 8px}
+.endpoint{background:#111;border:1px solid #2a2a3e;border-radius:8px;padding:16px;margin:12px 0}
+.method{display:inline-block;padding:2px 8px;border-radius:4px;font-weight:700;font-size:13px;margin-right:8px}
+.get{background:#2563eb;color:#fff}
+.post{background:#16a34a;color:#fff}
+.delete{background:#dc2626;color:#fff}
+.path{font-family:monospace;font-size:15px;color:#00d4ff}
+.desc{color:#aaa;margin:8px 0}
+.params{margin:8px 0}
+.params table{width:100%;border-collapse:collapse;font-size:13px}
+.params th{text-align:left;color:#888;padding:4px 8px;border-bottom:1px solid #2a2a3e}
+.params td{padding:4px 8px;border-bottom:1px solid #1a1a2e}
+.params code{background:#1a1a2e;padding:1px 4px;border-radius:3px;color:#00d4ff;font-size:12px}
+pre{background:#0d0d1a;border:1px solid #2a2a3e;border-radius:4px;padding:12px;overflow-x:auto;font-size:13px;margin:8px 0}
+code{font-family:'SF Mono',Monaco,'Cascadia Code',monospace}
+.try-btn{background:#2563eb;color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:13px;margin-top:8px}
+.try-btn:hover{background:#1d4ed8}
+.try-result{background:#0d0d1a;border:1px solid #2a2a3e;border-radius:4px;padding:12px;margin-top:8px;font-size:13px;white-space:pre-wrap;display:none;max-height:300px;overflow:auto}
+.tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;margin-left:8px;background:#2a2a3e;color:#aaa}
+.sse-tag{background:#7c3aed;color:#fff}
+a{color:#00d4ff;text-decoration:none}
+a:hover{text-decoration:underline}
+nav{position:fixed;right:20px;top:20px;background:#111;border:1px solid #2a2a3e;border-radius:8px;padding:12px 16px;font-size:13px;max-height:90vh;overflow-y:auto}
+nav a{display:block;padding:2px 0;color:#888}
+nav a:hover{color:#00d4ff}
+@media(max-width:900px){nav{display:none}body{padding:20px}}
+</style>
+</head>
+<body>
+
+<h1>OpenSimTelemetry API</h1>
+<p class="subtitle">REST and SSE endpoints for telemetry data. Base URL: <code>http://localhost:9100</code></p>
+
+<nav>
+<strong style="color:#e0e0e0">Sections</strong>
+<a href="#streaming">Streaming (SSE)</a>
+<a href="#adapters">Adapters</a>
+<a href="#replay">Replay</a>
+<a href="#history">History</a>
+<a href="#sinks">Sinks</a>
+<a href="#persistence">Persistence</a>
+<a href="#conversion">Conversion</a>
+</nav>
+
+<h2 id="streaming">Streaming (SSE)</h2>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/stream</span><span class="tag sse-tag">SSE</span>
+<p class="desc">Unified SSE stream multiplexing telemetry frames, adapter status, and sink config updates. Uses named events: <code>frame</code>, <code>status</code>, <code>sinks</code>. Preferred over individual stream endpoints (avoids HTTP/1.1 connection limit).</p>
+<div class="params"><table>
+<tr><th>Param</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>metric_mask</code></td><td>string</td><td>Comma-separated sections to include (e.g. <code>vehicle,timing</code>)</td></tr>
+<tr><td><code>rate</code></td><td>float</td><td>Frames per second (0.01–60, default 60)</td></tr>
+<tr><td><code>format</code></td><td>string</td><td><code>json</code> (default) or <code>msgpack</code> (base64-encoded MessagePack)</td></tr>
+</table></div>
+<pre>curl -N "http://localhost:9100/api/stream?rate=10&metric_mask=vehicle,timing"</pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/telemetry/stream</span><span class="tag sse-tag">SSE</span>
+<p class="desc">Telemetry-only SSE stream. Same query params as <code>/api/stream</code>.</p>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/status/stream</span><span class="tag sse-tag">SSE</span>
+<p class="desc">Adapter status updates SSE stream.</p>
+</div>
+
+<h2 id="adapters">Adapters</h2>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/adapters</span>
+<p class="desc">List all registered adapters with their detection status.</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/adapters')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/adapters/:name/toggle</span>
+<p class="desc">Enable or disable an adapter by key name.</p>
+</div>
+
+<h2 id="replay">Replay</h2>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/replay/upload</span>
+<p class="desc">Upload an .ibt file to start replay mode. Accepts multipart/form-data with a single file field.</p>
+<pre>curl -X POST -F "file=@race.ibt" http://localhost:9100/api/replay/upload</pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/replay/info</span>
+<p class="desc">Get current replay/history info (track, car, frame count, playing state, laps).</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/replay/info')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/replay/frames</span>
+<p class="desc">Fetch a range of frames from replay or history buffer.</p>
+<div class="params"><table>
+<tr><th>Param</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>start</code></td><td>int</td><td>0-based start frame index</td></tr>
+<tr><td><code>count</code></td><td>int</td><td>Number of frames to fetch (max 7200)</td></tr>
+<tr><td><code>metric_mask</code></td><td>string</td><td>Comma-separated sections to include</td></tr>
+<tr><td><code>rid</code></td><td>string</td><td>Replay ID for immutable cache headers</td></tr>
+</table></div>
+</div>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/replay/control</span>
+<p class="desc">Control playback: play, pause, seek, set speed.</p>
+<pre>// Play/pause
+{"action": "play"}  |  {"action": "pause"}
+
+// Seek to frame
+{"action": "seek", "value": 1000}
+
+// Set speed
+{"action": "speed", "value": 2.0}</pre>
+</div>
+
+<div class="endpoint">
+<span class="method delete">DELETE</span><span class="path">/api/replay</span>
+<p class="desc">Stop and delete the current replay session.</p>
+</div>
+
+<h2 id="history">History Buffer</h2>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/history/config</span>
+<p class="desc">Resize the history buffer.</p>
+<pre>{"max_duration_secs": 600}  // 60–3600</pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/history/aggregate</span>
+<p class="desc">Compute statistics (min, max, avg, stddev, count) for metrics over a time window.</p>
+<div class="params"><table>
+<tr><th>Param</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>metrics</code></td><td>string</td><td>Comma-separated dot-paths (e.g. <code>vehicle.speed,vehicle.rpm</code>)</td></tr>
+<tr><td><code>duration</code></td><td>string</td><td>Time window: <code>60s</code>, <code>5m</code>, <code>1h</code> (default <code>60s</code>)</td></tr>
+</table></div>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/history/aggregate?duration=60s&metrics=vehicle.speed,vehicle.rpm')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<h2 id="sinks">Sinks</h2>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/sinks</span>
+<p class="desc">List configured telemetry sinks (UDP forwarding targets).</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/sinks')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/sinks</span>
+<p class="desc">Create a new sink.</p>
+<pre>{"host": "127.0.0.1", "port": 5000, "format": "json", "rate_hz": 60}</pre>
+</div>
+
+<div class="endpoint">
+<span class="method delete">DELETE</span><span class="path">/api/sinks/:id</span>
+<p class="desc">Delete a sink by ID.</p>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/sinks/stream</span><span class="tag sse-tag">SSE</span>
+<p class="desc">SSE stream of sink config updates.</p>
+</div>
+
+<h2 id="persistence">Persistence</h2>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/persistence/config</span>
+<p class="desc">Get current persistence configuration (auto-save, frequency, retention).</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/persistence/config')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/persistence/config</span>
+<p class="desc">Update persistence configuration.</p>
+<pre>{
+  "auto_save": true,
+  "frequency_hz": 60,
+  "max_sessions": 10,
+  "max_age_days": 30
+}</pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/persistence/stats</span>
+<p class="desc">Get storage statistics (file count, total size).</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/persistence/stats')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/persistence/files</span>
+<p class="desc">List saved telemetry session files.</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/persistence/files')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/persistence/load</span>
+<p class="desc">Load a saved session file into replay mode.</p>
+<pre>{"filename": "2024-01-15_Spa_McLaren.ost.ndjson.zstd"}</pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/persistence/download</span>
+<p class="desc">Download the current history buffer as ZSTD-compressed NDJSON.</p>
+</div>
+
+<div class="endpoint">
+<span class="method delete">DELETE</span><span class="path">/api/persistence/files/:name</span>
+<p class="desc">Delete a saved session file.</p>
+</div>
+
+<h2 id="conversion">Conversion</h2>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/convert/ibt</span>
+<p class="desc">Convert an .ibt file to ZSTD-compressed NDJSON stream. Accepts multipart/form-data.</p>
+<pre>curl -X POST -F "file=@race.ibt" http://localhost:9100/api/convert/ibt -o output.ost.ndjson.zstd</pre>
+</div>
+
+<script>
+async function tryEndpoint(btn, url) {
+    const pre = btn.nextElementSibling;
+    pre.style.display = 'block';
+    pre.textContent = 'Loading...';
+    try {
+        const res = await fetch(url);
+        const text = await res.text();
+        try { pre.textContent = JSON.stringify(JSON.parse(text), null, 2); }
+        catch { pre.textContent = text; }
+    } catch (e) {
+        pre.textContent = 'Error: ' + e.message;
+    }
+}
+</script>
+</body>
+</html>

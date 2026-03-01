@@ -70,6 +70,33 @@ async fn test_get_root_returns_200_with_html() {
     );
 }
 
+// ==================== GET /api/docs ====================
+
+#[tokio::test]
+async fn test_api_docs_returns_html() {
+    let app = app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/docs")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let ct = response
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(ct.contains("text/html"));
+    let body = body_string(response.into_body()).await;
+    assert!(body.contains("OpenSimTelemetry API"));
+    assert!(body.contains("/api/adapters"));
+}
+
 // ==================== GET /api/adapters ====================
 
 #[tokio::test]
