@@ -876,9 +876,9 @@ class GraphWidget extends Widget {
         for (let bi = 0; bi < boolTraces.length; bi++) {
             const bt = boolTraces[bi];
             const barY = 8 + bi * (boolBarH + boolBarGap);
-            // Draw label
-            ctx.font = '8px sans-serif'; ctx.fillStyle = bt.color; ctx.textAlign = 'right';
-            ctx.fillText(bt.label, pad.left - 4, barY + boolBarH - 1);
+            // Draw label on right side
+            ctx.font = '8px sans-serif'; ctx.fillStyle = bt.color; ctx.textAlign = 'left';
+            ctx.fillText(bt.label, pad.left + pw + 4, barY + boolBarH - 1);
             // Draw bar background
             ctx.fillStyle = 'rgba(255,255,255,0.03)';
             ctx.fillRect(pad.left, barY, pw, boolBarH);
@@ -912,9 +912,9 @@ class GraphWidget extends Widget {
         for (let ti = 0; ti < textTraces.length; ti++) {
             const tt = textTraces[ti];
             const barY = 8 + (boolTraces.length + ti) * (boolBarH + boolBarGap);
-            // Draw label
-            ctx.font = '8px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.textAlign = 'right';
-            ctx.fillText(tt.label, pad.left - 4, barY + boolBarH - 1);
+            // Draw label on right side
+            ctx.font = '8px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.textAlign = 'left';
+            ctx.fillText(tt.label, pad.left + pw + 4, barY + boolBarH - 1);
             // Draw bar background
             ctx.fillStyle = 'rgba(255,255,255,0.03)';
             ctx.fillRect(pad.left, barY, pw, boolBarH);

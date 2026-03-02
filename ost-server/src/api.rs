@@ -963,12 +963,9 @@ fn serialize_frames(
 ) -> Vec<serde_json::Value> {
     frames
         .map(|(idx, frame)| {
-            let mut f_val = if let Some(ref mask) = metric_mask {
-                let json_str = frame.to_json_filtered(Some(mask)).unwrap_or_default();
-                serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null)
-            } else {
-                serde_json::to_value(&frame).unwrap_or(serde_json::Value::Null)
-            };
+            let mut f_val = frame
+                .to_json_value_filtered(metric_mask.as_ref())
+                .unwrap_or(serde_json::Value::Null);
             round_json_floats(&mut f_val);
             serde_json::json!({
                 "i": idx,
