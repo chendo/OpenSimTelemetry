@@ -73,9 +73,9 @@ function buildReplayMetricMask() {
     metrics.add('vehicle');      // VehicleWidget
     metrics.add('motion');       // GForceWidget
     metrics.add('wheels');       // WheelsWidget
-    metrics.add('timing');       // LapTimingWidget
-    metrics.add('session');      // SessionWidget
-    metrics.add('weather');      // SessionWidget (track_temp, air_temp)
+    metrics.add('timing');       // Session bar lap timing
+    metrics.add('session');      // Session bar info
+    metrics.add('weather');      // Session bar weather
     metrics.add('electronics');  // (ABS active, etc.)
     // Collect individual paths from graph widgets
     if (typeof grid !== 'undefined') {

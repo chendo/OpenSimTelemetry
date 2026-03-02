@@ -173,8 +173,6 @@ const staticWidgets = [
     new VehicleWidget(),
     new GForceWidget(),
     new WheelsWidget(),
-    new LapTimingWidget(),
-    new SessionWidget(),
     new AllMetricsWidget(),
     new OutputSinksWidget(),
     new ApiWidget(),
