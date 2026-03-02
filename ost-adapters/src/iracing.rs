@@ -37,226 +37,6 @@ mod windows_impl {
     unsafe impl Send for IRacingAdapter {}
     unsafe impl Sync for IRacingAdapter {}
 
-    /// Set of iRacing variable names that are mapped to normalized fields.
-    /// Variables NOT in this set will be forwarded to extras.
-    const MAPPED_VARS: &[&str] = &[
-        // Motion
-        "VelocityX",
-        "VelocityY",
-        "VelocityZ",
-        "LatAccel",
-        "LongAccel",
-        "VertAccel",
-        "Pitch",
-        "Yaw",
-        "Roll",
-        "PitchRate",
-        "YawRate",
-        "RollRate",
-        "Speed",
-        "Lat",
-        "Lon",
-        "Alt",
-        // Vehicle
-        "RPM",
-        "Gear",
-        "Throttle",
-        "Brake",
-        "Clutch",
-        "SteeringWheelAngle",
-        "SteeringWheelTorque",
-        "SteeringWheelPctTorque",
-        "IsOnTrack",
-        "IsInGarage",
-        "PlayerTrackSurface",
-        // Engine
-        "WaterTemp",
-        "OilTemp",
-        "OilPress",
-        "OilLevel",
-        "FuelLevel",
-        "FuelLevelPct",
-        "FuelPress",
-        "FuelUsePerHour",
-        "Voltage",
-        "ManifoldPress",
-        "EngineWarnings",
-        // Wheels - LF
-        "LFshockDefl",
-        "LFshockDeflST",
-        "LFshockVel",
-        "LFshockVelST",
-        "LFrideHeight",
-        "LFairPressure",
-        "LFcoldPressure",
-        "LFtempCL",
-        "LFtempCC",
-        "LFtempCR",
-        "LFtempL",
-        "LFtempM",
-        "LFtempR",
-        "LFwear",
-        "LFwearL",
-        "LFwearM",
-        "LFwearR",
-        "LFspeed",
-        "LFbrakeLinePress",
-        // Wheels - RF
-        "RFshockDefl",
-        "RFshockDeflST",
-        "RFshockVel",
-        "RFshockVelST",
-        "RFrideHeight",
-        "RFairPressure",
-        "RFcoldPressure",
-        "RFtempCL",
-        "RFtempCC",
-        "RFtempCR",
-        "RFtempL",
-        "RFtempM",
-        "RFtempR",
-        "RFwear",
-        "RFwearL",
-        "RFwearM",
-        "RFwearR",
-        "RFspeed",
-        "RFbrakeLinePress",
-        // Wheels - LR
-        "LRshockDefl",
-        "LRshockDeflST",
-        "LRshockVel",
-        "LRshockVelST",
-        "LRrideHeight",
-        "LRairPressure",
-        "LRcoldPressure",
-        "LRtempCL",
-        "LRtempCC",
-        "LRtempCR",
-        "LRtempL",
-        "LRtempM",
-        "LRtempR",
-        "LRwear",
-        "LRwearL",
-        "LRwearM",
-        "LRwearR",
-        "LRspeed",
-        "LRbrakeLinePress",
-        // Wheels - RR
-        "RRshockDefl",
-        "RRshockDeflST",
-        "RRshockVel",
-        "RRshockVelST",
-        "RRrideHeight",
-        "RRairPressure",
-        "RRcoldPressure",
-        "RRtempCL",
-        "RRtempCC",
-        "RRtempCR",
-        "RRtempL",
-        "RRtempM",
-        "RRtempR",
-        "RRwear",
-        "RRwearL",
-        "RRwearM",
-        "RRwearR",
-        "RRspeed",
-        "RRbrakeLinePress",
-        // Timing
-        "LapCurrentLapTime",
-        "LapLastLapTime",
-        "LapBestLapTime",
-        "LapBestNLapTime",
-        "LapBestNLapLap",
-        "Lap",
-        "LapCompleted",
-        "LapDist",
-        "LapDistPct",
-        "PlayerCarPosition",
-        "PlayerCarClassPosition",
-        "LapDeltaToBestLap",
-        "LapDeltaToBestLap_OK",
-        "LapDeltaToSessionBestLap",
-        "LapDeltaToSessionBestLap_OK",
-        "LapDeltaToOptimalLap",
-        "LapDeltaToOptimalLap_OK",
-        "RaceLaps",
-        // Session
-        "SessionState",
-        "SessionTime",
-        "SessionTimeRemain",
-        "SessionTimeOfDay",
-        "SessionLapsRemainEx",
-        "SessionFlags",
-        "SessionNum",
-        // Weather
-        "AirTemp",
-        "TrackTempCrew",
-        "TrackTemp",
-        "AirPressure",
-        "AirDensity",
-        "RelativeHumidity",
-        "WindVel",
-        "WindDir",
-        "FogLevel",
-        "Precipitation",
-        "TrackWetness",
-        "Skies",
-        "WeatherDeclaredWet",
-        // Pit
-        "OnPitRoad",
-        "PitstopActive",
-        "PlayerCarPitSvStatus",
-        "PitRepairLeft",
-        "PitOptRepairLeft",
-        "FastRepairAvailable",
-        "FastRepairUsed",
-        "dpFuelFill",
-        "dpFuelAddKg",
-        "dpLFTireChange",
-        "dpRFTireChange",
-        "dpLRTireChange",
-        "dpRRTireChange",
-        "dpLFTireColdPress",
-        "dpRFTireColdPress",
-        "dpLRTireColdPress",
-        "dpRRTireColdPress",
-        "dpWindshieldTearoff",
-        "dpFastRepair",
-        // Electronics
-        "dcABS",
-        "BrakeABSactive",
-        "dcTractionControl",
-        "dcTractionControl2",
-        "dcBrakeBias",
-        "dcAntiRollFront",
-        "dcAntiRollRear",
-        "DRS_Status",
-        "dcThrottleShape",
-        "PushToPass",
-        // Vehicle (additional)
-        "ShiftIndicatorPct",
-        "SteeringWheelAngleMax",
-        "HandbrakeRaw",
-        // Engine (additional)
-        "WaterLevel",
-        // Per-car arrays
-        "CarIdxLap",
-        "CarIdxLapCompleted",
-        "CarIdxLapDistPct",
-        "CarIdxPosition",
-        "CarIdxClassPosition",
-        "CarIdxOnPitRoad",
-        "CarIdxTrackSurface",
-        "CarIdxBestLapTime",
-        "CarIdxLastLapTime",
-        "CarIdxEstTime",
-        "CarIdxGear",
-        "CarIdxRPM",
-        "CarIdxSteer",
-        // Tick
-        "SessionTick",
-    ];
-
     impl IRacingAdapter {
         pub fn new() -> Self {
             Self {
@@ -702,25 +482,16 @@ mod windows_impl {
             });
 
             // =================================================================
-            // Extras: every unmapped variable with iracing/ prefix
+            // Game-specific namespace: all iRacing variables under "iracing"
             // =================================================================
-            let mut extras = HashMap::new();
-
-            // Build a set of mapped names for fast lookup
-            let mapped_set: std::collections::HashSet<&str> = MAPPED_VARS.iter().copied().collect();
+            let mut iracing_data = serde_json::Map::new();
 
             for vd in &all_vars {
-                if mapped_set.contains(vd.name.as_str()) {
-                    continue;
-                }
                 // Skip CarIdx arrays (already processed into competitors)
                 if vd.name.starts_with("CarIdx") {
                     continue;
                 }
-
-                let key = format!("iracing/{}", vd.name);
-                let json_val = value_to_json(&vd.value);
-                extras.insert(key, json_val);
+                iracing_data.insert(vd.name.clone(), value_to_json(&vd.value));
             }
 
             // Also add game-specific driver metadata from session info
@@ -732,36 +503,42 @@ mod windows_impl {
                     .iter()
                     .find(|d| d.index == player_idx)
                 {
-                    extras.insert(
-                        "iracing/iRating".to_string(),
+                    iracing_data.insert(
+                        "iRating".to_string(),
                         serde_json::json!(driver_info.i_rating),
                     );
-                    extras.insert(
-                        "iracing/LicenseLevel".to_string(),
+                    iracing_data.insert(
+                        "LicenseLevel".to_string(),
                         serde_json::json!(driver_info.license_level),
                     );
-                    extras.insert(
-                        "iracing/LicenseSubLevel".to_string(),
+                    iracing_data.insert(
+                        "LicenseSubLevel".to_string(),
                         serde_json::json!(driver_info.license_sub_level),
                     );
-                    extras.insert(
-                        "iracing/LicenseString".to_string(),
+                    iracing_data.insert(
+                        "LicenseString".to_string(),
                         serde_json::json!(driver_info.license.clone()),
                     );
-                    extras.insert(
-                        "iracing/SeriesID".to_string(),
+                    iracing_data.insert(
+                        "SeriesID".to_string(),
                         serde_json::json!(s.weekend.series_id),
                     );
-                    extras.insert(
-                        "iracing/SessionID".to_string(),
+                    iracing_data.insert(
+                        "SessionID".to_string(),
                         serde_json::json!(s.weekend.session_id),
                     );
-                    extras.insert(
-                        "iracing/SubSessionID".to_string(),
+                    iracing_data.insert(
+                        "SubSessionID".to_string(),
                         serde_json::json!(s.weekend.sub_session_id),
                     );
                 }
             }
+
+            let mut extras = HashMap::new();
+            extras.insert(
+                "iracing".to_string(),
+                serde_json::Value::Object(iracing_data),
+            );
 
             TelemetryFrame {
                 timestamp: Utc::now(),
@@ -820,19 +597,19 @@ mod windows_impl {
 
             WheelInfo {
                 suspension_travel: get_f32("shockDefl").map(Meters),
-                suspension_travel_avg: get_f32("shockDeflST").map(Meters),
+                suspension_travel_avg: None, // shockDefl_ST is an array in iRacing, not a scalar
                 shock_velocity: get_f32("shockVel").map(MetersPerSecond),
-                shock_velocity_avg: get_f32("shockVelST").map(MetersPerSecond),
+                shock_velocity_avg: None, // shockVel_ST is an array in iRacing, not a scalar
                 ride_height: get_f32("rideHeight").map(Meters),
-                tyre_pressure: get_f32("airPressure").map(Kilopascals),
+                tyre_pressure: get_f32("pressure").map(Kilopascals),
                 tyre_cold_pressure: get_f32("coldPressure").map(Kilopascals),
                 surface_temp_inner,
-                surface_temp_middle: get_f32("tempCC").map(Celsius),
+                surface_temp_middle: get_f32("tempCM").map(Celsius),
                 surface_temp_outer,
                 carcass_temp_inner,
                 carcass_temp_middle: get_f32("tempM").map(Celsius),
                 carcass_temp_outer,
-                tyre_wear: get_f32("wear").map(Percentage::new),
+                tyre_wear: None, // iRacing only has per-zone wearL/M/R, no overall wear
                 tyre_wear_inner: if is_left_side {
                     get_f32("wearR").map(Percentage::new)
                 } else {

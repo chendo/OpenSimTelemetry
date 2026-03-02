@@ -2,7 +2,9 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-*
+* Interface: rpm y-axis intervals should be whole 1000s
+* Interface: display a y-axis for every unique unit
+
 
 ## WIP: do not work on these
 

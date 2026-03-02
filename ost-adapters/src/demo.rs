@@ -747,16 +747,18 @@ impl DemoAdapter {
             setup_name: Some("baseline".to_string()),
         });
 
-        // --- Extras ---
-        let mut extras = HashMap::new();
-        extras.insert(
-            "demo/frame_count".to_string(),
+        // --- Game-specific namespace ---
+        let mut demo_data = serde_json::Map::new();
+        demo_data.insert(
+            "frame_count".to_string(),
             serde_json::json!(self.frame_count),
         );
-        extras.insert(
-            "demo/segment_index".to_string(),
+        demo_data.insert(
+            "segment_index".to_string(),
             serde_json::json!(state.seg_idx),
         );
+        let mut extras = HashMap::new();
+        extras.insert("demo".to_string(), serde_json::Value::Object(demo_data));
 
         TelemetryFrame {
             timestamp: Utc::now(),

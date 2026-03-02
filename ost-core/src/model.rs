@@ -45,9 +45,10 @@ pub struct TelemetryFrame {
     pub competitors: Option<Vec<CompetitorData>>,
     pub driver: Option<DriverData>,
 
-    /// Game-specific data that doesn't fit the normalized model.
-    /// Keys use slash-separated game prefix: "iracing/SessionTick", "acc/RealTimeCarUpdate"
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    /// Game-specific telemetry data that doesn't fit the normalized model.
+    /// Keyed by lowercase game namespace (e.g., "iracing"), value is a JSON object
+    /// of raw variable names. Flattened into the top-level JSON during serialization.
+    #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
     pub extras: HashMap<String, serde_json::Value>,
 }
 
@@ -1231,28 +1232,10 @@ impl TelemetryFrame {
                 map.insert("driver".to_string(), serde_json::to_value(v)?);
             }
         }
-        if mask.includes("extras") && !self.extras.is_empty() {
-            // Filter extras to only requested keys when specific paths are given
-            match mask.child_keys("extras") {
-                None => {
-                    // Bare "extras" in mask — include all
-                    map.insert("extras".to_string(), serde_json::to_value(&self.extras)?);
-                }
-                Some(keys) => {
-                    // child_keys are lowercased (MetricMask normalises to lowercase),
-                    // so compare case-insensitively against the original extras keys.
-                    let filtered: HashMap<&String, &serde_json::Value> = self
-                        .extras
-                        .iter()
-                        .filter(|(k, _)| {
-                            let lower = k.to_lowercase();
-                            keys.iter().any(|req| *req == lower)
-                        })
-                        .collect();
-                    if !filtered.is_empty() {
-                        map.insert("extras".to_string(), serde_json::to_value(&filtered)?);
-                    }
-                }
+        // Game-specific namespaces (flattened into top level)
+        for (ns, data) in &self.extras {
+            if mask.includes(ns) {
+                map.insert(ns.clone(), data.clone());
             }
         }
 
@@ -1549,32 +1532,29 @@ mod tests {
     }
 
     #[test]
-    fn test_extras_metric_mask_case_insensitive() {
-        // Extras keys from iRacing have mixed case like "iRacing/brakeABSactive".
-        // The metric mask lowercases everything, so filtering must compare
-        // case-insensitively.
+    fn test_game_namespace_metric_mask() {
+        // Game-specific namespaces are flattened to top level.
+        // metric_mask=iracing includes the whole iracing namespace.
         let mut frame = make_test_frame();
+        let mut iracing_data = serde_json::Map::new();
+        iracing_data.insert("brakeABSactive".to_string(), serde_json::Value::Bool(true));
+        iracing_data.insert("dcBrakeBias".to_string(), serde_json::json!(56.5));
         frame.extras.insert(
-            "iRacing/brakeABSactive".to_string(),
-            serde_json::Value::Bool(true),
+            "iracing".to_string(),
+            serde_json::Value::Object(iracing_data),
         );
-        frame
-            .extras
-            .insert("iRacing/dcBrakeBias".to_string(), serde_json::json!(56.5));
 
-        // Request only one extras key with mixed-case path
-        let mask = MetricMask::parse("extras.iRacing/brakeABSactive");
+        let mask = MetricMask::parse("iracing");
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        let extras = parsed
-            .get("extras")
-            .expect("extras section should be present");
+        let iracing = parsed
+            .get("iracing")
+            .expect("iracing namespace should be present");
         assert_eq!(
-            extras.get("iRacing/brakeABSactive"),
+            iracing.get("brakeABSactive"),
             Some(&serde_json::Value::Bool(true))
         );
-        // The other extras key should NOT be included
-        assert!(extras.get("iRacing/dcBrakeBias").is_none());
+        assert_eq!(iracing.get("dcBrakeBias"), Some(&serde_json::json!(56.5)));
     }
 }

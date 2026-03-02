@@ -78,7 +78,7 @@ class VehicleWidget extends Widget {
         this.els.cltBar.style.height = clt + '%';
         this.els.cltPct.textContent = Math.round(clt);
 
-        this._steerAngle = (v?.steering_angle ?? 0) * Math.PI / 180;  // convert degrees to radians for canvas
+        this._steerAngle = -(v?.steering_angle ?? 0) * Math.PI / 180;  // negate: iRacing positive=left, canvas positive=clockwise
         this.renderWheel();
     }
 

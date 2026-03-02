@@ -178,10 +178,14 @@ fn test_demo_adapter_frame_has_extras() {
         .expect("read_frame() should not error")
         .expect("read_frame() should return Some");
 
-    // The demo adapter adds a demo/frame_count extra
+    // The demo adapter adds game-specific data under "demo" namespace
+    let demo_ns = frame
+        .extras
+        .get("demo")
+        .expect("Should have demo namespace");
     assert!(
-        frame.extras.contains_key("demo/frame_count"),
-        "Frame extras should contain demo/frame_count"
+        demo_ns.get("frame_count").is_some(),
+        "Demo namespace should contain frame_count"
     );
 }
 

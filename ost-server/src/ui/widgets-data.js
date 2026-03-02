@@ -125,18 +125,13 @@ class AllMetricsWidget extends Widget {
                 } else {
                     if (this._hideNulls && (value === null || value === undefined)) continue;
                     if (filter && !matchMetricFilter(fk, filter)) continue;
-                    // For extras with adapter prefix (e.g. "iracing/Foo"),
-                    // group under the adapter name instead of "extras"
-                    let section;
-                    if (prefix === 'extras' && key.includes('/')) {
-                        section = key.split('/')[0];
-                    } else {
-                        section = fk.split('.')[0];
-                    }
+                    const section = fk.split('.')[0];
+                    // For game namespaces (e.g. iracing.RFtempCM), show just the variable name
+                    const displayKey = TOP_LEVEL_SECTIONS.has(section) && fk.includes('.') ? fk.slice(section.length + 1) : fk;
                     if (!sections[section]) sections[section] = [];
                     const fmt = formatMetricValue(fk, value);
-                    sections[section].push({ key: fk, value, text: fmt.text, unit: fmt.unit });
-                    if (typeof value === 'number') allMatchedPaths.push(fk);
+                    sections[section].push({ key: displayKey, value, text: fmt.text, unit: fmt.unit, path: fk });
+                    if (typeof value === 'number') allMatchedPaths.push(fk); // full path for graph creation
                     totalMatches++;
                 }
             }
@@ -156,12 +151,13 @@ class AllMetricsWidget extends Widget {
             fields.sort((a, b) => a.key.localeCompare(b.key));
             html += `<div class="metric-section-header">${section.charAt(0).toUpperCase() + section.slice(1)}</div>`;
             for (const f of fields) {
+                const lookupKey = f.path || f.key;
                 let rangeHtml = '';
                 if (this._showRange) {
-                    const mm = this._minMax[f.key];
+                    const mm = this._minMax[lookupKey];
                     if (mm) {
-                        const fmtMin = formatMetricValue(f.key, mm.min);
-                        const fmtMax = formatMetricValue(f.key, mm.max);
+                        const fmtMin = formatMetricValue(lookupKey, mm.min);
+                        const fmtMax = formatMetricValue(lookupKey, mm.max);
                         rangeHtml = `<span class="metric-range">${fmtMin.text}\u2013${fmtMax.text}</span>`;
                     }
                 }

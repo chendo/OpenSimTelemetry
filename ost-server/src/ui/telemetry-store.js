@@ -66,7 +66,7 @@ const GRAPH_METRIC_PATHS = {};
 
 // Build a dynamic metric mask from all visible widgets on the dashboard.
 // Emits individual metric paths (e.g. "vehicle.speed,motion.g_force")
-// so the server can filter at the metric level, especially for extras.
+// so the server can filter at the metric level, including game-specific namespaces.
 function buildReplayMetricMask() {
     const metrics = new Set();
     // Static widgets
@@ -85,7 +85,7 @@ function buildReplayMetricMask() {
                 if (GRAPH_METRIC_PATHS[key]) {
                     metrics.add(GRAPH_METRIC_PATHS[key]);
                 } else {
-                    // Custom metric: full dotted path like "extras.iracing/Foo"
+                    // Custom metric: full dotted path like "iracing.RFtempCM"
                     const custom = w.customMetrics.get(key);
                     if (custom) metrics.add(key); // key IS the dotted path
                 }

@@ -425,7 +425,9 @@ function _matchFilter(text, filter) {
 
 const TOP_LEVEL_SECTIONS = new Set([
     'vehicle', 'motion', 'engine', 'wheels', 'timing', 'session',
-    'weather', 'pit', 'electronics', 'damage', 'extras',
+    'weather', 'pit', 'electronics', 'damage',
+    // Game-specific namespaces are also top-level (e.g. "iracing", "demo")
+    'iracing', 'demo',
 ]);
 
 function deriveLabel(path) {
