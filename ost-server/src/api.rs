@@ -184,6 +184,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/stream", get(unified_stream))
         .route("/api/telemetry/stream", get(telemetry_stream))
         .route("/api/status/stream", get(status_stream))
+        .route("/api/metrics", get(get_metrics))
         .route("/api/sinks", get(list_sinks).post(create_sink))
         .route("/api/sinks/stream", get(sinks_stream))
         .route("/api/sinks/:id", delete(delete_sink))
@@ -335,6 +336,38 @@ pub async fn broadcast_adapter_status(state: &AppState) {
 
     if let Ok(json) = serde_json::to_string(&info) {
         let _ = state.status_tx.send(json);
+    }
+}
+
+/// GET /api/metrics — returns the latest telemetry frame as JSON.
+/// Accepts optional `metric_mask` query param to filter top-level sections.
+#[derive(Deserialize)]
+struct MetricsQuery {
+    metric_mask: Option<String>,
+}
+
+async fn get_metrics(
+    State(state): State<AppState>,
+    Query(query): Query<MetricsQuery>,
+) -> impl IntoResponse {
+    let history = state.history.read().await;
+    match history.latest_frame() {
+        Some(frame) => {
+            let mask = query.metric_mask.as_deref().map(MetricMask::parse);
+            let json = frame
+                .to_json_filtered(mask.as_ref())
+                .unwrap_or_else(|_| "{}".to_string());
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/json")],
+                json,
+            )
+        }
+        None => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            "null".to_string(),
+        ),
     }
 }
 

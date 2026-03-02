@@ -248,6 +248,7 @@ class ApiWidget extends Widget {
                     <div class="api-heading">REST Endpoints</div>
                     <div class="api-endpoint"><code>GET /api/adapters</code> — List adapters and their status</div>
                     <div class="api-endpoint"><code>POST /api/adapters/:name/toggle</code> — Enable/disable an adapter</div>
+                    <div class="api-endpoint"><code>GET /api/metrics</code> — Latest telemetry frame (supports <code>metric_mask</code>)</div>
                     <div class="api-endpoint"><code>GET /api/sinks</code> — List output sinks</div>
                     <div class="api-endpoint"><code>POST /api/sinks</code> — Create UDP sink</div>
                     <div class="api-endpoint"><code>DELETE /api/sinks/:id</code> — Remove a sink</div>

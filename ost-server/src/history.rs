@@ -193,6 +193,11 @@ impl HistoryBuffer {
         self.max_duration_secs
     }
 
+    /// Get the most recent frame in the buffer
+    pub fn latest_frame(&self) -> Option<&TelemetryFrame> {
+        self.frames.back()
+    }
+
     /// Get all frames from the last N seconds (based on timestamps)
     pub fn get_frames_since_secs(&self, duration_secs: f64) -> Vec<&TelemetryFrame> {
         if self.frames.is_empty() {
