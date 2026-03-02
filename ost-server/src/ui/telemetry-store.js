@@ -351,8 +351,9 @@ class ReplayBuffer {
             Math.round(this.cursor + framesToAdvance),
             this.totalFrames - 1
         );
-        // Loop wrap: when cursor passes loop end, jump back to loop start
-        if (this.loopEnabled && this.loopEnd != null && this.cursor >= this.loopEnd) {
+        // Loop wrap: when cursor passes loop end (or end of replay), jump back
+        const loopEndFrame = this.loopEnabled ? (this.loopEnd != null ? this.loopEnd : this.totalFrames - 1) : null;
+        if (loopEndFrame != null && this.cursor >= loopEndFrame) {
             this.cursor = this.loopStart || 0;
             this._lastPlayTick = null; // prevent frame burst after seek
             // Sync server position (fire-and-forget)

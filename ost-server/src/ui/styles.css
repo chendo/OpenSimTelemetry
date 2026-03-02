@@ -1742,9 +1742,9 @@ body {
 }
 
 .replay-exit-btn {
-    background: #dc2626;
-    border: none;
-    color: white;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
     padding: 4px 12px;
     border-radius: 4px;
     cursor: pointer;
@@ -1753,7 +1753,7 @@ body {
     letter-spacing: 0.03em;
     flex-shrink: 0;
 }
-.replay-exit-btn:hover { background: #ef4444; }
+.replay-exit-btn:hover { border-color: #dc2626; color: #dc2626; }
 
 /* ==================== Computed Metrics Modal ==================== */
 .cm-overlay {

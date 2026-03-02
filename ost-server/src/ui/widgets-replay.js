@@ -281,7 +281,6 @@ class ReplayPlayer {
     }
 
     toggleLoop() {
-        if (this.loopStart == null || this.loopEnd == null) return;
         this.loopEnabled = !this.loopEnabled;
         this._syncLoopToBuf();
         this.updateLoopUI();
@@ -307,7 +306,6 @@ class ReplayPlayer {
         this.loopStartBtn.classList.toggle('active', hasStart);
         this.loopEndBtn.classList.toggle('active', hasEnd);
         this.loopToggleBtn.classList.toggle('loop-on', this.loopEnabled);
-        this.loopToggleBtn.style.opacity = (hasStart && hasEnd) ? '' : '0.4';
 
         // Update or remove slider overlay
         if (hasStart && hasEnd && this.info) {
