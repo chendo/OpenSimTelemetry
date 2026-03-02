@@ -915,8 +915,12 @@ function updateMemoryDisplay() {
         memoryEl.textContent = '';
         return;
     }
-    const mb = historyInfo.estimated_memory_mb || 0;
-    memoryEl.textContent = mb >= 1 ? `${mb.toFixed(0)} MB` : `${(mb * 1024).toFixed(0)} KB`;
+    const mb = historyInfo.process_memory_mb;
+    if (mb != null) {
+        memoryEl.textContent = mb >= 1 ? `${mb.toFixed(0)} MB` : `${(mb * 1024).toFixed(0)} KB`;
+    } else {
+        memoryEl.textContent = '';
+    }
 }
 
 // Poll history info

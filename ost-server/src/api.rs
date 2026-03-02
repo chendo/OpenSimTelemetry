@@ -23,6 +23,60 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
 
+/// Get the current process resident set size (RSS) in bytes.
+fn get_process_rss_bytes() -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        #[repr(C)]
+        struct MachTaskBasicInfo {
+            virtual_size: u64,
+            resident_size: u64,
+            resident_size_max: u64,
+            user_time: [i32; 2],
+            system_time: [i32; 2],
+            policy: i32,
+            suspend_count: i32,
+        }
+        extern "C" {
+            fn mach_task_self() -> u32;
+            fn task_info(
+                target_task: u32,
+                flavor: u32,
+                task_info_out: *mut MachTaskBasicInfo,
+                task_info_count: *mut u32,
+            ) -> i32;
+        }
+        const MACH_TASK_BASIC_INFO: u32 = 20;
+        unsafe {
+            let mut info: MachTaskBasicInfo = std::mem::zeroed();
+            let mut count =
+                (std::mem::size_of::<MachTaskBasicInfo>() / std::mem::size_of::<i32>()) as u32;
+            let kr = task_info(
+                mach_task_self(),
+                MACH_TASK_BASIC_INFO,
+                &mut info,
+                &mut count,
+            );
+            if kr == 0 {
+                Some(info.resident_size)
+            } else {
+                None
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/statm")
+            .ok()
+            .and_then(|s| s.split_whitespace().nth(1)?.parse::<u64>().ok())
+            .map(|pages| pages * 4096)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
 /// Convert a rate (frames per second) query param to a minimum interval between emissions.
 /// Returns None for rates >= 60 (no throttling needed).
 fn rate_to_interval(rate: Option<f64>) -> Option<Duration> {
@@ -871,9 +925,14 @@ async fn replay_info(
     let replay = state.replay.read().await;
     if let Some(rs) = &*replay {
         let mut info = serde_json::to_value(rs.info()).unwrap();
-        info.as_object_mut()
-            .unwrap()
-            .insert("mode".into(), "replay".into());
+        let obj = info.as_object_mut().unwrap();
+        obj.insert("mode".into(), "replay".into());
+        if let Some(rss) = get_process_rss_bytes() {
+            obj.insert(
+                "process_memory_mb".into(),
+                serde_json::json!(rss as f64 / 1_048_576.0),
+            );
+        }
         Ok(Json(info))
     } else {
         drop(replay);
@@ -893,6 +952,7 @@ async fn replay_info(
             "replay_id": "",
             "paused": history.is_paused(),
             "estimated_memory_mb": history.estimated_memory_mb(),
+            "process_memory_mb": get_process_rss_bytes().map(|b| b as f64 / 1_048_576.0),
             "max_duration_secs": history.max_duration_secs(),
         })))
     }

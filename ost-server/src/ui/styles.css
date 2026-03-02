@@ -1095,7 +1095,13 @@ body {
     color: var(--text-secondary);
     white-space: nowrap;
     text-align: center;
-    min-width: 32px;
+    min-width: 24px;
+}
+
+.wheel-unit {
+    font-size: 0.5rem;
+    color: var(--text-muted);
+    align-self: center;
 }
 
 /* Suspension bar + sparkline row */

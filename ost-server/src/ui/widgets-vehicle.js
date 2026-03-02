@@ -370,9 +370,9 @@ class WheelsWidget extends Widget {
                 <div class="wheel-corner" style="${positions[w]}">
                     <span class="wheel-label">${labels[w]}</span>
                     <div class="wheel-susp-row">
-                        <div class="wheel-susp-track"><div class="wheel-susp-fill" id="w-${w}-suspbar"></div></div>
                         <canvas class="wheel-susp-spark" id="w-${w}-spark"></canvas>
-                        <span class="wheel-val" id="w-${w}-susp">--</span>
+                        <div class="wheel-susp-track"><div class="wheel-susp-fill" id="w-${w}-suspbar"></div></div>
+                        <span class="wheel-val" id="w-${w}-susp">--</span><span class="wheel-unit">mm</span>
                     </div>
                     <div class="wheel-temp-row">
                         <div class="wheel-temp-cell">
@@ -451,13 +451,14 @@ class WheelsWidget extends Widget {
         const pad = 1;
 
         // Draw filled sparkline — normalized to dynamic range
+        // Inverted: more compression = line goes down, fill hangs from top (like vertical bar)
         ctx.beginPath();
         for (let i = 0; i < n; i++) {
             const idx = (start + i) % len;
             const v = hist.buf[idx];
             const t = sRange > 0.1 ? (v - sMin) / sRange : 0.5;
             const x = (n < this._suspHistLen) ? i * (w / (n - 1)) : i * (w / (this._suspHistLen - 1));
-            const y = pad + (1 - t) * (h - 2 * pad); // inverted: more compression at top
+            const y = pad + t * (h - 2 * pad);
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
         }
@@ -465,10 +466,10 @@ class WheelsWidget extends Widget {
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Fill below the line
+        // Fill above the line (from top down to the line)
         const lastX = (n < this._suspHistLen) ? (n - 1) * (w / (n - 1)) : (n - 1) * (w / (this._suspHistLen - 1));
-        ctx.lineTo(lastX, h);
-        ctx.lineTo(0, h);
+        ctx.lineTo(lastX, 0);
+        ctx.lineTo(0, 0);
         ctx.closePath();
         ctx.fillStyle = 'rgba(0,214,143,0.1)';
         ctx.fill();
