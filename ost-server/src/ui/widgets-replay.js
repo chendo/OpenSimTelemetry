@@ -453,6 +453,104 @@ class ReplayPlayer {
         return `${m}:${String(s).padStart(2, '0')}.${t}`;
     }
 
+    stepFrame(delta) {
+        if (this.buf.playing) return; // only step when paused
+        this.buf.cursor = Math.max(0, Math.min(this.buf.totalFrames - 1, this.buf.cursor + delta));
+        this.buf._dirty = true;
+        this.seekSlider.value = this.buf.cursor;
+        // Sync server position
+        fetch(apiBase() + '/api/replay/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'seek', value: this.buf.cursor })
+        }).catch(() => {});
+        this.buf.ensureLoadedDebounced(50, buildReplayMetricMask());
+        this.updateControlsFromBuf();
+        requestRedraw();
+    }
+
+    seekToStart() {
+        this.buf.cursor = this.loopStart || 0;
+        this.buf._dirty = true;
+        this.seekSlider.value = this.buf.cursor;
+        fetch(apiBase() + '/api/replay/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'seek', value: this.buf.cursor })
+        }).catch(() => {});
+        this.buf.ensureLoadedDebounced(50, buildReplayMetricMask());
+        this.updateControlsFromBuf();
+        requestRedraw();
+    }
+
+    seekToEnd() {
+        this.buf.cursor = (this.loopEnd != null ? this.loopEnd : this.buf.totalFrames - 1);
+        this.buf._dirty = true;
+        this.seekSlider.value = this.buf.cursor;
+        fetch(apiBase() + '/api/replay/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'seek', value: this.buf.cursor })
+        }).catch(() => {});
+        this.buf.ensureLoadedDebounced(50, buildReplayMetricMask());
+        this.updateControlsFromBuf();
+        requestRedraw();
+    }
+
+    handleKeydown(e) {
+        if (!this.active) return false;
+        // Don't capture when typing in inputs
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return false;
+
+        switch (e.key) {
+            case ' ':
+                e.preventDefault();
+                this.togglePlayPause();
+                return true;
+            case '[':
+                this.setLoopStart();
+                return true;
+            case ']':
+                this.setLoopEnd();
+                return true;
+            case 'ArrowLeft':
+                e.preventDefault();
+                this.stepFrame(e.shiftKey ? -10 : -1);
+                return true;
+            case 'ArrowRight':
+                e.preventDefault();
+                this.stepFrame(e.shiftKey ? 10 : 1);
+                return true;
+            case ',':
+                this.stepFrame(-1);
+                return true;
+            case '.':
+                this.stepFrame(1);
+                return true;
+            case 'Home':
+                e.preventDefault();
+                this.seekToStart();
+                return true;
+            case 'End':
+                e.preventDefault();
+                this.seekToEnd();
+                return true;
+            case 'l':
+            case 'L':
+                this.toggleLoop();
+                return true;
+            case 'j':
+            case 'J':
+                this.setSpeed(Math.max(0.25, this.currentSpeed / 2));
+                return true;
+            case 'k':
+            case 'K':
+                this.setSpeed(Math.min(4, this.currentSpeed * 2));
+                return true;
+        }
+        return false;
+    }
+
     fmtLapTime(secs) {
         if (!secs || isNaN(secs)) return '--';
         const m = Math.floor(secs / 60);

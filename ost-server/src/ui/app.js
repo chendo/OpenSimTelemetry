@@ -1226,8 +1226,12 @@ updateRecordingIndicator();
 connectSSE();
 requestAnimationFrame(renderLoop);
 
-// Replay: drag-drop and init
+// Replay: keyboard shortcuts + drag-drop + init
 const replayPlayer = new ReplayPlayer(replayBuf);
+
+document.addEventListener('keydown', (e) => {
+    replayPlayer.handleKeydown(e);
+});
 let dragCounter = 0;
 const dropOverlay = document.getElementById('drop-overlay');
 
