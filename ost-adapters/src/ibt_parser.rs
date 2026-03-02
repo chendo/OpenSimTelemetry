@@ -938,7 +938,25 @@ impl IbtFile {
             electronics,
             damage: None,
             competitors: None,
-            driver: None,
+            driver: if !self.session_info.driver_name.is_empty() {
+                Some(DriverData {
+                    name: Some(self.session_info.driver_name.clone()),
+                    car_index: Some(self.session_info.driver_car_idx as u32),
+                    car_name: Some(self.session_info.car_name.clone()).filter(|s| !s.is_empty()),
+                    car_class: None,
+                    car_number: None,
+                    team_name: None,
+                    fuel_capacity: None,
+                    shift_light_first_rpm: None,
+                    shift_light_shift_rpm: None,
+                    shift_light_last_rpm: None,
+                    shift_light_blink_rpm: None,
+                    estimated_lap_time: None,
+                    setup_name: None,
+                })
+            } else {
+                None
+            },
             extras,
         }
     }
