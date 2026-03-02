@@ -61,7 +61,7 @@ impl ReplayState {
             current_frame: 0,
             total_frames,
             tick_rate,
-            playing: true,
+            playing: false,
             playback_speed: 1.0,
             file_size,
             temp_path: Some(path.to_path_buf()),
@@ -159,7 +159,7 @@ impl ReplayState {
             current_frame: 0,
             total_frames,
             tick_rate,
-            playing: true,
+            playing: false,
             playback_speed: 1.0,
             file_size,
             temp_path: None, // Don't delete on drop — it's the user's saved file
