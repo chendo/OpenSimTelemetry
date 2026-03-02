@@ -1,15 +1,13 @@
 # Roadmap
 
-Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
+Agent Instructions: Read the road map, group related changes, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Interface: If iRacing has been detected, but no data, it should say "Simulator not running"
-* Interface: The default layout should have two graphs. The first one is labeled Pedals and Speed, and have Speed, RPM, throttle, broke, clutch, ABS. The second graph is labelled Steering, includes steering input, yaw rate, and other relevant inputs.
-* Interface: Y-axes should be on the right side of the chart
+* API: Devise a mechanism to reduce streaming bandwidth usage. Consider only sending updates by default, with param to emit every single value all the time
 
 
 ## WIP: do not work on these
 
-* API: Devise a mechanism to reduce streaming bandwidth usage. Consider only sending updates by default, with param to emit every single value all the time
+* Feature: Multiple
 
 ### Adapters
 

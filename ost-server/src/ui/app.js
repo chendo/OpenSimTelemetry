@@ -32,8 +32,15 @@ function updateStatus() {
     } else {
         const active = store.adapters.find(a => a.active);
         if (active) {
-            text = `Receiving from ${active.name}`;
-            dotClass = 'dot-active';
+            const now = performance.now();
+            const hasRecentFrames = _frameTimestamps.some(t => now - t < 2000);
+            if (hasRecentFrames) {
+                text = `Receiving from ${active.name}`;
+                dotClass = 'dot-active';
+            } else {
+                text = 'Waiting for sim session';
+                dotClass = 'dot-detected';
+            }
         } else {
             text = 'Waiting for data';
             dotClass = 'dot-detected';
@@ -53,6 +60,7 @@ function updateThroughput() {
     const now = performance.now();
     // Keep only last 2 seconds of timestamps
     _frameTimestamps = _frameTimestamps.filter(t => now - t < 2000);
+    updateStatus();  // re-evaluate receiving vs waiting
     if (_frameTimestamps.length < 2) {
         throughputEl.textContent = '';
         return;
@@ -159,7 +167,9 @@ function connectSSE() {
     es.addEventListener('frame', (e) => {
         try {
             if (!streamPaused) store.pushFrame(JSON.parse(e.data));
+            const wasEmpty = _frameTimestamps.length === 0;
             _frameTimestamps.push(performance.now());
+            if (wasEmpty) updateStatus();
         }
         catch (err) { console.error('Parse error:', err); }
     });
@@ -196,9 +206,16 @@ if (savedGraphs && savedGraphs.length > 0) {
         grid.addWidget(gw);
     }
 } else {
-    const defaultGraph = new GraphWidget('graph', { col: 1, row: 9, width: 12, height: 9 });
-    defaultGraph.init();
-    grid.addWidget(defaultGraph);
+    const pedals = new GraphWidget('graph-pedals', { col: 1, row: 9, width: 12, height: 9 },
+        ['speed', 'rpm', 'throttle', 'brake', 'clutch', 'abs_active']);
+    pedals.init();
+    pedals.setTitle('Pedals and Speed');
+    grid.addWidget(pedals);
+    const steering = new GraphWidget('graph-steering', { col: 1, row: 18, width: 12, height: 9 },
+        ['steering', 'yaw_rate', 'lat_g']);
+    steering.init();
+    steering.setTitle('Steering');
+    grid.addWidget(steering);
 }
 
 grid.gs.batchUpdate(false);

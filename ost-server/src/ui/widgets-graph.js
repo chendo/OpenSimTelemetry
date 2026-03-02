@@ -699,8 +699,8 @@ class GraphWidget extends Widget {
         const boolAreaH = barTraceCount > 0 ? barTraceCount * (boolBarH + boolBarGap) + 4 : 0;
         const axisColW = 45;
         const numAxes = axes.length;
-        const padLeft = numAxes >= 1 ? numAxes * axisColW + 7 : 36;
-        const padRight = 8;
+        const padLeft = 8;
+        const padRight = numAxes >= 1 ? numAxes * axisColW + 7 : 36;
         const pad = { top: 8 + boolAreaH, right: padRight, bottom: 16, left: padLeft };
         const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
         ctx.clearRect(0, 0, w, h);
@@ -742,11 +742,11 @@ class GraphWidget extends Widget {
             }
         }
 
-        // Y-axes — one column per axis group, stacked on the left
-        ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+        // Y-axes — one column per axis group, stacked on the right
+        ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
         for (let ai = 0; ai < numAxes; ai++) {
             const g = axes[ai];
-            const colX = padLeft - 4 - ai * axisColW;
+            const colX = w - padRight + 4 + ai * axisColW;
             ctx.fillStyle = numAxes === 1 ? 'rgba(255,255,255,0.25)' : g.color;
 
             if (g.norm === 'pct') {
