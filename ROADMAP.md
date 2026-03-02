@@ -2,7 +2,7 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Lap detection: If lap number goes from 4 to 0 to 4, then it shouldn't count as a new lap, just a drop in telemetry
+*
 
 ## WIP: do not work on these
 
