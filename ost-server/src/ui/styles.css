@@ -1544,6 +1544,7 @@ body {
     flex-shrink: 0;
 }
 .replay-btn:hover { border-color: var(--accent); color: var(--accent); }
+.replay-nav-btn { width: 28px; height: 28px; font-size: 0.75rem; }
 
 .replay-seek-wrap {
     flex: 1;

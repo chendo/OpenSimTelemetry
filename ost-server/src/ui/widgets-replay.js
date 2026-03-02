@@ -25,11 +25,15 @@ class ReplayPlayer {
         this.lapGroup = document.getElementById('replay-lap-group');
         this.lapBtn = document.getElementById('replay-lap-btn');
         this.lapMenu = document.getElementById('replay-lap-menu');
+        this.prevLapBtn = document.getElementById('replay-prev-lap');
+        this.nextLapBtn = document.getElementById('replay-next-lap');
         this.loopStartBtn = document.getElementById('replay-loop-start');
         this.loopEndBtn = document.getElementById('replay-loop-end');
         this.loopToggleBtn = document.getElementById('replay-loop-toggle');
 
         this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
+        this.prevLapBtn.addEventListener('click', () => this.prevLap());
+        this.nextLapBtn.addEventListener('click', () => this.nextLap());
         this.seekSlider.addEventListener('input', (e) => this.onSeekInput(e.target.value));
         this.seekSlider.addEventListener('change', (e) => this.onSeekChange(e.target.value));
         this.exitBtn.addEventListener('click', () => this.exit());
@@ -205,6 +209,18 @@ class ReplayPlayer {
         this._currentLapIdx = -1; // force recalc
         this.updateControlsFromBuf();
         requestRedraw();
+    }
+
+    prevLap() {
+        if (this.laps.length === 0) return;
+        const idx = this._getCurrentLapIdx();
+        if (idx > 0) this.seekToLap(idx - 1);
+    }
+
+    nextLap() {
+        if (this.laps.length === 0) return;
+        const idx = this._getCurrentLapIdx();
+        if (idx < this.laps.length - 1) this.seekToLap(idx + 1);
     }
 
     toggleLapMenu() {
@@ -561,6 +577,14 @@ class ReplayPlayer {
             case 'k':
             case 'K':
                 this.setSpeed(Math.min(4, this.currentSpeed * 2));
+                return true;
+            case 'PageUp':
+                e.preventDefault();
+                this.prevLap();
+                return true;
+            case 'PageDown':
+                e.preventDefault();
+                this.nextLap();
                 return true;
         }
         return false;
