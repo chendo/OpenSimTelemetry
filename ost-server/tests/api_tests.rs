@@ -1212,3 +1212,167 @@ async fn test_history_aggregate_unknown_metric() {
     // Nonexistent metric should be omitted
     assert!(json.as_object().unwrap().is_empty());
 }
+
+// ==================== Custom Metrics API ====================
+
+#[tokio::test]
+async fn test_submit_and_list_custom_metrics() {
+    let (app, _state) = app_with_state();
+
+    // Submit sticky metrics
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/metrics")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"namespace":"analysis","metrics":{"score":0.85,"label":"good"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["namespace"], "analysis");
+    assert!(body["tick"].is_null());
+
+    // List custom metrics
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/metrics/custom")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(body["sticky"]["analysis"]["score"], 0.85);
+}
+
+#[tokio::test]
+async fn test_submit_tick_specific_metrics() {
+    let (app, _state) = app_with_state();
+
+    // Submit tick-specific metric
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/metrics")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"namespace":"brake","metrics":{"efficiency":0.92},"tick":12345}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(body["tick"], 12345);
+
+    // Verify it's in the tick-specific store
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/metrics/custom")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(body["by_tick"]["12345"]["brake"]["efficiency"], 0.92);
+}
+
+#[tokio::test]
+async fn test_clear_custom_metrics_by_namespace() {
+    let (app, state) = app_with_state();
+
+    // Pre-populate
+    {
+        let mut cm = state.custom_metrics.write().unwrap();
+        cm.sticky
+            .insert("ns1".to_string(), serde_json::json!({"a": 1}));
+        cm.sticky
+            .insert("ns2".to_string(), serde_json::json!({"b": 2}));
+    }
+
+    // Delete ns1
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/metrics/custom/ns1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+
+    // Verify ns1 is gone, ns2 remains
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/metrics/custom")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert!(body["sticky"]["ns1"].is_null());
+    assert_eq!(body["sticky"]["ns2"]["b"], 2);
+}
+
+#[tokio::test]
+async fn test_submit_metrics_rejects_invalid_body() {
+    let app = app();
+
+    // Empty namespace
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/metrics")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"namespace":"","metrics":{"a":1}}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+
+    // metrics not an object
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/metrics")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"namespace":"x","metrics":42}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+}

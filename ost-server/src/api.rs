@@ -172,7 +172,7 @@ fn round_json_floats(val: &mut serde_json::Value) {
 /// How often to send full frames during delta mode (for sync recovery).
 const DELTA_FULL_FRAME_INTERVAL: u64 = 60;
 
-/// Serialize a frame to JSON with optional delta encoding.
+/// Serialize a frame to JSON with optional delta encoding and custom metrics merge.
 /// Returns the JSON string and the full Value to store as previous state.
 fn serialize_frame_json(
     frame: &TelemetryFrame,
@@ -180,9 +180,18 @@ fn serialize_frame_json(
     use_delta: bool,
     last_json: &std::sync::Mutex<Option<serde_json::Value>>,
     frame_count: u64,
+    custom_metrics: Option<&crate::state::CustomMetrics>,
 ) -> Option<String> {
     let mut curr_value = frame.to_json_value_filtered(mask).ok()?;
     round_json_floats(&mut curr_value);
+
+    // Merge custom metrics if any
+    if let Some(cm) = custom_metrics {
+        if !cm.is_empty() {
+            let tick = frame.meta.tick;
+            cm.merge_into(&mut curr_value, tick);
+        }
+    }
 
     let send_full = !use_delta || frame_count.is_multiple_of(DELTA_FULL_FRAME_INTERVAL);
 
@@ -272,7 +281,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/stream", get(unified_stream))
         .route("/api/telemetry/stream", get(telemetry_stream))
         .route("/api/status/stream", get(status_stream))
-        .route("/api/metrics", get(get_metrics))
+        .route("/api/metrics", get(get_metrics).post(submit_metrics))
+        .route(
+            "/api/metrics/custom",
+            get(list_custom_metrics).delete(clear_custom_metrics),
+        )
+        .route(
+            "/api/metrics/custom/:namespace",
+            delete(clear_custom_metrics_ns),
+        )
         .route("/api/sinks", get(list_sinks).post(create_sink))
         .route("/api/sinks/stream", get(sinks_stream))
         .route("/api/sinks/:id", delete(delete_sink))
@@ -442,9 +459,15 @@ async fn get_metrics(
     match history.latest_frame() {
         Some(frame) => {
             let mask = query.metric_mask.as_deref().map(MetricMask::parse);
-            let json = frame
-                .to_json_filtered(mask.as_ref())
-                .unwrap_or_else(|_| "{}".to_string());
+            let mut val = frame
+                .to_json_value_filtered(mask.as_ref())
+                .unwrap_or(serde_json::Value::Null);
+            // Merge custom metrics
+            let cm = state.custom_metrics.read().unwrap();
+            if !cm.is_empty() {
+                cm.merge_into(&mut val, frame.meta.tick);
+            }
+            let json = serde_json::to_string(&val).unwrap_or_else(|_| "{}".to_string());
             (
                 StatusCode::OK,
                 [(header::CONTENT_TYPE, "application/json")],
@@ -457,6 +480,87 @@ async fn get_metrics(
             "null".to_string(),
         ),
     }
+}
+
+// ===================== Custom Metrics API =====================
+
+#[derive(Deserialize)]
+struct SubmitMetricsRequest {
+    /// Namespace for the metrics (e.g., "analysis", "custom")
+    namespace: String,
+    /// Key-value pairs of metric data
+    metrics: serde_json::Value,
+    /// Optional tick number — if set, metrics apply only to that frame
+    tick: Option<u32>,
+}
+
+/// POST /api/metrics — submit custom metrics
+async fn submit_metrics(
+    State(state): State<AppState>,
+    Json(req): Json<SubmitMetricsRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if req.namespace.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "namespace must not be empty".to_string(),
+        ));
+    }
+    if !req.metrics.is_object() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "metrics must be a JSON object".to_string(),
+        ));
+    }
+
+    let mut cm = state.custom_metrics.write().unwrap();
+    match req.tick {
+        Some(tick) => {
+            cm.by_tick
+                .entry(tick)
+                .or_default()
+                .insert(req.namespace.clone(), req.metrics);
+        }
+        None => {
+            cm.sticky.insert(req.namespace.clone(), req.metrics);
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "namespace": req.namespace,
+        "tick": req.tick,
+    })))
+}
+
+/// GET /api/metrics/custom — list all custom metrics
+async fn list_custom_metrics(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let cm = state.custom_metrics.read().unwrap();
+    Json(serde_json::json!({
+        "sticky": cm.sticky,
+        "by_tick": cm.by_tick,
+    }))
+}
+
+/// DELETE /api/metrics/custom — clear all custom metrics
+async fn clear_custom_metrics(State(state): State<AppState>) -> StatusCode {
+    let mut cm = state.custom_metrics.write().unwrap();
+    cm.sticky.clear();
+    cm.by_tick.clear();
+    StatusCode::NO_CONTENT
+}
+
+/// DELETE /api/metrics/custom/:namespace — clear custom metrics for a specific namespace
+async fn clear_custom_metrics_ns(
+    State(state): State<AppState>,
+    axum::extract::Path(namespace): axum::extract::Path<String>,
+) -> StatusCode {
+    let mut cm = state.custom_metrics.write().unwrap();
+    cm.sticky.remove(&namespace);
+    cm.by_tick.retain(|_, v| {
+        v.remove(&namespace);
+        !v.is_empty()
+    });
+    StatusCode::NO_CONTENT
 }
 
 /// Broadcast the current sink config list to all sink SSE subscribers.
@@ -528,12 +632,14 @@ async fn unified_stream(
     let last_sent_json: std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
     let delta_frame_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let custom_metrics = state.custom_metrics.clone();
     let telemetry = BroadcastStream::new(telemetry_rx).filter_map(move |result| {
         let mask = metric_mask.clone();
         let last = last_emit.clone();
         let throttle = throttle_state.clone();
         let last_json = last_sent_json.clone();
         let frame_counter = delta_frame_count.clone();
+        let cm = custom_metrics.clone();
         async move {
             match result {
                 Ok(frame) => {
@@ -554,12 +660,19 @@ async fn unified_stream(
                     } else {
                         let count =
                             frame_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let cm_guard = cm.read().unwrap();
+                        let cm_ref = if cm_guard.is_empty() {
+                            None
+                        } else {
+                            Some(&*cm_guard)
+                        };
                         let json = serialize_frame_json(
                             &frame,
                             mask.as_ref(),
                             use_delta,
                             &last_json,
                             count,
+                            cm_ref,
                         )?;
                         Some(Ok(Event::default().event("frame").data(json)))
                     }
@@ -706,12 +819,14 @@ async fn telemetry_stream(
     let last_sent_json: std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
     let delta_frame_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let custom_metrics = state.custom_metrics.clone();
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
         let mask = metric_mask.clone();
         let last = last_emit.clone();
         let throttle = throttle_state.clone();
         let last_json = last_sent_json.clone();
         let frame_counter = delta_frame_count.clone();
+        let cm = custom_metrics.clone();
         async move {
             match result {
                 Ok(frame) => {
@@ -732,12 +847,19 @@ async fn telemetry_stream(
                     } else {
                         let count =
                             frame_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let cm_guard = cm.read().unwrap();
+                        let cm_ref = if cm_guard.is_empty() {
+                            None
+                        } else {
+                            Some(&*cm_guard)
+                        };
                         let json = serialize_frame_json(
                             &frame,
                             mask.as_ref(),
                             use_delta,
                             &last_json,
                             count,
+                            cm_ref,
                         )?;
                         Some(Ok(Event::default().data(json)))
                     }
@@ -984,7 +1106,9 @@ async fn replay_frames(
             })?;
 
         let metric_mask = params.metric_mask.map(|f| MetricMask::parse(&f));
-        let json_frames = serialize_frames(frames.into_iter(), &metric_mask);
+        let cm = state.custom_metrics.read().unwrap();
+        let cm_ref = if cm.is_empty() { None } else { Some(&*cm) };
+        let json_frames = serialize_frames(frames.into_iter(), &metric_mask, cm_ref);
 
         // When a replay_id is in the URL, the response is content-addressed and immutable
         let cache_header = if params.rid.is_some() {
@@ -1004,9 +1128,12 @@ async fn replay_frames(
         let frames = history.get_frames_range(params.start, params.count);
 
         let metric_mask = params.metric_mask.map(|f| MetricMask::parse(&f));
+        let cm = state.custom_metrics.read().unwrap();
+        let cm_ref = if cm.is_empty() { None } else { Some(&*cm) };
         let json_frames = serialize_frames(
             frames.into_iter().map(|(i, f)| (i, f.clone())),
             &metric_mask,
+            cm_ref,
         );
 
         Ok((
@@ -1020,13 +1147,20 @@ async fn replay_frames(
 fn serialize_frames(
     frames: impl Iterator<Item = (usize, TelemetryFrame)>,
     metric_mask: &Option<MetricMask>,
+    custom_metrics: Option<&crate::state::CustomMetrics>,
 ) -> Vec<serde_json::Value> {
     frames
         .map(|(idx, frame)| {
+            let tick = frame.meta.tick;
             let mut f_val = frame
                 .to_json_value_filtered(metric_mask.as_ref())
                 .unwrap_or(serde_json::Value::Null);
             round_json_floats(&mut f_val);
+            if let Some(cm) = custom_metrics {
+                if !cm.is_empty() {
+                    cm.merge_into(&mut f_val, tick);
+                }
+            }
             serde_json::json!({
                 "i": idx,
                 "f": f_val

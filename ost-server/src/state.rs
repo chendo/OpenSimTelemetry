@@ -4,7 +4,7 @@ use crate::history::HistoryBuffer;
 use crate::persistence::PersistenceConfig;
 use crate::replay::ReplayState;
 use ost_core::{adapter::TelemetryAdapter, model::TelemetryFrame};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -48,6 +48,59 @@ pub struct AppState {
 
     /// Optional API authentication token (from OST_AUTH_TOKEN env var)
     pub auth_token: Option<String>,
+
+    /// User-submitted custom metrics (std RwLock for sync access in SSE filter_map)
+    pub custom_metrics: Arc<std::sync::RwLock<CustomMetrics>>,
+}
+
+/// Storage for user-submitted custom metrics.
+///
+/// Sticky metrics (no tick) are merged into every frame.
+/// Tick-specific metrics are merged only into frames with a matching tick number.
+#[derive(Default)]
+pub struct CustomMetrics {
+    /// Namespace → JSON object, merged into every frame
+    pub sticky: HashMap<String, serde_json::Value>,
+    /// Tick → Namespace → JSON object, merged into frames with matching tick
+    pub by_tick: BTreeMap<u32, HashMap<String, serde_json::Value>>,
+}
+
+impl CustomMetrics {
+    /// Merge custom metrics into a frame JSON value.
+    /// `tick` is the frame's tick number (from meta.tick), used for tick-specific lookups.
+    pub fn merge_into(&self, frame_json: &mut serde_json::Value, tick: Option<u32>) {
+        let obj = match frame_json.as_object_mut() {
+            Some(o) => o,
+            None => return,
+        };
+        // Merge sticky metrics
+        for (ns, data) in &self.sticky {
+            obj.insert(ns.clone(), data.clone());
+        }
+        // Merge tick-specific metrics
+        if let Some(tick) = tick {
+            if let Some(tick_metrics) = self.by_tick.get(&tick) {
+                for (ns, data) in tick_metrics {
+                    // If namespace already exists from sticky, merge fields
+                    if let Some(existing) = obj.get_mut(ns) {
+                        if let (Some(existing_obj), Some(new_obj)) =
+                            (existing.as_object_mut(), data.as_object())
+                        {
+                            for (k, v) in new_obj {
+                                existing_obj.insert(k.clone(), v.clone());
+                            }
+                            continue;
+                        }
+                    }
+                    obj.insert(ns.clone(), data.clone());
+                }
+            }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sticky.is_empty() && self.by_tick.is_empty()
+    }
 }
 
 /// Configuration for an output sink
@@ -85,6 +138,7 @@ impl AppState {
             auth_token: std::env::var("OST_AUTH_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
+            custom_metrics: Arc::new(std::sync::RwLock::new(CustomMetrics::default())),
         }
     }
 

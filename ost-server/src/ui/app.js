@@ -1065,6 +1065,14 @@ function openSettingsModal() {
                 <div class="api-endpoint"><code>GET /api/replay/frames?start=0&count=100</code> — Fetch frames</div>
                 <div class="api-endpoint"><code>POST /api/replay/control</code> — Play/pause/seek/speed</div>
             </div>
+            <div class="api-section">
+                <div class="api-heading">Custom Metrics</div>
+                <div class="api-endpoint"><code>POST /api/metrics</code> — Submit custom metrics</div>
+                <div class="api-endpoint" style="margin-left:12px;font-size:0.6rem">Body: <code>{ "namespace": "...", "metrics": {...}, "tick": optional }</code></div>
+                <div class="api-endpoint"><code>GET /api/metrics/custom</code> — List all custom metrics</div>
+                <div class="api-endpoint"><code>DELETE /api/metrics/custom</code> — Clear all custom metrics</div>
+                <div class="api-endpoint"><code>DELETE /api/metrics/custom/:ns</code> — Clear by namespace</div>
+            </div>
         </div>
         <div class="settings-divider"></div>
         <div class="settings-section-title">Graph Presets</div>
