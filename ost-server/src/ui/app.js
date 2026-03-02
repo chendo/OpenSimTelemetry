@@ -537,16 +537,12 @@ function _fmtDuration(s) {
 function updateSessionBar() {
     const f = store.currentFrame;
     if (!f) {
-        if (sessionBar.classList.contains('active')) {
-            sessionBar.classList.remove('active');
-            document.documentElement.style.setProperty('--session-bar-height', '0px');
-        }
+        sessionBarInfo.innerHTML = '<span style="color:var(--text-muted)">Waiting for data...</span>';
+        sbCur.textContent = '--:--.---';
+        sbBest.textContent = '--:--.---';
+        sbLast.textContent = '--:--.---';
+        sbLap.textContent = '--';
         return;
-    }
-
-    if (!sessionBar.classList.contains('active')) {
-        sessionBar.classList.add('active');
-        document.documentElement.style.setProperty('--session-bar-height', '32px');
     }
 
     const s = f.session;
