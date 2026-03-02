@@ -80,16 +80,15 @@
 
     <!-- Replay controls bar (hidden unless replay active) -->
     <div class="replay-bar" id="replay-bar">
-        <div class="replay-track-info">
-            <strong id="replay-track">--</strong>
-            <span> | </span>
-            <span id="replay-car">--</span>
+        <div class="replay-lap-group" id="replay-lap-group" style="display:none">
+            <button class="replay-lap-btn" id="replay-lap-btn">Lap --</button>
+            <div class="replay-lap-menu" id="replay-lap-menu"></div>
         </div>
+        <button class="replay-btn" id="replay-play-pause" title="Play/Pause (Space)">&#9654;</button>
         <div class="replay-seek-wrap" id="replay-seek-wrap">
             <input type="range" class="replay-seek" id="replay-seek" min="0" max="1000" value="0">
         </div>
         <div class="replay-time" id="replay-time">0:00.0 / 0:00.0</div>
-        <button class="replay-btn" id="replay-play-pause" title="Play/Pause">&#9654;</button>
         <div class="replay-speed-group">
             <button class="speed-btn" data-speed="0.25">0.25x</button>
             <button class="speed-btn" data-speed="0.5">0.5x</button>
@@ -97,16 +96,12 @@
             <button class="speed-btn" data-speed="2">2x</button>
             <button class="speed-btn" data-speed="4">4x</button>
         </div>
-        <div class="replay-lap-group" id="replay-lap-group" style="display:none">
-            <button class="replay-lap-btn" id="replay-lap-btn">Lap --</button>
-            <div class="replay-lap-menu" id="replay-lap-menu"></div>
-        </div>
         <div class="replay-loop-group">
-            <button class="replay-loop-btn" id="replay-loop-start" title="Set loop start">[</button>
-            <button class="replay-loop-btn" id="replay-loop-end" title="Set loop end">]</button>
-            <button class="replay-loop-btn" id="replay-loop-toggle" title="Toggle loop">Loop</button>
+            <button class="replay-loop-btn" id="replay-loop-start" title="Set loop start ([)">[</button>
+            <button class="replay-loop-btn" id="replay-loop-end" title="Set loop end (])">]</button>
+            <button class="replay-loop-btn" id="replay-loop-toggle" title="Toggle loop (L)">Loop</button>
         </div>
-        <button class="replay-exit-btn" id="replay-exit">EXIT REPLAY</button>
+        <button class="replay-exit-btn" id="replay-exit">Exit</button>
     </div>
 
     <div id="dashboard-grid" class="grid-stack"></div>

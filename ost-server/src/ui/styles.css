@@ -1548,16 +1548,6 @@ body {
     z-index: 99;
 }
 .replay-bar.active { display: flex; }
-.replay-track-info {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 240px;
-}
-.replay-track-info span { color: var(--text-secondary); font-weight: 400; }
 
 .replay-btn {
     background: var(--bg-inset);
@@ -1721,25 +1711,6 @@ body {
     border-radius: 2px;
 }
 
-/* Slider lap tick marks */
-.replay-lap-tick {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: rgba(255,255,255,0.2);
-    pointer-events: none;
-    z-index: 1;
-}
-.replay-lap-tick-label {
-    position: absolute;
-    top: -12px;
-    left: 0;
-    font-size: 7px;
-    color: var(--text-muted);
-    transform: translateX(-50%);
-    pointer-events: none;
-}
 
 .replay-exit-btn {
     background: transparent;

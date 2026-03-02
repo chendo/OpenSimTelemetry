@@ -17,8 +17,6 @@ class ReplayPlayer {
 
         this.badge = document.getElementById('mode-badge');
         this.bar = document.getElementById('replay-bar');
-        this.trackEl = document.getElementById('replay-track');
-        this.carEl = document.getElementById('replay-car');
         this.playPauseBtn = document.getElementById('replay-play-pause');
         this.seekSlider = document.getElementById('replay-seek');
         this.seekWrap = document.getElementById('replay-seek-wrap');
@@ -122,10 +120,6 @@ class ReplayPlayer {
         this.bar.classList.add('active');
 
         if (this.info) {
-            this.trackEl.textContent = this.info.track_name || 'Unknown Track';
-            this.carEl.textContent = this.info.car_name || 'Unknown Car';
-            this.seekSlider.max = this.info.total_frames - 1;
-            this.seekSlider.value = this.info.current_frame || 0;
             // Initialize replay buffer (restore position from server state)
             this.buf.totalFrames = this.info.total_frames;
             this.buf.tickRate = this.info.tick_rate;
@@ -143,6 +137,7 @@ class ReplayPlayer {
         }
         this.clearLoop();
         this.updateSpeedButtons();
+        this._currentLapIdx = -1; // force lap range recalc
         this.updateControlsFromBuf();
         if (typeof updateStatus === 'function') updateStatus();
     }
@@ -175,23 +170,14 @@ class ReplayPlayer {
             item.addEventListener('click', () => this.seekToLap(i));
             this.lapMenu.appendChild(item);
         }
+    }
 
-        // Build slider tick marks
-        const existingTicks = this.seekWrap.querySelectorAll('.replay-lap-tick');
-        existingTicks.forEach(t => t.remove());
-        const total = this.info.total_frames;
-        for (let i = 1; i < this.laps.length; i++) { // skip first lap tick at 0
-            const lap = this.laps[i];
-            const pct = (lap.start_frame / total) * 100;
-            const tick = document.createElement('div');
-            tick.className = 'replay-lap-tick';
-            tick.style.left = pct + '%';
-            const label = document.createElement('span');
-            label.className = 'replay-lap-tick-label';
-            label.textContent = lap.lap_number;
-            tick.appendChild(label);
-            this.seekWrap.appendChild(tick);
-        }
+    // Get the frame range [start, end) for a given lap index
+    _getLapRange(idx) {
+        if (this.laps.length === 0 || idx < 0) return { start: 0, end: this.info ? this.info.total_frames : 0 };
+        const start = this.laps[idx].start_frame;
+        const end = (idx + 1 < this.laps.length) ? this.laps[idx + 1].start_frame : (this.info ? this.info.total_frames : start);
+        return { start, end };
     }
 
     seekToLap(idx) {
@@ -216,7 +202,7 @@ class ReplayPlayer {
             body: JSON.stringify({ action: 'seek', value: frame })
         }).catch(() => {});
         this.buf.ensureLoadedDebounced(50, buildReplayMetricMask());
-        this.seekSlider.value = frame;
+        this._currentLapIdx = -1; // force recalc
         this.updateControlsFromBuf();
         requestRedraw();
     }
@@ -307,18 +293,26 @@ class ReplayPlayer {
         this.loopEndBtn.classList.toggle('active', hasEnd);
         this.loopToggleBtn.classList.toggle('loop-on', this.loopEnabled);
 
-        // Update or remove slider overlay
+        // Update or remove slider overlay (relative to current lap range)
         if (hasStart && hasEnd && this.info) {
-            const total = this.info.total_frames;
-            const leftPct = (this.loopStart / total) * 100;
-            const rightPct = (this.loopEnd / total) * 100;
-            if (!this._loopRegionEl) {
-                this._loopRegionEl = document.createElement('div');
-                this._loopRegionEl.className = 'replay-loop-region';
-                this.seekWrap.appendChild(this._loopRegionEl);
+            const range = this._getLapRange(this._getCurrentLapIdx());
+            const lapLen = range.end - range.start;
+            if (lapLen > 0) {
+                const leftPct = Math.max(0, ((this.loopStart - range.start) / lapLen) * 100);
+                const rightPct = Math.min(100, ((this.loopEnd - range.start) / lapLen) * 100);
+                if (rightPct > leftPct) {
+                    if (!this._loopRegionEl) {
+                        this._loopRegionEl = document.createElement('div');
+                        this._loopRegionEl.className = 'replay-loop-region';
+                        this.seekWrap.appendChild(this._loopRegionEl);
+                    }
+                    this._loopRegionEl.style.left = leftPct + '%';
+                    this._loopRegionEl.style.width = (rightPct - leftPct) + '%';
+                } else if (this._loopRegionEl) {
+                    this._loopRegionEl.remove();
+                    this._loopRegionEl = null;
+                }
             }
-            this._loopRegionEl.style.left = leftPct + '%';
-            this._loopRegionEl.style.width = (rightPct - leftPct) + '%';
         } else if (this._loopRegionEl) {
             this._loopRegionEl.remove();
             this._loopRegionEl = null;
@@ -331,11 +325,10 @@ class ReplayPlayer {
         this.active = false;
         this.info = null;
         this.laps = [];
+        this._currentLapIdx = -1;
         this.lapGroup.style.display = 'none';
         this.clearLoop();
         this.buf.reset();
-        // Clean up tick marks
-        this.seekWrap.querySelectorAll('.replay-lap-tick').forEach(t => t.remove());
         if (typeof updateStatus === 'function') updateStatus();
     }
 
@@ -371,6 +364,12 @@ class ReplayPlayer {
         });
     }
 
+    // Convert slider value (0-based within lap range) to absolute frame
+    _sliderToFrame(sliderVal) {
+        const range = this._getLapRange(this._getCurrentLapIdx());
+        return range.start + parseInt(sliderVal);
+    }
+
     onSeekInput(value) {
         if (!this.seeking) {
             // Pause server playback when scrubbing starts
@@ -383,16 +382,13 @@ class ReplayPlayer {
         }
         this.seeking = true;
         this.buf.scrubbing = true;
-        const frame = parseInt(value);
+        const frame = this._sliderToFrame(value);
         this.buf.cursor = frame;
         this.buf.playing = false;
         this.buf._lastPlayTick = null;
         this.buf._dirty = true;
         // Update time display immediately
-        if (this.info) {
-            const currentTime = (frame / this.info.total_frames) * this.info.duration_secs;
-            this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(this.info.duration_secs)}`;
-        }
+        this._updateTimeDisplay();
         // Throttle: fetch at most once per 250ms during scrubbing
         const now = performance.now();
         if (now - this._seekThrottleTime >= 250) {
@@ -407,7 +403,7 @@ class ReplayPlayer {
     onSeekChange(value) {
         this.seeking = false;
         this.buf.scrubbing = false;
-        const frame = parseInt(value);
+        const frame = this._sliderToFrame(value);
         this.buf.cursor = frame;
         this.buf._dirty = true;
         // Sync server position (for exit/cleanup, non-blocking)
@@ -428,21 +424,43 @@ class ReplayPlayer {
         this.exitReplayMode();
     }
 
+    _updateTimeDisplay() {
+        if (!this.info) return;
+        const range = this._getLapRange(this._getCurrentLapIdx());
+        const lapLen = range.end - range.start;
+        const lapTime = lapLen > 0 ? ((this.buf.cursor - range.start) / this.info.tick_rate) : 0;
+        const lapTotal = lapLen / this.info.tick_rate;
+        this.timeEl.textContent = `${this.fmtTime(lapTime)} / ${this.fmtTime(lapTotal)}`;
+    }
+
     // Called each render frame to update slider and time display from buffer state
     updateControlsFromBuf() {
         if (!this.info) return;
         this.playPauseBtn.innerHTML = this.buf.playing ? '&#9646;&#9646;' : '&#9654;';
-        if (!this.seeking) this.seekSlider.value = this.buf.cursor;
-        const currentTime = (this.buf.cursor / this.info.total_frames) * this.info.duration_secs;
-        this.timeEl.textContent = `${this.fmtTime(currentTime)} / ${this.fmtTime(this.info.duration_secs)}`;
-        // Update lap button text
-        if (this.laps.length > 0) {
-            const idx = this._getCurrentLapIdx();
-            if (idx !== this._currentLapIdx) {
-                this._currentLapIdx = idx;
-                this.lapBtn.textContent = `Lap ${this.laps[idx].lap_number}`;
+
+        // Update lap button text and slider range when lap changes
+        const lapIdx = this.laps.length > 0 ? this._getCurrentLapIdx() : -1;
+        if (lapIdx !== this._currentLapIdx) {
+            this._currentLapIdx = lapIdx;
+            if (lapIdx >= 0) {
+                this.lapBtn.textContent = `Lap ${this.laps[lapIdx].lap_number}`;
             }
+            // Update slider range to current lap
+            const range = this._getLapRange(lapIdx);
+            const lapLen = range.end - range.start;
+            this.seekSlider.min = 0;
+            this.seekSlider.max = Math.max(0, lapLen - 1);
+            // Update loop overlay for new lap range
+            this.updateLoopUI();
         }
+
+        // Update slider position (relative to lap start)
+        if (!this.seeking) {
+            const range = this._getLapRange(lapIdx);
+            this.seekSlider.value = this.buf.cursor - range.start;
+        }
+
+        this._updateTimeDisplay();
     }
 
     fmtTime(secs) {
@@ -457,7 +475,6 @@ class ReplayPlayer {
         if (this.buf.playing) return; // only step when paused
         this.buf.cursor = Math.max(0, Math.min(this.buf.totalFrames - 1, this.buf.cursor + delta));
         this.buf._dirty = true;
-        this.seekSlider.value = this.buf.cursor;
         // Sync server position
         fetch(apiBase() + '/api/replay/control', {
             method: 'POST',
@@ -472,7 +489,6 @@ class ReplayPlayer {
     seekToStart() {
         this.buf.cursor = this.loopStart || 0;
         this.buf._dirty = true;
-        this.seekSlider.value = this.buf.cursor;
         fetch(apiBase() + '/api/replay/control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -486,7 +502,6 @@ class ReplayPlayer {
     seekToEnd() {
         this.buf.cursor = (this.loopEnd != null ? this.loopEnd : this.buf.totalFrames - 1);
         this.buf._dirty = true;
-        this.seekSlider.value = this.buf.cursor;
         fetch(apiBase() + '/api/replay/control', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
