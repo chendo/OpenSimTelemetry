@@ -1376,3 +1376,115 @@ async fn test_submit_metrics_rejects_invalid_body() {
         .unwrap();
     assert_eq!(response.status(), 400);
 }
+
+// ==================== Annotations API ====================
+
+#[tokio::test]
+async fn test_create_and_list_annotations() {
+    let app = app();
+
+    // Create annotation
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/annotations")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r##"{"id":"","title":"Braking zone","color":"#ff6b6b","start_tick":100,"end_tick":200}"##,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(body["ok"], true);
+    let id = body["id"].as_str().unwrap().to_string();
+    assert!(!id.is_empty());
+
+    // List annotations
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/annotations")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Vec<serde_json::Value> =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0]["title"], "Braking zone");
+    assert_eq!(body[0]["start_tick"], 100);
+    assert_eq!(body[0]["end_tick"], 200);
+}
+
+#[tokio::test]
+async fn test_delete_annotation() {
+    let (app, state) = app_with_state();
+
+    // Pre-populate
+    {
+        let mut annotations = state.annotations.write().unwrap();
+        annotations.push(ost_server::state::Annotation {
+            id: "test-1".to_string(),
+            title: "Test".to_string(),
+            color: "#ff0000".to_string(),
+            start_tick: Some(10),
+            end_tick: Some(20),
+            start_time_s: None,
+            end_time_s: None,
+        });
+    }
+
+    // Delete it
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/annotations/test-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+
+    // Verify empty
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/annotations")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let body: Vec<serde_json::Value> =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert!(body.is_empty());
+}
+
+#[tokio::test]
+async fn test_delete_nonexistent_annotation_returns_404() {
+    let app = app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/annotations/nonexistent")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+}

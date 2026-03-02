@@ -204,6 +204,10 @@ function connectSSE() {
         try { store.sinks = JSON.parse(e.data); store._sinksVersion = (store._sinksVersion || 0) + 1; requestRedraw(); }
         catch (err) { console.error('Parse error:', err); }
     });
+    es.addEventListener('annotations', (e) => {
+        try { store.annotations = JSON.parse(e.data); store._annotationsVersion = (store._annotationsVersion || 0) + 1; requestRedraw(); }
+        catch (err) { console.error('Parse error:', err); }
+    });
 }
 
 // Create all widgets in a batch to avoid excessive change events
@@ -1072,6 +1076,13 @@ function openSettingsModal() {
                 <div class="api-endpoint"><code>GET /api/metrics/custom</code> — List all custom metrics</div>
                 <div class="api-endpoint"><code>DELETE /api/metrics/custom</code> — Clear all custom metrics</div>
                 <div class="api-endpoint"><code>DELETE /api/metrics/custom/:ns</code> — Clear by namespace</div>
+            </div>
+            <div class="api-section">
+                <div class="api-heading">Annotations</div>
+                <div class="api-endpoint"><code>POST /api/annotations</code> — Create annotation</div>
+                <div class="api-endpoint" style="margin-left:12px;font-size:0.6rem">Body: <code>{ "title": "...", "color": "#ff6b6b", "start_tick": N, "end_tick": M }</code></div>
+                <div class="api-endpoint"><code>GET /api/annotations</code> — List all annotations</div>
+                <div class="api-endpoint"><code>DELETE /api/annotations/:id</code> — Delete annotation</div>
             </div>
         </div>
         <div class="settings-divider"></div>

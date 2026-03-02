@@ -1,7 +1,7 @@
 //! REST API and SSE routes
 
 use crate::replay::ReplayState;
-use crate::state::{AppState, SinkConfig};
+use crate::state::{Annotation, AppState, SinkConfig};
 use crate::web_ui;
 use axum::{
     extract::{DefaultBodyLimit, Multipart, Query, State},
@@ -290,6 +290,11 @@ pub fn create_router(state: AppState) -> Router {
             "/api/metrics/custom/:namespace",
             delete(clear_custom_metrics_ns),
         )
+        .route(
+            "/api/annotations",
+            get(list_annotations).post(create_annotation),
+        )
+        .route("/api/annotations/:id", delete(delete_annotation))
         .route("/api/sinks", get(list_sinks).post(create_sink))
         .route("/api/sinks/stream", get(sinks_stream))
         .route("/api/sinks/:id", delete(delete_sink))
@@ -563,6 +568,65 @@ async fn clear_custom_metrics_ns(
     StatusCode::NO_CONTENT
 }
 
+// ===================== Annotations API =====================
+
+/// POST /api/annotations — create a new annotation
+async fn create_annotation(
+    State(state): State<AppState>,
+    Json(mut ann): Json<Annotation>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if ann.title.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "title must not be empty".to_string(),
+        ));
+    }
+    if ann.id.is_empty() {
+        ann.id = format!(
+            "ann-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
+    }
+    let id = ann.id.clone();
+
+    let mut annotations = state.annotations.write().unwrap();
+    annotations.push(ann);
+    broadcast_annotations(&state, &annotations);
+    Ok(Json(serde_json::json!({ "ok": true, "id": id })))
+}
+
+/// GET /api/annotations — list all annotations
+async fn list_annotations(State(state): State<AppState>) -> Json<Vec<Annotation>> {
+    let annotations = state.annotations.read().unwrap();
+    Json(annotations.clone())
+}
+
+/// DELETE /api/annotations/:id — delete an annotation by ID
+async fn delete_annotation(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> StatusCode {
+    let mut annotations = state.annotations.write().unwrap();
+    let before = annotations.len();
+    annotations.retain(|a| a.id != id);
+    if annotations.len() < before {
+        broadcast_annotations(&state, &annotations);
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
+/// Broadcast annotations to SSE subscribers.
+fn broadcast_annotations(state: &AppState, annotations: &[Annotation]) {
+    if let Ok(json) = serde_json::to_string(annotations) {
+        let _ = state.annotations_tx.send(json);
+    }
+}
+
 /// Broadcast the current sink config list to all sink SSE subscribers.
 async fn broadcast_sinks(state: &AppState) {
     let sinks = state.sinks.read().await;
@@ -606,15 +670,25 @@ async fn unified_stream(
         serde_json::to_string(&*sinks).unwrap_or_default()
     };
 
+    // Build initial annotations
+    let initial_annotations_json = {
+        let annotations = state.annotations.read().unwrap();
+        serde_json::to_string(&*annotations).unwrap_or_default()
+    };
+
     // Subscribe to all channels
     let telemetry_rx = state.subscribe();
     let status_rx = state.status_tx.subscribe();
     let sinks_rx = state.sinks_tx.subscribe();
+    let annotations_rx = state.annotations_tx.subscribe();
 
     // Initial events
     let initial = stream::iter(vec![
         Ok(Event::default().event("status").data(initial_status_json)),
         Ok(Event::default().event("sinks").data(initial_sinks_json)),
+        Ok(Event::default()
+            .event("annotations")
+            .data(initial_annotations_json)),
     ]);
 
     // Telemetry frames (with optional metric mask filtering and rate limiting)
@@ -711,10 +785,21 @@ async fn unified_stream(
         }
     });
 
+    // Annotations updates
+    let annotations = BroadcastStream::new(annotations_rx).filter_map(|result| async move {
+        match result {
+            Ok(json) => Some(Ok(Event::default().event("annotations").data(json))),
+            Err(_) => None,
+        }
+    });
+
     // Merge all streams using select (round-robin polling)
     let merged = futures::stream::select(
-        futures::stream::select(initial.chain(telemetry), status),
-        sinks,
+        futures::stream::select(
+            futures::stream::select(initial.chain(telemetry), status),
+            sinks,
+        ),
+        annotations,
     );
 
     Sse::new(merged).keep_alive(KeepAlive::default())

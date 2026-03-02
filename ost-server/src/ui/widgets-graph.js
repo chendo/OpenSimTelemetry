@@ -856,6 +856,54 @@ class GraphWidget extends Widget {
             }
         }
 
+        // Draw annotation overlays (behind traces)
+        if (store.annotations && store.annotations.length > 0) {
+            for (const ann of store.annotations) {
+                // Find X bounds by scanning visible entries for matching tick range
+                let x0 = null, x1 = null;
+                if (ann.start_tick != null || ann.end_tick != null) {
+                    for (let i = 0; i < dataCount; i++) {
+                        const entry = getEntry(i);
+                        if (!entry || !entry._frame?.meta?.tick) continue;
+                        const tick = entry._frame.meta.tick;
+                        const x = pad.left + ((entryTime(i) - tMin) / tRange) * pw;
+                        if (ann.start_tick != null && tick >= ann.start_tick && x0 == null) x0 = x;
+                        if (ann.end_tick != null && tick <= ann.end_tick) x1 = x;
+                    }
+                } else if (ann.start_time_s != null || ann.end_time_s != null) {
+                    // Time-based: convert seconds to the graph's time coordinate system
+                    if (isReplay) {
+                        if (ann.start_time_s != null) x0 = pad.left + ((ann.start_time_s * 1000 - tMin) / tRange) * pw;
+                        if (ann.end_time_s != null) x1 = pad.left + ((ann.end_time_s * 1000 - tMin) / tRange) * pw;
+                    }
+                }
+                if (x0 == null && x1 == null) continue;
+                // Default to full visible range for open-ended annotations
+                if (x0 == null) x0 = pad.left;
+                if (x1 == null) x1 = pad.left + pw;
+                // Clamp to plot area
+                x0 = Math.max(x0, pad.left);
+                x1 = Math.min(x1, pad.left + pw);
+                if (x1 <= x0) continue;
+
+                // Draw colored rectangle
+                ctx.fillStyle = ann.color || 'rgba(255, 107, 107, 0.15)';
+                ctx.globalAlpha = 0.15;
+                ctx.fillRect(x0, pad.top, x1 - x0, ph);
+                ctx.globalAlpha = 1.0;
+
+                // Draw title label at top-left of annotation
+                if (ann.title) {
+                    ctx.font = '9px sans-serif';
+                    ctx.fillStyle = ann.color || '#ff6b6b';
+                    ctx.globalAlpha = 0.7;
+                    ctx.textAlign = 'left';
+                    ctx.fillText(ann.title, x0 + 3, pad.top + 10);
+                    ctx.globalAlpha = 1.0;
+                }
+            }
+        }
+
         // Draw each trace
         for (const trace of traces) {
             ctx.beginPath(); ctx.strokeStyle = trace.color; ctx.lineWidth = 1.5;

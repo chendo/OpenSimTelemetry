@@ -51,6 +51,12 @@ pub struct AppState {
 
     /// User-submitted custom metrics (std RwLock for sync access in SSE filter_map)
     pub custom_metrics: Arc<std::sync::RwLock<CustomMetrics>>,
+
+    /// Annotations on the telemetry timeline
+    pub annotations: Arc<std::sync::RwLock<Vec<Annotation>>>,
+
+    /// Broadcast channel for annotation updates (serialized JSON strings)
+    pub annotations_tx: broadcast::Sender<String>,
 }
 
 /// Storage for user-submitted custom metrics.
@@ -103,6 +109,25 @@ impl CustomMetrics {
     }
 }
 
+/// A time-range annotation on the telemetry buffer.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Annotation {
+    pub id: String,
+    pub title: String,
+    /// CSS color string (e.g., "#ff6b6b", "rgba(255,0,0,0.5)")
+    pub color: String,
+    /// Start/end as tick numbers (from meta.tick)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_tick: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_tick: Option<u32>,
+    /// Start/end as session time in seconds (from meta.timestamp offset)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_time_s: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_time_s: Option<f64>,
+}
+
 /// Configuration for an output sink
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SinkConfig {
@@ -119,6 +144,7 @@ impl AppState {
         let (telemetry_tx, _) = broadcast::channel(100);
         let (status_tx, _) = broadcast::channel(16);
         let (sinks_tx, _) = broadcast::channel(16);
+        let (annotations_tx, _) = broadcast::channel(16);
 
         let mut disabled = HashSet::new();
         disabled.insert("demo".to_string());
@@ -139,6 +165,8 @@ impl AppState {
                 .ok()
                 .filter(|s| !s.is_empty()),
             custom_metrics: Arc::new(std::sync::RwLock::new(CustomMetrics::default())),
+            annotations: Arc::new(std::sync::RwLock::new(Vec::new())),
+            annotations_tx,
         }
     }
 

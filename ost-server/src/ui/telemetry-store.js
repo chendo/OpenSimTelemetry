@@ -4,6 +4,7 @@ class TelemetryStore {
         this.currentFrame = null;
         this.adapters = [];
         this.sinks = [];
+        this.annotations = [];
         this._dirty = false;
         this._frameVersion = 0; // Increments on each new frame from pushFrame
         // Ring buffer: fixed-size array with write pointer
