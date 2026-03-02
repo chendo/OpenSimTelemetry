@@ -1628,7 +1628,7 @@ body {
 .replay-lap-menu {
     position: absolute;
     top: calc(100% + 4px);
-    right: 0;
+    left: 0;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: 6px;

@@ -399,7 +399,7 @@ class WheelsWidget extends Widget {
                 }).join('')}
                 <div class="wheel-car-shape"></div>
             </div>
-            <div class="wheel-warning">Not all sims provide data for every metric shown here</div>`;
+            <div class="wheel-warning">Only some sims provide live tire data</div>`;
 
         this.wEls = {};
         for (const w of corners) {

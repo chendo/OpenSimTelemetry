@@ -520,9 +520,18 @@ const sbLast = document.getElementById('sb-last');
 const sbLap = document.getElementById('sb-lap');
 
 function _fmtLapTime(s) {
-    if (s == null || isNaN(s)) return '--:--.---';
+    if (s == null || isNaN(s) || s <= 0) return '--:--.---';
     const m = Math.floor(s / 60);
     return `${m}:${(s % 60).toFixed(3).padStart(6, '0')}`;
+}
+
+function _fmtDuration(s) {
+    if (s == null || isNaN(s) || s < 0) return null;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
 function updateSessionBar() {
@@ -543,22 +552,27 @@ function updateSessionBar() {
     const s = f.session;
     const w = f.weather;
     const t = f.timing;
+    const d = f.driver;
 
-    // Build info string: "<Car> @ <Track> | <Weather> | Session: <status>"
-    const car = s?.car_name || '--';
+    // Build info string: "<Driver> | <Car> @ <Track> | <Weather> | State: <status> <duration>"
+    let parts = [];
+    if (d?.name) parts.push(`<strong>${d.name}</strong>`);
+    const car = s?.car_name || d?.car_name || '--';
     const track = s?.track_name || '--';
-    let parts = [`<strong>${car}</strong> @ <strong>${track}</strong>`];
+    parts.push(`<strong>${car}</strong> @ <strong>${track}</strong>`);
     // Weather conditions
     const weatherParts = [];
     if (w?.air_temp != null) weatherParts.push(`Air ${w.air_temp.toFixed(0)}\u00B0C`);
     if (w?.track_temp != null) weatherParts.push(`Track ${w.track_temp.toFixed(0)}\u00B0C`);
     if (w?.track_wetness) weatherParts.push(w.track_wetness);
     if (weatherParts.length > 0) parts.push(weatherParts.join(', '));
-    // Session type/state
-    const sessionParts = [];
-    if (s?.session_type) sessionParts.push(s.session_type);
-    if (s?.session_state) sessionParts.push(s.session_state);
-    if (sessionParts.length > 0) parts.push('Session: ' + sessionParts.join(' \u2014 '));
+    // Session type/state + duration
+    const stateParts = [];
+    if (s?.session_type) stateParts.push(s.session_type);
+    if (s?.session_state) stateParts.push(s.session_state);
+    const dur = _fmtDuration(s?.session_time);
+    if (dur) stateParts.push(dur);
+    if (stateParts.length > 0) parts.push('State: ' + stateParts.join(' \u2014 '));
     sessionBarInfo.innerHTML = parts.join(' | ');
 
     // Lap timing
