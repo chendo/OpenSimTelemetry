@@ -513,6 +513,63 @@ document.getElementById('menu-export-data').addEventListener('click', () => {
     });
 });
 
+// ==================== Session Status Bar ====================
+const sessionBar = document.getElementById('session-bar');
+const sessionBarInfo = document.getElementById('session-bar-info');
+const sbCur = document.getElementById('sb-cur');
+const sbBest = document.getElementById('sb-best');
+const sbLast = document.getElementById('sb-last');
+const sbLap = document.getElementById('sb-lap');
+
+function _fmtLapTime(s) {
+    if (s == null || isNaN(s)) return '--:--.---';
+    const m = Math.floor(s / 60);
+    return `${m}:${(s % 60).toFixed(3).padStart(6, '0')}`;
+}
+
+function updateSessionBar() {
+    const f = store.currentFrame;
+    if (!f) {
+        if (sessionBar.classList.contains('active')) {
+            sessionBar.classList.remove('active');
+            document.documentElement.style.setProperty('--session-bar-height', '0px');
+        }
+        return;
+    }
+
+    if (!sessionBar.classList.contains('active')) {
+        sessionBar.classList.add('active');
+        document.documentElement.style.setProperty('--session-bar-height', '32px');
+    }
+
+    const s = f.session;
+    const w = f.weather;
+    const t = f.timing;
+
+    // Build info string: "<Car> @ <Track> | <Weather> | Session: <status>"
+    const car = s?.car_name || '--';
+    const track = s?.track_name || '--';
+    let parts = [`<strong>${car}</strong> @ <strong>${track}</strong>`];
+    // Weather conditions
+    const weatherParts = [];
+    if (w?.air_temp != null) weatherParts.push(`Air ${w.air_temp.toFixed(0)}\u00B0C`);
+    if (w?.track_temp != null) weatherParts.push(`Track ${w.track_temp.toFixed(0)}\u00B0C`);
+    if (w?.track_wetness) weatherParts.push(w.track_wetness);
+    if (weatherParts.length > 0) parts.push(weatherParts.join(', '));
+    // Session type/state
+    const sessionParts = [];
+    if (s?.session_type) sessionParts.push(s.session_type);
+    if (s?.session_state) sessionParts.push(s.session_state);
+    if (sessionParts.length > 0) parts.push('Session: ' + sessionParts.join(' \u2014 '));
+    sessionBarInfo.innerHTML = parts.join(' | ');
+
+    // Lap timing
+    sbCur.textContent = _fmtLapTime(t?.current_lap_time);
+    sbBest.textContent = _fmtLapTime(t?.best_lap_time);
+    sbLast.textContent = _fmtLapTime(t?.last_lap_time);
+    sbLap.textContent = t?.lap_number ?? '--';
+}
+
 // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
 let _lastPrefetchTime = 0;
 function renderLoop() {
@@ -554,8 +611,9 @@ function renderLoop() {
         }
     }
 
-    // Update seek bar
+    // Update bars
     updateSeekBar();
+    updateSessionBar();
 
     if (store._dirty || _uiDirty || (activeBuf && activeBuf._dirty)) {
         store._dirty = false;

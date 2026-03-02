@@ -67,6 +67,17 @@
         </div>
     </header>
 
+    <!-- Session status bar (sticky below header) -->
+    <div class="session-bar" id="session-bar">
+        <div class="session-bar-info" id="session-bar-info">--</div>
+        <div class="session-bar-timing">
+            <span class="timing-item"><span class="timing-label">CUR</span> <span class="timing-value" id="sb-cur">--:--.---</span></span>
+            <span class="timing-item timing-best"><span class="timing-label">BEST</span> <span class="timing-value" id="sb-best">--:--.---</span></span>
+            <span class="timing-item"><span class="timing-label">LAST</span> <span class="timing-value" id="sb-last">--:--.---</span></span>
+            <span class="timing-item"><span class="timing-label">LAP</span> <span class="timing-value" id="sb-lap">--</span></span>
+        </div>
+    </div>
+
     <!-- History seek bar (always visible when no replay active) -->
     <div class="seek-bar" id="seek-bar">
         <button class="seek-pause-btn" id="header-pause-btn" title="Pause/Resume">&#9646;&#9646;</button>
