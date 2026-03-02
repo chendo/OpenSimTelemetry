@@ -497,7 +497,7 @@ document.getElementById('menu-export-data').addEventListener('click', () => {
                     for (const part of parts) { cur = cur?.[part]; }
                     return typeof cur === 'number' ? cur : '';
                 });
-                return [f.timestamp || '', ...vals].join(',');
+                return [f.meta?.timestamp || '', ...vals].join(',');
             });
             blob = new Blob([header + '\n' + rows.join('\n')], { type: 'text/csv' });
             filename = `telemetry_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
@@ -556,11 +556,12 @@ function updateSessionBar() {
     const w = f.weather;
     const t = f.timing;
     const d = f.driver;
+    const v = f.vehicle;
 
     // Build info string: "<Driver> | <Car> @ <Track> | <Weather> | State: <status> <duration>"
     let parts = [];
     if (d?.name) parts.push(`<strong>${d.name}</strong>`);
-    const car = s?.car_name || d?.car_name || '--';
+    const car = v?.car_name || '--';
     const track = s?.track_name || '--';
     parts.push(`<strong>${car}</strong> @ <strong>${track}</strong>`);
     // Weather conditions

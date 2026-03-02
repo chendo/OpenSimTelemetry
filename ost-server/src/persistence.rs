@@ -172,7 +172,7 @@ pub async fn run(
         }
 
         // Compute skip interval from frequency and tick rate
-        let tick_rate = frame.tick.unwrap_or(60) as u64;
+        let tick_rate = frame.meta.tick.unwrap_or(60) as u64;
         let freq = cfg.frequency_hz.max(1) as u64;
         let skip_interval = if tick_rate > freq {
             tick_rate / freq
@@ -188,9 +188,9 @@ pub async fn run(
             .unwrap_or("")
             .to_string();
         let car = frame
-            .session
+            .vehicle
             .as_ref()
-            .and_then(|s| s.car_name.as_deref())
+            .and_then(|v| v.car_name.as_deref())
             .unwrap_or("")
             .to_string();
 

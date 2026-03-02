@@ -62,7 +62,7 @@ fn test_demo_adapter_produces_valid_frame() {
         .expect("read_frame() should return Some after start()");
 
     // Check game name
-    assert_eq!(frame.game, "Demo");
+    assert_eq!(frame.meta.game, "Demo");
 
     // Check that key sections are populated
     let vehicle = frame.vehicle.as_ref().expect("vehicle should be populated");
@@ -79,7 +79,7 @@ fn test_demo_adapter_produces_valid_frame() {
         session.track_name.is_some(),
         "track_name should be populated"
     );
-    assert!(session.car_name.is_some(), "car_name should be populated");
+    assert!(vehicle.car_name.is_some(), "car_name should be populated");
     assert!(
         session.session_type.is_some(),
         "session_type should be populated"
@@ -164,7 +164,7 @@ fn test_demo_adapter_produces_multiple_frames() {
             .read_frame()
             .expect("read_frame() should not error")
             .unwrap_or_else(|| panic!("Frame {} should be Some", i));
-        assert_eq!(frame.game, "Demo");
+        assert_eq!(frame.meta.game, "Demo");
     }
 }
 
@@ -205,7 +205,7 @@ fn test_demo_adapter_frame_serializes_to_json() {
 
     // Should be valid JSON
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("JSON should be parseable");
-    assert_eq!(parsed["game"], "Demo");
+    assert_eq!(parsed["meta"]["game"], "Demo");
 }
 
 #[test]

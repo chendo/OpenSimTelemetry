@@ -533,14 +533,10 @@ async fn test_telemetry_stream_with_metric_filter() {
                     parsed.get("weather").is_none(),
                     "Filtered response should NOT include weather"
                 );
-                // Should always include timestamp and game
+                // Should always include meta (timestamp, game, tick)
                 assert!(
-                    parsed.get("timestamp").is_some(),
-                    "Filtered response should always include timestamp"
-                );
-                assert!(
-                    parsed.get("game").is_some(),
-                    "Filtered response should always include game"
+                    parsed.get("meta").is_some(),
+                    "Filtered response should always include meta"
                 );
             }
         }
@@ -588,7 +584,7 @@ async fn test_app_state_subscribe_receives_broadcast() {
     state.telemetry_tx.send(frame).unwrap();
 
     let received = rx.recv().await.unwrap();
-    assert_eq!(received.game, "Demo");
+    assert_eq!(received.meta.game, "Demo");
 }
 
 #[tokio::test]
@@ -850,7 +846,7 @@ async fn test_persistence_download_round_trip() {
 
     for line in &lines {
         let frame: serde_json::Value = serde_json::from_str(line).expect("Valid JSON");
-        assert_eq!(frame["game"], "Demo");
+        assert_eq!(frame["meta"]["game"], "Demo");
     }
 }
 
@@ -1007,9 +1003,11 @@ async fn test_history_aggregate_returns_stats() {
         let mut history = state.history.write().await;
         for i in 0..10 {
             let json = serde_json::json!({
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-                "game": "test",
-                "tick": i,
+                "meta": {
+                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                    "game": "test",
+                    "tick": i,
+                },
                 "vehicle": {
                     "speed": 10.0 + i as f64,
                     "rpm": 3000.0 + (i as f64 * 500.0)
@@ -1083,9 +1081,11 @@ async fn test_history_aggregate_unknown_metric() {
     {
         let mut history = state.history.write().await;
         let json = serde_json::json!({
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-            "game": "test",
-            "tick": 0
+            "meta": {
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "game": "test",
+                "tick": 0
+            }
         });
         let frame: ost_core::model::TelemetryFrame = serde_json::from_value(json).unwrap();
         history.push(frame);

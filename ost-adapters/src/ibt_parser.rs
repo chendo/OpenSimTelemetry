@@ -738,6 +738,9 @@ impl IbtFile {
             on_track: get_bool("IsOnTrack"),
             in_garage: get_bool("IsInGarage"),
             track_surface,
+            car_name: Some(self.session_info.car_name.clone()).filter(|s| !s.is_empty()),
+            car_class: None,
+            setup_name: None,
         });
 
         // =================================================================
@@ -829,8 +832,6 @@ impl IbtFile {
                 .filter(|s| !s.is_empty()),
             track_length,
             track_type: None,
-            car_name: Some(self.session_info.car_name.clone()).filter(|s| !s.is_empty()),
-            car_class: None,
         });
 
         // =================================================================
@@ -902,6 +903,10 @@ impl IbtFile {
             push_to_pass_status: None,
             push_to_pass_count: None,
             throttle_shape: None,
+            shift_light_first_rpm: None,
+            shift_light_shift_rpm: None,
+            shift_light_last_rpm: None,
+            shift_light_blink_rpm: None,
         });
 
         // =================================================================
@@ -924,9 +929,11 @@ impl IbtFile {
         );
 
         TelemetryFrame {
-            timestamp: Utc::now(),
-            game: "iRacing Replay".to_string(),
-            tick,
+            meta: MetaData {
+                timestamp: Utc::now(),
+                game: "iRacing Replay".to_string(),
+                tick,
+            },
             motion,
             vehicle,
             engine,
@@ -942,17 +949,9 @@ impl IbtFile {
                 Some(DriverData {
                     name: Some(self.session_info.driver_name.clone()),
                     car_index: Some(self.session_info.driver_car_idx as u32),
-                    car_name: Some(self.session_info.car_name.clone()).filter(|s| !s.is_empty()),
-                    car_class: None,
                     car_number: None,
                     team_name: None,
-                    fuel_capacity: None,
-                    shift_light_first_rpm: None,
-                    shift_light_shift_rpm: None,
-                    shift_light_last_rpm: None,
-                    shift_light_blink_rpm: None,
                     estimated_lap_time: None,
-                    setup_name: None,
                 })
             } else {
                 None
@@ -1309,7 +1308,7 @@ SessionInfo:
         let sample = ibt.read_sample(idx).expect("Failed to read sample");
         let frame = ibt.sample_to_frame(&sample);
 
-        assert_eq!(frame.game, "iRacing Replay");
+        assert_eq!(frame.meta.game, "iRacing Replay");
 
         // Nested vehicle data
         let vehicle = frame.vehicle.as_ref().expect("vehicle should be populated");

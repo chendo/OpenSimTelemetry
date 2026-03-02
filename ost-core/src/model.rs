@@ -16,12 +16,12 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 // =============================================================================
-// TelemetryFrame — top-level container
+// MetaData — frame metadata
 // =============================================================================
 
-/// Complete telemetry frame with all available data, organized by domain.
+/// Frame metadata: timestamp, game identity, and tick counter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelemetryFrame {
+pub struct MetaData {
     /// Timestamp when this frame was captured
     pub timestamp: DateTime<Utc>,
 
@@ -30,6 +30,17 @@ pub struct TelemetryFrame {
 
     /// Sample tick/frame number from the sim
     pub tick: Option<u32>,
+}
+
+// =============================================================================
+// TelemetryFrame — top-level container
+// =============================================================================
+
+/// Complete telemetry frame with all available data, organized by domain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryFrame {
+    /// Frame metadata (timestamp, game, tick)
+    pub meta: MetaData,
 
     // === Domain sections ===
     pub motion: Option<MotionData>,
@@ -174,6 +185,15 @@ pub struct VehicleData {
 
     /// What surface the player's car is currently on
     pub track_surface: Option<TrackSurface>,
+
+    /// Player's car name
+    pub car_name: Option<String>,
+
+    /// Player's car class
+    pub car_class: Option<String>,
+
+    /// Setup name
+    pub setup_name: Option<String>,
 }
 
 // =============================================================================
@@ -545,12 +565,6 @@ pub struct SessionData {
 
     /// Track type (Road, Oval, Dirt, etc.)
     pub track_type: Option<String>,
-
-    /// Player's car name
-    pub car_name: Option<String>,
-
-    /// Player's car class
-    pub car_class: Option<String>,
 }
 
 // =============================================================================
@@ -850,6 +864,18 @@ pub struct ElectronicsData {
 
     /// Throttle shape/map setting
     pub throttle_shape: Option<f32>,
+
+    /// Shift light: first RPM (begin illumination)
+    pub shift_light_first_rpm: Option<Rpm>,
+
+    /// Shift light: optimal shift RPM
+    pub shift_light_shift_rpm: Option<Rpm>,
+
+    /// Shift light: last RPM (full illumination)
+    pub shift_light_last_rpm: Option<Rpm>,
+
+    /// Shift light: blink RPM (over-rev warning)
+    pub shift_light_blink_rpm: Option<Rpm>,
 }
 
 // =============================================================================
@@ -945,17 +971,9 @@ pub struct CompetitorData {
 pub struct DriverData {
     pub name: Option<String>,
     pub car_index: Option<u32>,
-    pub car_name: Option<String>,
-    pub car_class: Option<String>,
     pub car_number: Option<String>,
     pub team_name: Option<String>,
-    pub fuel_capacity: Option<Liters>,
-    pub shift_light_first_rpm: Option<Rpm>,
-    pub shift_light_shift_rpm: Option<Rpm>,
-    pub shift_light_last_rpm: Option<Rpm>,
-    pub shift_light_blink_rpm: Option<Rpm>,
     pub estimated_lap_time: Option<Seconds>,
-    pub setup_name: Option<String>,
 }
 
 // =============================================================================
@@ -1160,16 +1178,8 @@ impl TelemetryFrame {
         let mask = mask.unwrap();
         let mut map = serde_json::Map::new();
 
-        // Always include timestamp and game
-        map.insert(
-            "timestamp".to_string(),
-            serde_json::to_value(self.timestamp)?,
-        );
-        map.insert("game".to_string(), serde_json::to_value(&self.game)?);
-
-        if let Some(ref v) = self.tick {
-            map.insert("tick".to_string(), serde_json::to_value(v)?);
-        }
+        // Always include meta
+        map.insert("meta".to_string(), serde_json::to_value(&self.meta)?);
 
         // Conditionally include domain sections
         if mask.includes("motion") {
@@ -1250,9 +1260,11 @@ mod tests {
     /// Helper to construct a minimal TelemetryFrame for testing
     fn make_test_frame() -> TelemetryFrame {
         TelemetryFrame {
-            timestamp: Utc::now(),
-            game: "TestGame".to_string(),
-            tick: Some(42),
+            meta: MetaData {
+                timestamp: Utc::now(),
+                game: "TestGame".to_string(),
+                tick: Some(42),
+            },
             motion: Some(MotionData {
                 position: None,
                 velocity: None,
@@ -1286,6 +1298,9 @@ mod tests {
                 on_track: None,
                 in_garage: None,
                 track_surface: None,
+                car_name: Some("Test Car".to_string()),
+                car_class: None,
+                setup_name: None,
             }),
             engine: Some(EngineData {
                 water_temp: Some(Celsius(90.0)),
@@ -1339,8 +1354,6 @@ mod tests {
                 track_config: None,
                 track_length: None,
                 track_type: None,
-                car_name: Some("Test Car".to_string()),
-                car_class: None,
             }),
             weather: None,
             pit: None,
@@ -1428,8 +1441,7 @@ mod tests {
         let json = frame.to_json_filtered(None).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
-        assert!(parsed.get("timestamp").is_some());
-        assert!(parsed.get("game").is_some());
+        assert!(parsed.get("meta").is_some());
         assert!(parsed.get("vehicle").is_some());
         assert!(parsed.get("timing").is_some());
         assert!(parsed.get("session").is_some());
@@ -1455,8 +1467,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         // Always-included fields
-        assert!(parsed.get("timestamp").is_some());
-        assert!(parsed.get("game").is_some());
+        assert!(parsed.get("meta").is_some());
 
         // Requested sections
         assert!(parsed.get("vehicle").is_some());
@@ -1486,7 +1497,7 @@ mod tests {
         let json = serde_json::to_string(&frame).unwrap();
         let deserialized: TelemetryFrame = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(deserialized.game, "TestGame");
+        assert_eq!(deserialized.meta.game, "TestGame");
         let vehicle = deserialized.vehicle.unwrap();
         assert_eq!(vehicle.gear, Some(3));
         assert_eq!(vehicle.max_gears, Some(6));

@@ -530,6 +530,9 @@ impl DemoAdapter {
             on_track: Some(true),
             in_garage: Some(false),
             track_surface: Some(TrackSurface::Asphalt),
+            car_name: Some("Formula Demo".to_string()),
+            car_class: Some("Open Wheel".to_string()),
+            setup_name: Some("baseline".to_string()),
         });
 
         // --- Engine ---
@@ -610,8 +613,6 @@ impl DemoAdapter {
             track_config: Some("Grand Prix".to_string()),
             track_length: Some(Meters(4500.0)),
             track_type: Some("Road".to_string()),
-            car_name: Some("Formula Demo".to_string()),
-            car_class: Some("Open Wheel".to_string()),
         });
 
         // --- Weather ---
@@ -670,6 +671,10 @@ impl DemoAdapter {
             push_to_pass_status: None,
             push_to_pass_count: None,
             throttle_shape: None,
+            shift_light_first_rpm: Some(Rpm(6500.0)),
+            shift_light_shift_rpm: Some(Rpm(7500.0)),
+            shift_light_last_rpm: Some(Rpm(7800.0)),
+            shift_light_blink_rpm: Some(Rpm(7900.0)),
         });
 
         // --- Damage ---
@@ -734,17 +739,9 @@ impl DemoAdapter {
         let driver = Some(DriverData {
             name: Some("Demo Player".to_string()),
             car_index: Some(0),
-            car_name: Some("Formula Demo".to_string()),
-            car_class: Some("Open Wheel".to_string()),
             car_number: Some("42".to_string()),
             team_name: Some("Team Demo".to_string()),
-            fuel_capacity: Some(Liters(60.0)),
-            shift_light_first_rpm: Some(Rpm(6500.0)),
-            shift_light_shift_rpm: Some(Rpm(7500.0)),
-            shift_light_last_rpm: Some(Rpm(7800.0)),
-            shift_light_blink_rpm: Some(Rpm(7900.0)),
             estimated_lap_time: Some(Seconds(self.lap_duration)),
-            setup_name: Some("baseline".to_string()),
         });
 
         // --- Game-specific namespace ---
@@ -761,9 +758,11 @@ impl DemoAdapter {
         extras.insert("demo".to_string(), serde_json::Value::Object(demo_data));
 
         TelemetryFrame {
-            timestamp: Utc::now(),
-            game: "Demo".to_string(),
-            tick: Some(self.frame_count as u32),
+            meta: MetaData {
+                timestamp: Utc::now(),
+                game: "Demo".to_string(),
+                tick: Some(self.frame_count as u32),
+            },
             motion,
             vehicle,
             engine,

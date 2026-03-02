@@ -102,7 +102,7 @@ impl ReplayState {
 
         // Estimate tick rate from timestamps
         let tick_rate = if total_frames >= 2 {
-            let diff = frames.last().unwrap().timestamp - frames[0].timestamp;
+            let diff = frames.last().unwrap().meta.timestamp - frames[0].meta.timestamp;
             let secs = diff.num_milliseconds() as f64 / 1000.0;
             if secs > 0.0 {
                 ((total_frames - 1) as f64 / secs).round() as u32
@@ -121,9 +121,9 @@ impl ReplayState {
             .and_then(|s| s.track_name.clone())
             .unwrap_or_default();
         let car_name = frames[0]
-            .session
+            .vehicle
             .as_ref()
-            .and_then(|s| s.car_name.clone())
+            .and_then(|v| v.car_name.clone())
             .unwrap_or_default();
 
         // Build lap index from timing data

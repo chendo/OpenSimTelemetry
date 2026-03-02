@@ -2,7 +2,6 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Data model: shift_light should be part of electronics, not driver, and fuel_capacity & setup_name should be on vehicle. car_name should be on vehicle. Tick/Timestamp shouldn't be in their own namespace, same with game. Maybe meta?
 * Interface: If iRacing has been detected, but no data, it should say "Simulator not running"
 * Interface: The default layout should have two graphs. The first one is labeled Pedals and Speed, and have Speed, RPM, throttle, broke, clutch, ABS. The second graph is labelled Steering, includes steering input, yaw rate, and other relevant inputs.
 * Interface: Y-axes should be on the right side of the chart
@@ -10,6 +9,7 @@ Agent Instructions: Pick idea from the top, ask any clarifying questions, make a
 
 ## WIP: do not work on these
 
+* API: Devise a mechanism to reduce streaming bandwidth usage. Consider only sending updates by default, with param to emit every single value all the time
 
 ### Adapters
 

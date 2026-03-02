@@ -201,6 +201,26 @@ mod windows_impl {
                 on_track: get_bool("IsOnTrack"),
                 in_garage: get_bool("IsInGarage"),
                 track_surface,
+                car_name: self.session_details.as_ref().and_then(|s| {
+                    let idx = s.drivers.car_index;
+                    s.drivers
+                        .other_drivers
+                        .iter()
+                        .find(|d| d.index == idx)
+                        .map(|d| d.car_screen_name.clone())
+                }),
+                car_class: self.session_details.as_ref().and_then(|s| {
+                    let idx = s.drivers.car_index;
+                    s.drivers
+                        .other_drivers
+                        .iter()
+                        .find(|d| d.index == idx)
+                        .map(|d| d.car_class_short_name.clone())
+                }),
+                setup_name: self
+                    .session_details
+                    .as_ref()
+                    .map(|s| s.drivers.setup_name.clone()),
             });
 
             // =================================================================
@@ -283,38 +303,30 @@ mod windows_impl {
 
             let flags = get_u32("SessionFlags").map(FlagState::from_iracing_bits);
 
-            let (track_name, track_config, track_length_m, track_type_str, car_name, car_class) =
-                self.session_details
-                    .as_ref()
-                    .map_or((None, None, None, None, None, None), |s| {
-                        let player_idx = s.drivers.car_index;
-                        let driver = s
-                            .drivers
-                            .other_drivers
-                            .iter()
-                            .find(|d| d.index == player_idx);
-                        let track_len = s
-                            .weekend
-                            .track_length
-                            .trim_end_matches(" km")
-                            .replace(',', ".")
-                            .parse::<f32>()
-                            .ok()
-                            .map(|km| Meters(km * 1000.0));
+            let (track_name, track_config, track_length_m, track_type_str) = self
+                .session_details
+                .as_ref()
+                .map_or((None, None, None, None), |s| {
+                    let track_len = s
+                        .weekend
+                        .track_length
+                        .trim_end_matches(" km")
+                        .replace(',', ".")
+                        .parse::<f32>()
+                        .ok()
+                        .map(|km| Meters(km * 1000.0));
 
-                        (
-                            Some(s.weekend.track_display_name.clone()),
-                            if s.weekend.track_config_name.is_empty() {
-                                None
-                            } else {
-                                Some(s.weekend.track_config_name.clone())
-                            },
-                            track_len,
-                            Some(s.weekend.track_type.clone()),
-                            driver.map(|d| d.car_screen_name.clone()),
-                            driver.map(|d| d.car_class_short_name.clone()),
-                        )
-                    });
+                    (
+                        Some(s.weekend.track_display_name.clone()),
+                        if s.weekend.track_config_name.is_empty() {
+                            None
+                        } else {
+                            Some(s.weekend.track_config_name.clone())
+                        },
+                        track_len,
+                        Some(s.weekend.track_type.clone()),
+                    )
+                });
 
             // Determine session type from session info
             let session_type = self.session_details.as_ref().and_then(|s| {
@@ -357,8 +369,6 @@ mod windows_impl {
                 track_config,
                 track_length: track_length_m,
                 track_type: track_type_str,
-                car_name,
-                car_class,
             });
 
             // =================================================================
@@ -447,6 +457,22 @@ mod windows_impl {
                 push_to_pass_status: None,
                 push_to_pass_count: None,
                 throttle_shape: get_f32("dcThrottleShape"),
+                shift_light_first_rpm: self
+                    .session_details
+                    .as_ref()
+                    .map(|s| Rpm(s.drivers.shift_light_first_rpm)),
+                shift_light_shift_rpm: self
+                    .session_details
+                    .as_ref()
+                    .map(|s| Rpm(s.drivers.shift_light_shift_rpm)),
+                shift_light_last_rpm: self
+                    .session_details
+                    .as_ref()
+                    .map(|s| Rpm(s.drivers.shift_light_last_rpm)),
+                shift_light_blink_rpm: self
+                    .session_details
+                    .as_ref()
+                    .map(|s| Rpm(s.drivers.shift_light_blink_rpm)),
             });
 
             // =================================================================
@@ -468,17 +494,9 @@ mod windows_impl {
                 DriverData {
                     name: driver_info.map(|d| d.user_name.clone()),
                     car_index: Some(player_idx as u32),
-                    car_name: driver_info.map(|d| d.car_screen_name.clone()),
-                    car_class: driver_info.map(|d| d.car_class_short_name.clone()),
                     car_number: driver_info.map(|d| d.car_number.to_string()),
                     team_name: driver_info.map(|d| d.team_name.clone()),
-                    fuel_capacity: Some(Liters(s.drivers.fuel_capacity)),
-                    shift_light_first_rpm: Some(Rpm(s.drivers.shift_light_first_rpm)),
-                    shift_light_shift_rpm: Some(Rpm(s.drivers.shift_light_shift_rpm)),
-                    shift_light_last_rpm: Some(Rpm(s.drivers.shift_light_last_rpm)),
-                    shift_light_blink_rpm: Some(Rpm(s.drivers.shift_light_blink_rpm)),
                     estimated_lap_time: Some(Seconds(s.drivers.estimated_lap_time)),
-                    setup_name: Some(s.drivers.setup_name.clone()),
                 }
             });
 
@@ -538,9 +556,11 @@ mod windows_impl {
             );
 
             TelemetryFrame {
-                timestamp: Utc::now(),
-                game: "iRacing".to_string(),
-                tick,
+                meta: MetaData {
+                    timestamp: Utc::now(),
+                    game: "iRacing".to_string(),
+                    tick,
+                },
                 motion,
                 vehicle,
                 engine,

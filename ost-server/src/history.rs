@@ -60,7 +60,9 @@ impl HistoryBuffer {
                     self.track_name = name.clone();
                 }
             }
-            if let Some(ref name) = session.car_name {
+        }
+        if let Some(ref vehicle) = frame.vehicle {
+            if let Some(ref name) = vehicle.car_name {
                 if !name.is_empty() {
                     self.car_name = name.clone();
                 }
@@ -139,7 +141,7 @@ impl HistoryBuffer {
         }
         let oldest = &self.frames[0];
         let newest = self.frames.back().unwrap();
-        let diff = newest.timestamp - oldest.timestamp;
+        let diff = newest.meta.timestamp - oldest.meta.timestamp;
         diff.num_milliseconds() as f64 / 1000.0
     }
 
@@ -215,10 +217,10 @@ impl HistoryBuffer {
         }
         let newest = self.frames.back().unwrap();
         let cutoff =
-            newest.timestamp - chrono::Duration::milliseconds((duration_secs * 1000.0) as i64);
+            newest.meta.timestamp - chrono::Duration::milliseconds((duration_secs * 1000.0) as i64);
         self.frames
             .iter()
-            .filter(|f| f.timestamp >= cutoff)
+            .filter(|f| f.meta.timestamp >= cutoff)
             .collect()
     }
 }
@@ -227,14 +229,16 @@ impl HistoryBuffer {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use ost_core::model::{SessionData, TimingData};
+    use ost_core::model::{MetaData, SessionData, TimingData};
     use ost_core::units::Seconds;
 
     fn make_frame(lap: Option<u32>, last_lap_time: Option<f64>) -> TelemetryFrame {
         TelemetryFrame {
-            timestamp: Utc::now(),
-            game: "test".to_string(),
-            tick: None,
+            meta: MetaData {
+                timestamp: Utc::now(),
+                game: "test".to_string(),
+                tick: None,
+            },
             motion: None,
             vehicle: None,
             engine: None,
@@ -414,7 +418,7 @@ mod tests {
         let base = Utc::now();
         for i in 0..10 {
             let mut frame = make_frame(Some(1), None);
-            frame.timestamp = base + chrono::Duration::seconds(i);
+            frame.meta.timestamp = base + chrono::Duration::seconds(i);
             buf.push(frame);
         }
         // All 10 frames are within the last 60 seconds
@@ -454,8 +458,29 @@ mod tests {
             track_config: None,
             track_length: None,
             track_type: None,
+        });
+        frame.vehicle = Some(ost_core::model::VehicleData {
+            speed: None,
+            rpm: None,
+            max_rpm: None,
+            idle_rpm: None,
+            gear: None,
+            max_gears: None,
+            throttle: None,
+            brake: None,
+            clutch: None,
+            steering_angle: None,
+            steering_torque: None,
+            steering_torque_pct: None,
+            handbrake: None,
+            shift_indicator: None,
+            steering_angle_max: None,
+            on_track: None,
+            in_garage: None,
+            track_surface: None,
             car_name: Some("McLaren".to_string()),
             car_class: None,
+            setup_name: None,
         });
         buf.push(frame);
         assert_eq!(buf.track_name(), "Spa");
