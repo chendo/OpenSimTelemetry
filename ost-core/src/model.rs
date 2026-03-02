@@ -1174,6 +1174,19 @@ impl TelemetryFrame {
         if mask.is_none() || mask.map(|m| m.is_all()).unwrap_or(true) {
             return serde_json::to_string(self);
         }
+        let value = self.to_json_value_filtered(mask)?;
+        serde_json::to_string(&value)
+    }
+
+    /// Serialize this frame to a JSON Value respecting the given metric mask.
+    /// Like `to_json_filtered` but returns a Value for programmatic use (e.g. delta computation).
+    pub fn to_json_value_filtered(
+        &self,
+        mask: Option<&MetricMask>,
+    ) -> serde_json::Result<serde_json::Value> {
+        if mask.is_none() || mask.map(|m| m.is_all()).unwrap_or(true) {
+            return serde_json::to_value(self);
+        }
 
         let mask = mask.unwrap();
         let mut map = serde_json::Map::new();
@@ -1249,8 +1262,63 @@ impl TelemetryFrame {
             }
         }
 
-        serde_json::to_string(&map)
+        Ok(serde_json::Value::Object(map))
     }
+}
+
+/// Compute a section-level delta between two JSON frame values.
+///
+/// Returns a JSON object containing only sections that differ between `prev` and `curr`,
+/// plus `meta` (always included) and a `_delta: true` marker.
+/// Sections present in `prev` but missing from `curr` are set to `null`.
+pub fn compute_section_delta(
+    prev: &serde_json::Value,
+    curr: &serde_json::Value,
+) -> serde_json::Value {
+    let prev_map = prev.as_object();
+    let curr_map = curr.as_object();
+
+    // If either isn't an object, return curr as-is (shouldn't happen with well-formed frames)
+    let (prev_map, curr_map) = match (prev_map, curr_map) {
+        (Some(p), Some(c)) => (p, c),
+        _ => return curr.clone(),
+    };
+
+    let mut delta = serde_json::Map::new();
+    delta.insert("_delta".to_string(), serde_json::Value::Bool(true));
+
+    // Always include meta (timestamp changes every frame)
+    if let Some(meta) = curr_map.get("meta") {
+        delta.insert("meta".to_string(), meta.clone());
+    }
+
+    // Include changed or new sections
+    for (key, curr_val) in curr_map {
+        if key == "meta" {
+            continue;
+        }
+        match prev_map.get(key) {
+            Some(prev_val) if prev_val == curr_val => {
+                // Section unchanged — omit from delta
+            }
+            _ => {
+                // Section is new or changed
+                delta.insert(key.clone(), curr_val.clone());
+            }
+        }
+    }
+
+    // Sections removed (present in prev but not in curr)
+    for key in prev_map.keys() {
+        if key == "meta" || key == "_delta" {
+            continue;
+        }
+        if !curr_map.contains_key(key) {
+            delta.insert(key.clone(), serde_json::Value::Null);
+        }
+    }
+
+    serde_json::Value::Object(delta)
 }
 
 #[cfg(test)]
@@ -1567,5 +1635,80 @@ mod tests {
             Some(&serde_json::Value::Bool(true))
         );
         assert_eq!(iracing.get("dcBrakeBias"), Some(&serde_json::json!(56.5)));
+    }
+
+    #[test]
+    fn test_to_json_value_filtered_matches_string() {
+        let frame = make_test_frame();
+        let mask = MetricMask::parse("vehicle,timing");
+        let value = frame.to_json_value_filtered(Some(&mask)).unwrap();
+        let from_value: String = serde_json::to_string(&value).unwrap();
+        let from_string = frame.to_json_filtered(Some(&mask)).unwrap();
+        // Parse both to Value for comparison (key order may differ)
+        let v1: serde_json::Value = serde_json::from_str(&from_value).unwrap();
+        let v2: serde_json::Value = serde_json::from_str(&from_string).unwrap();
+        assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn test_compute_section_delta_unchanged_sections() {
+        let frame = make_test_frame();
+        let v1 = serde_json::to_value(&frame).unwrap();
+        // Same frame — only meta differs in practice, but here it's identical
+        let v2 = v1.clone();
+        let delta = compute_section_delta(&v1, &v2);
+        let map = delta.as_object().unwrap();
+        assert_eq!(map.get("_delta"), Some(&serde_json::Value::Bool(true)));
+        assert!(map.get("meta").is_some());
+        // No other sections should be present (all unchanged)
+        assert!(map.get("vehicle").is_none());
+        assert!(map.get("timing").is_none());
+        assert!(map.get("session").is_none());
+    }
+
+    #[test]
+    fn test_compute_section_delta_changed_section() {
+        let frame = make_test_frame();
+        let v1 = serde_json::to_value(&frame).unwrap();
+        let mut frame2 = make_test_frame();
+        frame2.vehicle.as_mut().unwrap().speed = Some(MetersPerSecond(99.0));
+        let v2 = serde_json::to_value(&frame2).unwrap();
+        let delta = compute_section_delta(&v1, &v2);
+        let map = delta.as_object().unwrap();
+        assert!(map.get("_delta").is_some());
+        assert!(map.get("meta").is_some());
+        // vehicle changed
+        assert!(map.get("vehicle").is_some());
+        // timing and session unchanged
+        assert!(map.get("timing").is_none());
+        assert!(map.get("session").is_none());
+    }
+
+    #[test]
+    fn test_compute_section_delta_removed_section() {
+        let frame = make_test_frame();
+        let v1 = serde_json::to_value(&frame).unwrap();
+        let mut frame2 = make_test_frame();
+        frame2.session = None;
+        let v2 = serde_json::to_value(&frame2).unwrap();
+        let delta = compute_section_delta(&v1, &v2);
+        let map = delta.as_object().unwrap();
+        // session was present, now absent — should be null
+        assert_eq!(map.get("session"), Some(&serde_json::Value::Null));
+    }
+
+    #[test]
+    fn test_compute_section_delta_added_section() {
+        let frame = make_test_frame();
+        let v1 = serde_json::to_value(&frame).unwrap();
+        // Build v2 with an extra section that wasn't in v1
+        let mut v2_map = v1.as_object().unwrap().clone();
+        v2_map.insert("weather".to_string(), serde_json::json!({"air_temp": 25.0}));
+        let v2 = serde_json::Value::Object(v2_map);
+        let delta = compute_section_delta(&v1, &v2);
+        let map = delta.as_object().unwrap();
+        // weather was absent, now present
+        assert!(map.get("weather").is_some());
+        assert!(!map["weather"].is_null());
     }
 }

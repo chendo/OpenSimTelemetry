@@ -5,6 +5,7 @@ class TelemetryStore {
         this.adapters = [];
         this.sinks = [];
         this._dirty = false;
+        this._frameVersion = 0; // Increments on each new frame from pushFrame
         // Ring buffer: fixed-size array with write pointer
         this._ring = new Array(BUFFER_MAX);
         this._head = 0;  // next write position
@@ -16,6 +17,7 @@ class TelemetryStore {
     pushFrame(frame) {
         this.currentFrame = frame;
         this._dirty = true;
+        this._frameVersion++;
         const entry = { t: performance.now(), _frame: frame };
         for (let i = 0; i < GRAPH_METRIC_KEYS.length; i++) {
             const key = GRAPH_METRIC_KEYS[i];

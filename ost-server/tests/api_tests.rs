@@ -543,6 +543,110 @@ async fn test_telemetry_stream_with_metric_filter() {
     }
 }
 
+// ==================== Delta encoding tests ====================
+
+#[tokio::test]
+async fn test_telemetry_stream_delta_first_frame_is_full() {
+    let (app, state) = app_with_state();
+
+    let tx = state.telemetry_tx.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let mut adapter = ost_adapters::DemoAdapter::new();
+        adapter.start().unwrap();
+        let frame = adapter.read_frame().unwrap().unwrap();
+        let _ = tx.send(frame);
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/telemetry/stream")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    let body = response.into_body();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let mut stream = body.into_data_stream();
+        use futures::StreamExt;
+        if let Some(Ok(chunk)) = stream.next().await {
+            return Some(String::from_utf8(chunk.to_vec()).unwrap());
+        }
+        None
+    })
+    .await;
+
+    if let Ok(Some(text)) = result {
+        if let Some(data_line) = text.lines().find(|l| l.starts_with("data:")) {
+            let json_str = data_line.trim_start_matches("data:").trim();
+            let parsed: serde_json::Value = serde_json::from_str(json_str).unwrap();
+            // First frame should be full (no _delta marker)
+            assert!(
+                parsed.get("_delta").is_none(),
+                "First frame should be a full frame without _delta marker"
+            );
+            // Should have all sections from Demo adapter
+            assert!(parsed.get("meta").is_some());
+            assert!(parsed.get("vehicle").is_some());
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_telemetry_stream_delta_false_no_marker() {
+    let (app, state) = app_with_state();
+
+    let tx = state.telemetry_tx.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let mut adapter = ost_adapters::DemoAdapter::new();
+        adapter.start().unwrap();
+        let frame = adapter.read_frame().unwrap().unwrap();
+        let _ = tx.send(frame);
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/telemetry/stream?delta=false")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    let body = response.into_body();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let mut stream = body.into_data_stream();
+        use futures::StreamExt;
+        if let Some(Ok(chunk)) = stream.next().await {
+            return Some(String::from_utf8(chunk.to_vec()).unwrap());
+        }
+        None
+    })
+    .await;
+
+    if let Ok(Some(text)) = result {
+        if let Some(data_line) = text.lines().find(|l| l.starts_with("data:")) {
+            let json_str = data_line.trim_start_matches("data:").trim();
+            let parsed: serde_json::Value = serde_json::from_str(json_str).unwrap();
+            // With delta=false, should never have _delta marker
+            assert!(
+                parsed.get("_delta").is_none(),
+                "delta=false should produce full frames without _delta marker"
+            );
+            assert!(parsed.get("vehicle").is_some());
+        }
+    }
+}
+
 // ==================== AppState unit tests ====================
 
 #[tokio::test]

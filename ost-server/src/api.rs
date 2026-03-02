@@ -15,7 +15,7 @@ use axum::{
     Json, Router,
 };
 use futures::stream::{self, Stream, StreamExt as FuturesStreamExt};
-use ost_core::model::{MetricMask, TelemetryFrame};
+use ost_core::model::{compute_section_delta, MetricMask, TelemetryFrame};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::time::Duration;
@@ -113,6 +113,40 @@ fn round_json_floats(val: &mut serde_json::Value) {
         }
         _ => {}
     }
+}
+
+/// How often to send full frames during delta mode (for sync recovery).
+const DELTA_FULL_FRAME_INTERVAL: u64 = 60;
+
+/// Serialize a frame to JSON with optional delta encoding.
+/// Returns the JSON string and the full Value to store as previous state.
+fn serialize_frame_json(
+    frame: &TelemetryFrame,
+    mask: Option<&MetricMask>,
+    use_delta: bool,
+    last_json: &std::sync::Mutex<Option<serde_json::Value>>,
+    frame_count: u64,
+) -> Option<String> {
+    let mut curr_value = frame.to_json_value_filtered(mask).ok()?;
+    round_json_floats(&mut curr_value);
+
+    let send_full = !use_delta || frame_count.is_multiple_of(DELTA_FULL_FRAME_INTERVAL);
+
+    let json = if send_full {
+        serde_json::to_string(&curr_value).ok()?
+    } else {
+        let prev = last_json.lock().unwrap();
+        match prev.as_ref() {
+            Some(prev_val) => {
+                let delta = compute_section_delta(prev_val, &curr_value);
+                serde_json::to_string(&delta).ok()?
+            }
+            None => serde_json::to_string(&curr_value).ok()?,
+        }
+    };
+
+    *last_json.lock().unwrap() = Some(curr_value);
+    Some(json)
 }
 
 /// Check if a Basic auth header matches the token (password field).
@@ -432,14 +466,20 @@ async fn unified_stream(
         .format
         .as_deref()
         .is_some_and(|f| f.eq_ignore_ascii_case("msgpack"));
+    let use_delta = !use_msgpack && query.delta.unwrap_or(true);
     // Adaptive throttling state: tracks lag and dynamically adjusts skip rate
     let throttle_state =
         std::sync::Arc::new(std::sync::Mutex::new(AdaptiveThrottle::new(min_interval)));
     let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
+    let last_sent_json: std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let delta_frame_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let telemetry = BroadcastStream::new(telemetry_rx).filter_map(move |result| {
         let mask = metric_mask.clone();
         let last = last_emit.clone();
         let throttle = throttle_state.clone();
+        let last_json = last_sent_json.clone();
+        let frame_counter = delta_frame_count.clone();
         async move {
             match result {
                 Ok(frame) => {
@@ -458,10 +498,16 @@ async fn unified_stream(
                     if use_msgpack {
                         serialize_frame_msgpack(&frame, mask.as_ref())
                     } else {
-                        match frame.to_json_filtered(mask.as_ref()) {
-                            Ok(json) => Some(Ok(Event::default().event("frame").data(json))),
-                            Err(_) => None,
-                        }
+                        let count =
+                            frame_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let json = serialize_frame_json(
+                            &frame,
+                            mask.as_ref(),
+                            use_delta,
+                            &last_json,
+                            count,
+                        )?;
+                        Some(Ok(Event::default().event("frame").data(json)))
                     }
                 }
                 Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
@@ -472,6 +518,8 @@ async fn unified_stream(
                         n,
                         effective_fps
                     );
+                    // Reset delta state on lag — next frame will be full
+                    *last_json.lock().unwrap() = None;
                     Some(Ok(
                         Event::default().comment(format!("throttled to {}fps", effective_fps))
                     ))
@@ -580,6 +628,9 @@ struct StreamQuery {
     rate: Option<f64>,
     /// Wire format: "json" (default) or "msgpack" (base64-encoded MessagePack)
     format: Option<String>,
+    /// Enable delta encoding — only send changed sections (default: true).
+    /// Set to false for full frames every time.
+    delta: Option<bool>,
 }
 
 async fn telemetry_stream(
@@ -593,14 +644,20 @@ async fn telemetry_stream(
         .format
         .as_deref()
         .is_some_and(|f| f.eq_ignore_ascii_case("msgpack"));
+    let use_delta = !use_msgpack && query.delta.unwrap_or(true);
 
     let throttle_state =
         std::sync::Arc::new(std::sync::Mutex::new(AdaptiveThrottle::new(min_interval)));
     let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
+    let last_sent_json: std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let delta_frame_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
         let mask = metric_mask.clone();
         let last = last_emit.clone();
         let throttle = throttle_state.clone();
+        let last_json = last_sent_json.clone();
+        let frame_counter = delta_frame_count.clone();
         async move {
             match result {
                 Ok(frame) => {
@@ -619,18 +676,22 @@ async fn telemetry_stream(
                     if use_msgpack {
                         serialize_frame_msgpack(&frame, mask.as_ref())
                     } else {
-                        match frame.to_json_filtered(mask.as_ref()) {
-                            Ok(json) => Some(Ok(Event::default().data(json))),
-                            Err(e) => {
-                                tracing::error!("Failed to serialize frame: {}", e);
-                                None
-                            }
-                        }
+                        let count =
+                            frame_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let json = serialize_frame_json(
+                            &frame,
+                            mask.as_ref(),
+                            use_delta,
+                            &last_json,
+                            count,
+                        )?;
+                        Some(Ok(Event::default().data(json)))
                     }
                 }
                 Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
                     let mut ts = throttle.lock().unwrap();
                     ts.on_lag(n);
+                    *last_json.lock().unwrap() = None;
                     None
                 }
             }

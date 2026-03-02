@@ -148,9 +148,11 @@ _updateRemoteState();
 
 // Single unified SSE connection (avoids exhausting HTTP/1.1 connection slots)
 let sseSource = null;
+let _fullFrame = null; // Accumulated frame state for delta merging
 function connectSSE() {
     if (sseSource) sseSource.close();
     sseConnected = false;
+    _fullFrame = null;
     _updateRemoteState();
     const es = new EventSource(apiBase() + '/api/stream');
     sseSource = es;
@@ -161,12 +163,33 @@ function connectSSE() {
     es.onerror = () => {
         sseConnected = false; updateStatus(); es.close();
         _frameTimestamps = [];
+        _fullFrame = null;
         updateThroughput();
         setTimeout(connectSSE, 5000);
     };
     es.addEventListener('frame', (e) => {
         try {
-            if (!streamPaused) store.pushFrame(JSON.parse(e.data));
+            const data = JSON.parse(e.data);
+            let frame;
+            if (data._delta && _fullFrame) {
+                // Merge delta into accumulated state
+                frame = {};
+                for (const key of Object.keys(_fullFrame)) {
+                    frame[key] = _fullFrame[key];
+                }
+                for (const [key, value] of Object.entries(data)) {
+                    if (key === '_delta') continue;
+                    if (value === null) {
+                        delete frame[key];
+                    } else {
+                        frame[key] = value;
+                    }
+                }
+            } else {
+                frame = data;
+            }
+            _fullFrame = frame;
+            if (!streamPaused) store.pushFrame(frame);
             const wasEmpty = _frameTimestamps.length === 0;
             _frameTimestamps.push(performance.now());
             if (wasEmpty) updateStatus();
@@ -191,8 +214,6 @@ const staticWidgets = [
     new GForceWidget(),
     new WheelsWidget(),
     new AllMetricsWidget(),
-    new OutputSinksWidget(),
-    new ApiWidget(),
 ];
 staticWidgets.forEach(w => { w.init(); grid.addWidget(w); });
 
@@ -1004,6 +1025,44 @@ function openSettingsModal() {
             </div>`;
         }).join('')}
         <div class="settings-divider"></div>
+        <div class="settings-section-title">Output Sinks</div>
+        <div id="settings-sinks-list" class="sink-list" style="margin-bottom:8px"><div class="no-data">No sinks configured</div></div>
+        <div style="font-size:0.65rem;color:var(--text-muted);margin-bottom:4px">ADD UDP SINK</div>
+        <form id="settings-sink-form" class="sink-form">
+            <div class="sink-form-group"><div class="sink-form-label">Host</div><input type="text" id="settings-sk-host" placeholder="127.0.0.1" required></div>
+            <div class="sink-form-group"><div class="sink-form-label">Port</div><input type="number" id="settings-sk-port" placeholder="9200" required></div>
+            <div class="sink-form-group"><div class="sink-form-label">Update Rate</div><select id="settings-sk-rate"><option value="60">60 Hz</option><option value="30">30 Hz</option><option value="10">10 Hz</option><option value="1">1 Hz</option></select></div>
+            <div class="sink-form-group"><div class="sink-form-label">Metric Filter</div><input type="text" id="settings-sk-mask" placeholder="e.g. rpm,speed,gear"></div>
+            <button type="submit" class="btn-add">Add</button>
+        </form>
+        <div class="settings-divider"></div>
+        <div class="settings-section-title">API</div>
+        <div class="api-docs" style="font-size:0.65rem">
+            <div class="api-section">
+                <div class="api-heading">SSE Streams</div>
+                <div class="api-endpoint"><code>GET /api/stream</code> — Unified stream (frame, status, sinks events)</div>
+                <div class="api-endpoint"><code>GET /api/telemetry/stream</code> — Telemetry frames only</div>
+                <div class="api-endpoint" style="margin-left:12px;font-size:0.55rem">Query params: <code>rate</code> (0.01–60), <code>metric_mask</code>, <code>delta</code> (true/false)</div>
+                <div class="api-endpoint"><code>GET /api/status/stream</code> — Status updates only</div>
+            </div>
+            <div class="api-section">
+                <div class="api-heading">REST Endpoints</div>
+                <div class="api-endpoint"><code>GET /api/adapters</code> — List adapters and their status</div>
+                <div class="api-endpoint"><code>POST /api/adapters/:name/toggle</code> — Enable/disable an adapter</div>
+                <div class="api-endpoint"><code>GET /api/metrics</code> — Latest telemetry frame</div>
+                <div class="api-endpoint"><code>GET /api/sinks</code> — List output sinks</div>
+                <div class="api-endpoint"><code>POST /api/sinks</code> — Create UDP sink</div>
+                <div class="api-endpoint"><code>DELETE /api/sinks/:id</code> — Remove a sink</div>
+            </div>
+            <div class="api-section">
+                <div class="api-heading">Replay</div>
+                <div class="api-endpoint"><code>POST /api/replay/upload</code> — Upload .ibt file (multipart)</div>
+                <div class="api-endpoint"><code>GET /api/replay/info</code> — Current replay state</div>
+                <div class="api-endpoint"><code>GET /api/replay/frames?start=0&count=100</code> — Fetch frames</div>
+                <div class="api-endpoint"><code>POST /api/replay/control</code> — Play/pause/seek/speed</div>
+            </div>
+        </div>
+        <div class="settings-divider"></div>
         <div class="settings-section-title">Graph Presets</div>
         <div id="settings-presets-list"></div>
         <div style="margin-top:8px">
@@ -1084,6 +1143,48 @@ function openSettingsModal() {
     }
     retMaxSessions.addEventListener('change', syncRetentionConfig);
     retMaxAge.addEventListener('change', syncRetentionConfig);
+
+    // Output Sinks
+    const sinksListEl = modal.querySelector('#settings-sinks-list');
+    function renderSinksList() {
+        if (store.sinks.length === 0) {
+            sinksListEl.innerHTML = '<div class="no-data">No sinks configured</div>';
+        } else {
+            sinksListEl.innerHTML = store.sinks.map(s => {
+                const rate = s.update_rate_hz || 60;
+                return `<div class="sink-item"><div><strong>UDP</strong> ${s.host}:${s.port} <span style="color:var(--text-muted);font-size:0.6rem">@ ${rate} Hz</span>${s.metric_mask ? `<br><span style="color:var(--text-muted);font-size:0.6rem">Metrics: ${s.metric_mask}</span>` : ''}</div><button class="btn-delete" data-id="${s.id}">Delete</button></div>`;
+            }).join('');
+            sinksListEl.querySelectorAll('.btn-delete').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    try {
+                        await fetch(`${apiBase()}/api/sinks/${btn.dataset.id}`, { method: 'DELETE' });
+                        // Re-render after short delay for SSE update
+                        setTimeout(renderSinksList, 300);
+                    } catch(e) { console.error(e); }
+                });
+            });
+        }
+    }
+    renderSinksList();
+
+    modal.querySelector('#settings-sink-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const config = {
+            id: '',
+            host: modal.querySelector('#settings-sk-host').value,
+            port: parseInt(modal.querySelector('#settings-sk-port').value),
+            update_rate_hz: parseFloat(modal.querySelector('#settings-sk-rate').value),
+            metric_mask: modal.querySelector('#settings-sk-mask').value.trim() || null,
+        };
+        try {
+            await fetch(apiBase() + '/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
+            modal.querySelector('#settings-sk-host').value = '';
+            modal.querySelector('#settings-sk-port').value = '';
+            modal.querySelector('#settings-sk-mask').value = '';
+            // Re-render after short delay for SSE update
+            setTimeout(renderSinksList, 300);
+        } catch(e) { console.error(e); }
+    });
 
     // Unit preferences
     modal.querySelectorAll('.unit-pref-select').forEach(sel => {

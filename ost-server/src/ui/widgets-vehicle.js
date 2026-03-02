@@ -349,6 +349,7 @@ class WheelsWidget extends Widget {
         for (const w of ['fl', 'fr', 'rl', 'rr']) {
             this._suspHist[w] = { buf: new Float32Array(120), head: 0, count: 0 };
         }
+        this._lastFrameVersion = -1; // Track store frame version to avoid duplicate sparkline pushes
     }
 
     buildContent(c) {
@@ -476,11 +477,13 @@ class WheelsWidget extends Widget {
     update(store) {
         const f = store.currentFrame; if (!f?.wheels) return;
         const map = { fl: f.wheels.front_left, fr: f.wheels.front_right, rl: f.wheels.rear_left, rr: f.wheels.rear_right };
+        const isNewFrame = store._frameVersion !== this._lastFrameVersion;
+        this._lastFrameVersion = store._frameVersion;
 
         // Update dynamic ranges
         for (const wd of Object.values(map)) {
             if (wd?.suspension_travel != null) {
-                const mm = wd.suspension_travel * 1000;
+                const mm = wd.suspension_travel; // Already in mm from backend
                 if (mm < this.suspRange.min) this.suspRange.min = mm;
                 if (mm > this.suspRange.max) this.suspRange.max = mm;
             }
@@ -494,19 +497,21 @@ class WheelsWidget extends Widget {
 
             // Suspension travel — vertical bar + sparkline
             if (wd?.suspension_travel != null) {
-                const mm = wd.suspension_travel * 1000;
+                const mm = wd.suspension_travel; // Already in mm from backend
                 const t = sRange > 0.1 ? (mm - sMin) / sRange : 0.5;
                 const pct = Math.max(0, Math.min(1, t)) * 100;
                 els.suspbar.style.height = pct + '%';
                 els.suspbar.style.background = this._loadColor(t);
                 els.susp.textContent = mm.toFixed(1);
 
-                // Push to ring buffer and render sparkline
-                const hist = this._suspHist[key];
-                hist.buf[hist.head] = mm;
-                hist.head = (hist.head + 1) % hist.buf.length;
-                if (hist.count < hist.buf.length) hist.count++;
-                this._renderSuspSparkline(els.spark, hist);
+                // Only push to ring buffer on genuinely new frames (not UI redraws)
+                if (isNewFrame) {
+                    const hist = this._suspHist[key];
+                    hist.buf[hist.head] = mm;
+                    hist.head = (hist.head + 1) % hist.buf.length;
+                    if (hist.count < hist.buf.length) hist.count++;
+                }
+                this._renderSuspSparkline(els.spark, this._suspHist[key]);
             }
 
             // Tire surface temps
