@@ -171,7 +171,8 @@ mod windows_impl {
                 })
             });
 
-            let track_surface = get_i32("PlayerTrackSurface").map(crate::iracing_track_surface);
+            let track_surface =
+                get_i32("PlayerTrackSurface").map(crate::iracing::iracing_track_surface);
 
             // Session info for RPM limits
             let (max_rpm, idle_rpm) = self.session_details.as_ref().map_or((None, None), |s| {
@@ -729,7 +730,7 @@ mod windows_impl {
 
                 let track_surface_val = track_surfaces
                     .and_then(|v| v.get(i).copied())
-                    .map(crate::iracing_track_surface);
+                    .map(crate::iracing::iracing_track_surface);
 
                 competitors.push(CompetitorData {
                     car_index: i as u32,
@@ -921,5 +922,73 @@ impl ost_core::adapter::TelemetryAdapter for IRacingAdapter {
 
     fn is_active(&self) -> bool {
         false
+    }
+}
+
+// =============================================================================
+// Shared iRacing helpers (used by both live adapter and ibt_parser)
+// =============================================================================
+
+use ost_core::model::TrackSurface;
+
+/// Map iRacing `irsdk_TrkSurf` enum values to our normalised [`TrackSurface`].
+///
+/// Values from the iRacing SDK header `irsdk_defines.h` (`irsdk_TrkSurf` C enum):
+///   -1 = SurfaceNotInWorld, 0 = UndefinedMaterial,
+///   1-4 = Asphalt1-4, 5-6 = Concrete1-2, 7-8 = RacingDirt1-2, 9-10 = Paint1-2,
+///   11-14 = Rumble1-4, 15-18 = Grass1-4, 19-22 = Dirt1-4, 23 = Sand,
+///   24-25 = Gravel1-2, 26 = Grasscrete, 27 = Astroturf
+pub(crate) fn iracing_track_surface(idx: i32) -> TrackSurface {
+    match idx {
+        -1 => TrackSurface::NotInWorld,
+        0 => TrackSurface::Undefined,
+        1..=4 => TrackSurface::Asphalt,
+        5 | 6 => TrackSurface::Concrete,
+        7 | 8 => TrackSurface::RacingDirt,
+        9 | 10 => TrackSurface::Paint,
+        11..=14 => TrackSurface::Rumble,
+        15..=18 => TrackSurface::Grass,
+        19..=22 => TrackSurface::Dirt,
+        23 => TrackSurface::Sand,
+        24 | 25 => TrackSurface::Gravel,
+        26 => TrackSurface::Grasscrete,
+        27 => TrackSurface::Astroturf,
+        _ => TrackSurface::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_iracing_track_surface_mapping() {
+        assert_eq!(iracing_track_surface(-1), TrackSurface::NotInWorld);
+        assert_eq!(iracing_track_surface(0), TrackSurface::Undefined);
+        for i in 1..=4 {
+            assert_eq!(iracing_track_surface(i), TrackSurface::Asphalt);
+        }
+        assert_eq!(iracing_track_surface(5), TrackSurface::Concrete);
+        assert_eq!(iracing_track_surface(6), TrackSurface::Concrete);
+        assert_eq!(iracing_track_surface(7), TrackSurface::RacingDirt);
+        assert_eq!(iracing_track_surface(8), TrackSurface::RacingDirt);
+        assert_eq!(iracing_track_surface(9), TrackSurface::Paint);
+        assert_eq!(iracing_track_surface(10), TrackSurface::Paint);
+        for i in 11..=14 {
+            assert_eq!(iracing_track_surface(i), TrackSurface::Rumble);
+        }
+        for i in 15..=18 {
+            assert_eq!(iracing_track_surface(i), TrackSurface::Grass);
+        }
+        for i in 19..=22 {
+            assert_eq!(iracing_track_surface(i), TrackSurface::Dirt);
+        }
+        assert_eq!(iracing_track_surface(23), TrackSurface::Sand);
+        assert_eq!(iracing_track_surface(24), TrackSurface::Gravel);
+        assert_eq!(iracing_track_surface(25), TrackSurface::Gravel);
+        assert_eq!(iracing_track_surface(26), TrackSurface::Grasscrete);
+        assert_eq!(iracing_track_surface(27), TrackSurface::Astroturf);
+        assert_eq!(iracing_track_surface(28), TrackSurface::Unknown);
+        assert_eq!(iracing_track_surface(100), TrackSurface::Unknown);
     }
 }

@@ -716,7 +716,8 @@ impl IbtFile {
                 .map(|v| MetersPerSecond((v.x.0.powi(2) + v.y.0.powi(2) + v.z.0.powi(2)).sqrt()))
         });
 
-        let track_surface = get_i32("PlayerTrackSurface").map(crate::iracing_track_surface);
+        let track_surface =
+            get_i32("PlayerTrackSurface").map(crate::iracing::iracing_track_surface);
 
         let vehicle = Some(VehicleData {
             speed,
