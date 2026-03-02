@@ -2,7 +2,9 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-*
+* API: Add a /api/metrics endpoint which returns the current value of metrics, takes `metric_mask`
+* Interface: Always show the session info bar, even when there is no session info. Make it say "Waiting for data..."
+* Interface: Add Next and Prev lap buttons with icons around the playback controls
 
 ## WIP: do not work on these
 
