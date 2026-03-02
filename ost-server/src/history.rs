@@ -67,22 +67,32 @@ impl HistoryBuffer {
             }
         }
 
-        // Detect lap transitions
+        // Detect lap transitions (ignore telemetry dropouts like 4→0→4)
         let current_lap = frame.timing.as_ref().and_then(|t| t.lap_number);
         if let Some(lap_num) = current_lap {
-            if self.last_lap_number.is_some_and(|prev| prev != lap_num) {
-                let lap_time = frame
-                    .timing
-                    .as_ref()
-                    .and_then(|t| t.last_lap_time)
-                    .map(|s| s.0 as f64);
-                self.laps.push(LapMarker {
-                    lap_number: lap_num,
-                    start_frame: self.frames.len(), // Will be the index of the frame we're about to push
-                    lap_time_secs: lap_time,
-                });
+            if let Some(prev) = self.last_lap_number {
+                // Only count as a new lap if the number increased (skip drops to 0 or backwards)
+                if lap_num > prev {
+                    let lap_time = frame
+                        .timing
+                        .as_ref()
+                        .and_then(|t| t.last_lap_time)
+                        .map(|s| s.0 as f64);
+                    self.laps.push(LapMarker {
+                        lap_number: lap_num,
+                        start_frame: self.frames.len(),
+                        lap_time_secs: lap_time,
+                    });
+                    self.last_lap_number = Some(lap_num);
+                } else if lap_num == prev {
+                    // Same lap, no change needed
+                } else {
+                    // lap_num < prev: telemetry dropout, don't update last_lap_number
+                    // so when it recovers back to `prev`, no spurious transition is recorded
+                }
+            } else {
+                self.last_lap_number = Some(lap_num);
             }
-            self.last_lap_number = Some(lap_num);
         }
 
         // Push frame
@@ -303,6 +313,29 @@ mod tests {
         assert_eq!(buf.laps()[0].lap_number, 2);
         assert_eq!(buf.laps()[0].start_frame, 10);
         assert_eq!(buf.laps()[0].lap_time_secs, Some(85.5));
+    }
+
+    #[test]
+    fn test_lap_detection_ignores_dropout() {
+        let mut buf = HistoryBuffer::new(10);
+        // Push frames for lap 4
+        for _ in 0..10 {
+            buf.push(make_frame(Some(4), None));
+        }
+        assert!(buf.laps().is_empty());
+
+        // Telemetry drops to 0 — should NOT create a new lap
+        buf.push(make_frame(Some(0), None));
+        assert!(buf.laps().is_empty());
+
+        // Telemetry recovers back to 4 — should NOT create a new lap
+        buf.push(make_frame(Some(4), None));
+        assert!(buf.laps().is_empty());
+
+        // Real transition to lap 5
+        buf.push(make_frame(Some(5), Some(90.0)));
+        assert_eq!(buf.laps().len(), 1);
+        assert_eq!(buf.laps()[0].lap_number, 5);
     }
 
     #[test]
