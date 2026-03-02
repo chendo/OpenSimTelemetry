@@ -16,9 +16,17 @@ fn round4<S: serde::Serializer>(val: &f32, s: S) -> Result<S::Ok, S::Error> {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Meters(#[serde(serialize_with = "round4")] pub f32);
 
+/// Millimeters
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Millimeters(#[serde(serialize_with = "round4")] pub f32);
+
 /// Meters per second
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MetersPerSecond(#[serde(serialize_with = "round4")] pub f32);
+
+/// Millimeters per second
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct MillimetersPerSecond(#[serde(serialize_with = "round4")] pub f32);
 
 /// Meters per second squared (acceleration)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

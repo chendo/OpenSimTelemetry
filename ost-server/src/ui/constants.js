@@ -147,16 +147,16 @@ const METRIC_UNIT_MAP = {
     '*.oil_pressure':         { unit: 'kPa', norm: 'autoscale' },
     '*.fuel_pressure':        { unit: 'kPa', norm: 'autoscale' },
     '*.brake_line_pressure':  { unit: 'kPa', norm: 'autoscale' },
-    '*.air_pressure':         { unit: 'Pa',  norm: 'autoscale' },
+    '*.air_pressure':         { unit: 'kPa', norm: 'autoscale' },
     '*.manifold_pressure':    { unit: 'bar', norm: 'autoscale' },
     // Suspension / distance
-    '*.suspension_travel':     { unit: 'm',   norm: 'autoscale' },
-    '*.suspension_travel_avg': { unit: 'm',   norm: 'autoscale' },
-    '*.ride_height':           { unit: 'm',   norm: 'autoscale' },
+    '*.suspension_travel':     { unit: 'mm',  norm: 'autoscale' },
+    '*.suspension_travel_avg': { unit: 'mm',  norm: 'autoscale' },
+    '*.ride_height':           { unit: 'mm',  norm: 'autoscale' },
     '*.lap_distance':          { unit: 'm',   norm: 'autoscale' },
     // Velocity
-    '*.shock_velocity':        { unit: 'm/s', norm: 'centered' },
-    '*.shock_velocity_avg':    { unit: 'm/s', norm: 'centered' },
+    '*.shock_velocity':        { unit: 'mm/s', norm: 'centered' },
+    '*.shock_velocity_avg':    { unit: 'mm/s', norm: 'centered' },
     '*.wind_speed':            { unit: 'm/s', norm: 'autoscale' },
     '*.wheel_speed':           { unit: 'rpm', norm: 'autoscale' },
     // Forces
@@ -329,8 +329,8 @@ const UNIT_CONVERSIONS = {
     'kPa':   { from: 'kPa', factor: 1 },
     'psi':   { from: 'kPa', factor: 0.145038 },
     'bar':   { from: 'kPa', factor: 0.01 },
-    'mm':    { from: 'm', factor: 1000 },
-    'in':    { from: 'm', factor: 39.3701 },
+    'mm':    { from: 'mm', factor: 1 },
+    'in':    { from: 'mm', factor: 0.0393701 },
     'deg':   { from: '\u00b0', factor: 1 },
     'rad':   { from: '\u00b0', factor: Math.PI / 180 },
 };

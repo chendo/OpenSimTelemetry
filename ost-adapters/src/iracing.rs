@@ -368,7 +368,7 @@ mod windows_impl {
                 air_temp: get_f32("AirTemp").map(Celsius),
                 track_temp: get_f32("TrackTempCrew").map(Celsius),
                 track_surface_temp: get_f32("TrackTemp").map(Celsius),
-                air_pressure: get_f32("AirPressure").map(Pascals),
+                air_pressure: get_f32("AirPressure").map(|v| Kilopascals(v / 1000.0)),
                 air_density: get_f32("AirDensity").map(KilogramsPerCubicMeter),
                 humidity: get_f32("RelativeHumidity").map(|h| Percentage::new(h / 100.0)),
                 wind_speed: get_f32("WindVel").map(MetersPerSecond),
@@ -488,10 +488,6 @@ mod windows_impl {
             let mut iracing_data = serde_json::Map::new();
 
             for vd in &all_vars {
-                // Skip CarIdx arrays (already processed into competitors)
-                if vd.name.starts_with("CarIdx") {
-                    continue;
-                }
                 iracing_data.insert(vd.name.clone(), value_to_json(&vd.value));
             }
 
@@ -597,11 +593,11 @@ mod windows_impl {
             };
 
             WheelInfo {
-                suspension_travel: get_f32("shockDefl").map(Meters),
+                suspension_travel: get_f32("shockDefl").map(|v| Millimeters(v * 1000.0)),
                 suspension_travel_avg: None, // shockDefl_ST is an array in iRacing, not a scalar
-                shock_velocity: get_f32("shockVel").map(MetersPerSecond),
+                shock_velocity: get_f32("shockVel").map(|v| MillimetersPerSecond(v * 1000.0)),
                 shock_velocity_avg: None, // shockVel_ST is an array in iRacing, not a scalar
-                ride_height: get_f32("rideHeight").map(Meters),
+                ride_height: get_f32("rideHeight").map(|v| Millimeters(v * 1000.0)),
                 tyre_pressure: get_f32("pressure").map(Kilopascals),
                 tyre_cold_pressure: get_f32("coldPressure").map(Kilopascals),
                 surface_temp_inner,

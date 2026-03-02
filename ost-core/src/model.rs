@@ -316,20 +316,20 @@ impl WheelData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WheelInfo {
     // --- Suspension ---
-    /// Suspension/shock deflection (meters)
-    pub suspension_travel: Option<Meters>,
+    /// Suspension/shock deflection (mm)
+    pub suspension_travel: Option<Millimeters>,
 
-    /// Short-term averaged suspension deflection (meters)
-    pub suspension_travel_avg: Option<Meters>,
+    /// Short-term averaged suspension deflection (mm)
+    pub suspension_travel_avg: Option<Millimeters>,
 
-    /// Shock velocity (m/s)
-    pub shock_velocity: Option<MetersPerSecond>,
+    /// Shock velocity (mm/s)
+    pub shock_velocity: Option<MillimetersPerSecond>,
 
-    /// Short-term averaged shock velocity (m/s)
-    pub shock_velocity_avg: Option<MetersPerSecond>,
+    /// Short-term averaged shock velocity (mm/s)
+    pub shock_velocity_avg: Option<MillimetersPerSecond>,
 
-    /// Ride height at this corner (meters)
-    pub ride_height: Option<Meters>,
+    /// Ride height at this corner (mm)
+    pub ride_height: Option<Millimeters>,
 
     // --- Tyre pressure ---
     /// Current tyre air pressure (kPa)
@@ -697,8 +697,8 @@ pub struct WeatherData {
     /// Measured track surface temperature (direct sensor reading)
     pub track_surface_temp: Option<Celsius>,
 
-    /// Atmospheric pressure
-    pub air_pressure: Option<Pascals>,
+    /// Atmospheric pressure (kPa)
+    pub air_pressure: Option<Kilopascals>,
 
     /// Air density
     pub air_density: Option<KilogramsPerCubicMeter>,

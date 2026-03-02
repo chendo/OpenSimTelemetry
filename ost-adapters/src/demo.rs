@@ -429,11 +429,11 @@ impl DemoAdapter {
             let heat_offset = speed * 0.15 + lat_g.abs() * 3.0;
 
             WheelInfo {
-                suspension_travel: Some(Meters(travel)),
-                suspension_travel_avg: Some(Meters(base_travel)),
-                shock_velocity: Some(MetersPerSecond(jitter(n + travel, 0.02))),
-                shock_velocity_avg: Some(MetersPerSecond(0.005)),
-                ride_height: Some(Meters(0.06 - travel * 0.2)),
+                suspension_travel: Some(Millimeters(travel * 1000.0)),
+                suspension_travel_avg: Some(Millimeters(base_travel * 1000.0)),
+                shock_velocity: Some(MillimetersPerSecond(jitter(n + travel, 0.02) * 1000.0)),
+                shock_velocity_avg: Some(MillimetersPerSecond(5.0)),
+                ride_height: Some(Millimeters((0.06 - travel * 0.2) * 1000.0)),
                 tyre_pressure: Some(Kilopascals(178.0 + heat_offset * 0.3 + jitter(n, 0.5))),
                 tyre_cold_pressure: Some(Kilopascals(172.0)),
                 surface_temp_inner: Some(Celsius(
@@ -619,7 +619,7 @@ impl DemoAdapter {
             air_temp: Some(Celsius(22.0 + jitter(n * 7.0, 0.1))),
             track_temp: Some(Celsius(28.0 + jitter(n * 7.1, 0.2))),
             track_surface_temp: Some(Celsius(30.0 + jitter(n * 7.15, 0.3))),
-            air_pressure: Some(Pascals(101325.0)),
+            air_pressure: Some(Kilopascals(101.325)),
             air_density: Some(KilogramsPerCubicMeter(1.225)),
             humidity: Some(Percentage::new(0.55)),
             wind_speed: Some(MetersPerSecond(3.5 + jitter(n * 7.2, 0.3))),
