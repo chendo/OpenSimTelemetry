@@ -80,9 +80,16 @@ function apiBase() { return remoteBase || ''; }
 
 function _updateRemoteState() {
     remoteInput.classList.remove('remote-connected', 'remote-error', 'remote-connecting');
-    if (sseConnected) remoteInput.classList.add('remote-connected');
-    else if (sseEverConnected) remoteInput.classList.add('remote-error');
-    else remoteInput.classList.add('remote-connecting');
+    if (sseConnected) {
+        remoteInput.classList.add('remote-connected');
+        remoteLabel.textContent = 'Connected to';
+    } else if (sseEverConnected) {
+        remoteInput.classList.add('remote-error');
+        remoteLabel.textContent = 'Disconnected from';
+    } else {
+        remoteInput.classList.add('remote-connecting');
+        remoteLabel.textContent = 'Connecting to';
+    }
 }
 
 function _normalizeUrl(val) {
