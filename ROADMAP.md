@@ -2,14 +2,14 @@
 
 Agent Instructions: Pick idea from the top, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Interface: Units need to be scale appropriate. For example, speeds are km/h, but acceleration is better off as mm/s^2 and velocity as mm/s. Lap distance should be in m or km, not mm. Air Pressure is showing as 92897 Pa which seems wrong. With metrics, the ones that we map we should normalise into values that make sense, but the iracing namespace ones should be 'left raw' in case we don't support a mapping yet, or we converted it wrong or something. Does 158.6 kPa sound right for tire pressure?
-* Interface: rpm y-axis intervals should be whole 1000s
-* Interface: display a y-axis for every unique unit
-* Interface: When live, and scrolled back, graphs should continue updating with live data and the user is viewing that part
+* Data model: shift_light should be part of electronics, not driver, and fuel_capacity & setup_name should be on vehicle. car_name should be on vehicle. Tick/Timestamp shouldn't be in their own namespace, same with game. Maybe meta?
+* Interface: If iRacing has been detected, but no data, it should say "Simulator not running"
+* Interface: The default layout should have two graphs. The first one is labeled Pedals and Speed, and have Speed, RPM, throttle, broke, clutch, ABS. The second graph is labelled Steering, includes steering input, yaw rate, and other relevant inputs.
+* Interface: Y-axes should be on the right side of the chart
+
 
 ## WIP: do not work on these
 
-* 
 
 ### Adapters
 

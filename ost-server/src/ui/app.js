@@ -687,6 +687,29 @@ function exitHistoryMode() {
     requestRedraw();
 }
 
+function updateLiveScrollBadge() {
+    const badge = document.getElementById('mode-badge');
+    if (store.liveScrollOffsetMs > 0) {
+        const secs = (store.liveScrollOffsetMs / 1000).toFixed(1);
+        badge.textContent = 'OFFSET -' + secs + 's';
+        badge.className = 'mode-badge mode-history';
+        badge.style.display = '';
+        seekLiveBtn.classList.remove('active');
+    } else {
+        if (!historyMode) {
+            badge.style.display = 'none';
+            seekLiveBtn.classList.add('active');
+        }
+    }
+}
+
+function resetLiveScrollOffset() {
+    store.liveScrollOffsetMs = 0;
+    updateLiveScrollBadge();
+    store._dirty = true;
+    requestRedraw();
+}
+
 // Called by GraphWidget horizontal scroll to move cursor
 function graphScrollCursor(delta) {
     // Replay mode
@@ -697,13 +720,12 @@ function graphScrollCursor(delta) {
         requestRedraw();
         return;
     }
-    // History mode (enter if not already)
-    if (!historyMode) enterHistoryMode();
-    historyBuf.cursor = Math.max(0, Math.min(historyBuf.totalFrames - 1, historyBuf.cursor + delta));
-    historyBuf._dirty = true;
-    seekSlider.value = historyBuf.cursor;
-    updateSeekTimeDisplay();
-    historyBuf.ensureLoaded(buildReplayMetricMask());
+    // Live mode: adjust scroll offset (negative delta = scroll back in time)
+    const frameDurationMs = 1000 / (historyInfo?.tick_rate || 60);
+    store.liveScrollOffsetMs = Math.max(0,
+        Math.min(store.maxScrollOffsetMs(), store.liveScrollOffsetMs - delta * frameDurationMs));
+    updateLiveScrollBadge();
+    store._dirty = true;
     requestRedraw();
 }
 
@@ -724,18 +746,11 @@ function graphSeekToTime(timeMs, isBuffered) {
         requestRedraw();
         return;
     }
-    // Live mode: timeMs is performance.now() timestamp
-    if (!historyInfo) return;
-    const tickRate = historyInfo.tick_rate || 60;
+    // Live mode: timeMs is performance.now() timestamp — set scroll offset
     const offsetMs = performance.now() - timeMs;
-    const framesBack = Math.round(offsetMs / 1000 * tickRate);
-    const frame = Math.max(0, historyInfo.total_frames - 1 - framesBack);
-    if (!historyMode) enterHistoryMode();
-    historyBuf.cursor = frame;
-    historyBuf._dirty = true;
-    seekSlider.value = frame;
-    updateSeekTimeDisplay();
-    historyBuf.ensureLoaded(buildReplayMetricMask());
+    store.liveScrollOffsetMs = Math.max(0, Math.min(store.maxScrollOffsetMs(), offsetMs));
+    updateLiveScrollBadge();
+    store._dirty = true;
     requestRedraw();
 }
 
@@ -766,7 +781,10 @@ seekSlider.addEventListener('change', (e) => {
     requestRedraw();
 });
 
-seekLiveBtn.addEventListener('click', exitHistoryMode);
+seekLiveBtn.addEventListener('click', () => {
+    exitHistoryMode();
+    resetLiveScrollOffset();
+});
 
 function updateSeekBar() {
     // Hide during replay

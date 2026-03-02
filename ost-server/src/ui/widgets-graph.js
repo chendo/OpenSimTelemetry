@@ -1,3 +1,19 @@
+/* ==================== Graph Helpers ==================== */
+// Compute a "nice" step size for axis intervals.
+// Returns a value from the sequence 1, 2, 5, 10, 20, 50, 100, 200, 500, ...
+function niceStep(range, targetSteps) {
+    if (range <= 0) return 1;
+    const rough = range / targetSteps;
+    const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+    const norm = rough / mag;
+    let nice;
+    if (norm <= 1.5) nice = 1;
+    else if (norm <= 3.5) nice = 2;
+    else if (norm <= 7.5) nice = 5;
+    else nice = 10;
+    return nice * mag;
+}
+
 /* ==================== GraphWidget ==================== */
 class GraphWidget extends Widget {
     static DEFAULT_METRICS = [
@@ -560,7 +576,8 @@ class GraphWidget extends Widget {
             isReplay = true;
         } else {
             const latestT = store.latestTime();
-            const effectiveNow = (latestT && now - latestT > 2000) ? latestT + 500 : now;
+            let effectiveNow = (latestT && now - latestT > 2000) ? latestT + 500 : now;
+            if (store.liveScrollOffsetMs > 0) effectiveNow -= store.liveScrollOffsetMs;
             const range = store.getWindowRange(this.timeWindowMs, effectiveNow);
             dataCount = range.count;
             getEntry = (i) => store.ringAt(range.start + i);
@@ -680,8 +697,10 @@ class GraphWidget extends Widget {
         const boolBarH = 10, boolBarGap = 2;
         const barTraceCount = boolTraces.length + textTraces.length;
         const boolAreaH = barTraceCount > 0 ? barTraceCount * (boolBarH + boolBarGap) + 4 : 0;
-        const padLeft = axes.length >= 1 ? 52 : 36;
-        const padRight = axes.length >= 2 ? 52 : 8;
+        const axisColW = 45;
+        const numAxes = axes.length;
+        const padLeft = numAxes >= 1 ? numAxes * axisColW + 7 : 36;
+        const padRight = 8;
         const pad = { top: 8 + boolAreaH, right: padRight, bottom: 16, left: padLeft };
         const pw = w - pad.left - pad.right, ph = h - pad.top - pad.bottom;
         ctx.clearRect(0, 0, w, h);
@@ -695,53 +714,78 @@ class GraphWidget extends Widget {
             return (av >= 1000 ? v.toFixed(0) : av >= 10 ? v.toFixed(0) : av >= 1 ? v.toFixed(1) : v.toFixed(2)) + ' ' + unit;
         };
 
-        // Grid lines
-        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
-        for (let i = 0; i <= 4; i++) {
-            const y = pad.top + (ph / 4) * i;
-            ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + pw, y); ctx.stroke();
+        // Precompute nice axis ranges and store niceMax on each axis
+        for (const g of axes) {
+            if (g.norm === 'pct') {
+                g.niceMax = 1; g.step = 0.25; g.niceDisplayMax = 100;
+            } else {
+                const displayMax = g.rawMax * g.dM;
+                const step = niceStep(displayMax, 5);
+                const niceDisplayMax = Math.ceil(displayMax / step) * step;
+                g.step = step;
+                g.niceDisplayMax = niceDisplayMax;
+                g.niceMax = g.dM > 0 ? niceDisplayMax / g.dM : g.rawMax;
+            }
         }
 
-        // Left Y-axis (first axis group)
+        // Grid lines — aligned to primary axis nice intervals
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
         if (axes.length >= 1) {
             const g = axes[0];
-            ctx.fillStyle = axes.length === 1 ? 'rgba(255,255,255,0.25)' : g.color;
-            ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
-            for (let i = 0; i <= 4; i++) {
-                const y = pad.top + (ph / 4) * i;
-                const frac = 1 - i / 4;
-                if (g.norm === 'pct') {
-                    ctx.fillText((frac * 100).toFixed(0) + '%', pad.left - 4, y + 3);
-                } else if (g.norm === 'centered') {
-                    ctx.fillText(fmtAxisVal((frac * 2 - 1) * g.rawMax * g.dM, g.dU), pad.left - 4, y + 3);
-                } else {
-                    ctx.fillText(fmtAxisVal(frac * g.rawMax * g.dM, g.dU), pad.left - 4, y + 3);
+            const count = Math.round(g.niceDisplayMax / g.step);
+            for (let i = 0; i <= count; i++) {
+                const frac = g.norm === 'centered'
+                    ? 1 - i / count
+                    : 1 - i / count;
+                const y = pad.top + ph * (1 - frac);
+                ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + pw, y); ctx.stroke();
+            }
+        }
+
+        // Y-axes — one column per axis group, stacked on the left
+        ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+        for (let ai = 0; ai < numAxes; ai++) {
+            const g = axes[ai];
+            const colX = padLeft - 4 - ai * axisColW;
+            ctx.fillStyle = numAxes === 1 ? 'rgba(255,255,255,0.25)' : g.color;
+
+            if (g.norm === 'pct') {
+                for (let i = 0; i <= 4; i++) {
+                    const frac = 1 - i / 4;
+                    const y = pad.top + ph * (1 - frac);
+                    ctx.fillText((frac * 100).toFixed(0) + '%', colX, y + 3);
+                }
+            } else if (g.norm === 'centered') {
+                const count = Math.round(g.niceDisplayMax / g.step);
+                for (let i = 0; i <= count * 2; i++) {
+                    const displayVal = -g.niceDisplayMax + i * g.step;
+                    const frac = 0.5 + displayVal / (g.niceMax * g.dM * 2);
+                    if (frac < -0.01 || frac > 1.01) continue;
+                    const y = pad.top + ph * (1 - frac);
+                    ctx.fillText(fmtAxisVal(displayVal, g.dU), colX, y + 3);
+                }
+            } else {
+                const count = Math.round(g.niceDisplayMax / g.step);
+                for (let i = 0; i <= count; i++) {
+                    const displayVal = i * g.step;
+                    const frac = displayVal / g.niceDisplayMax;
+                    const y = pad.top + ph * (1 - frac);
+                    ctx.fillText(fmtAxisVal(displayVal, g.dU), colX, y + 3);
                 }
             }
         }
 
-        // Right Y-axis (second axis group)
-        if (axes.length >= 2) {
-            const g = axes[1];
-            ctx.fillStyle = g.color;
-            ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
-            for (let i = 0; i <= 4; i++) {
-                const y = pad.top + (ph / 4) * i;
-                const frac = 1 - i / 4;
-                if (g.norm === 'pct') {
-                    ctx.fillText((frac * 100).toFixed(0) + '%', pad.left + pw + 4, y + 3);
-                } else if (g.norm === 'centered') {
-                    ctx.fillText(fmtAxisVal((frac * 2 - 1) * g.rawMax * g.dM, g.dU), pad.left + pw + 4, y + 3);
-                } else {
-                    ctx.fillText(fmtAxisVal(frac * g.rawMax * g.dM, g.dU), pad.left + pw + 4, y + 3);
-                }
-            }
+        // Build a lookup from trace to its axis group's niceMax
+        const traceAxisMap = new Map();
+        for (const trace of traces) {
+            const axisKey = trace.norm === 'pct' ? 'pct' : trace.norm + ':' + trace.dU;
+            traceAxisMap.set(trace, axisMap.get(axisKey));
         }
 
         // Helper: normalize a raw value to 0-1 for Y position
         const normalizeVal = (trace, raw) => {
-            const ukey = trace.unit || trace.key;
-            const maxVal = unitMax[ukey] || 1;
+            const g = traceAxisMap.get(trace);
+            const maxVal = g ? g.niceMax : (unitMax[trace.unit || trace.key] || 1);
             let val;
             if (trace.norm === 'pct') val = raw;
             else if (trace.norm === 'centered') val = 0.5 + raw / (maxVal * 2);

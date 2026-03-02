@@ -9,6 +9,8 @@ class TelemetryStore {
         this._ring = new Array(BUFFER_MAX);
         this._head = 0;  // next write position
         this._count = 0; // number of valid entries
+        // Live scroll offset: when > 0, graphs show data this many ms behind live
+        this.liveScrollOffsetMs = 0;
     }
 
     pushFrame(frame) {
@@ -47,6 +49,19 @@ class TelemetryStore {
     latestTime() {
         if (this._count === 0) return null;
         return this._ring[(this._head - 1 + BUFFER_MAX) % BUFFER_MAX].t;
+    }
+
+    oldestTime() {
+        if (this._count === 0) return null;
+        const oldest = this._count < BUFFER_MAX ? 0 : this._head;
+        return this._ring[oldest % BUFFER_MAX].t;
+    }
+
+    maxScrollOffsetMs() {
+        const oldest = this.oldestTime();
+        const latest = this.latestTime();
+        if (oldest == null || latest == null) return 0;
+        return latest - oldest;
     }
 }
 
