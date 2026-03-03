@@ -47,23 +47,35 @@ nav a:hover{color:#00d4ff}
 <strong style="color:#e0e0e0">Sections</strong>
 <a href="#streaming">Streaming (SSE)</a>
 <a href="#adapters">Adapters</a>
+<a href="#metrics">Custom Metrics</a>
+<a href="#annotations">Annotations</a>
 <a href="#replay">Replay</a>
 <a href="#history">History</a>
 <a href="#sinks">Sinks</a>
 <a href="#persistence">Persistence</a>
 <a href="#conversion">Conversion</a>
+<a href="#sessions">Sessions (serve mode)</a>
 </nav>
 
 <h2 id="streaming">Streaming (SSE)</h2>
 
 <div class="endpoint">
 <span class="method get">GET</span><span class="path">/api/stream</span><span class="tag sse-tag">SSE</span>
-<p class="desc">Unified SSE stream multiplexing telemetry frames, adapter status, and sink config updates. Uses named events: <code>frame</code>, <code>status</code>, <code>sinks</code>. Preferred over individual stream endpoints (avoids HTTP/1.1 connection limit).</p>
+<p class="desc">Unified SSE stream multiplexing telemetry frames, adapter status, sink config, and annotation updates. Uses named events: <code>frame</code>, <code>status</code>, <code>sinks</code>, <code>annotations</code>. Preferred over individual stream endpoints (avoids HTTP/1.1 connection limit).</p>
 <div class="params"><table>
 <tr><th>Param</th><th>Type</th><th>Description</th></tr>
 <tr><td><code>metric_mask</code></td><td>string</td><td>Comma-separated sections to include (e.g. <code>vehicle,timing</code>)</td></tr>
 <tr><td><code>rate</code></td><td>float</td><td>Frames per second (0.01–60, default 60)</td></tr>
 <tr><td><code>format</code></td><td>string</td><td><code>json</code> (default) or <code>msgpack</code> (base64-encoded MessagePack)</td></tr>
+<tr><td><code>delta</code></td><td>bool</td><td>Enable delta encoding (default <code>true</code>). Only changed sections are sent; full frame every 60th.</td></tr>
+</table></div>
+<p class="desc" style="margin-top:12px"><strong>SSE Event Types:</strong></p>
+<div class="params"><table>
+<tr><th>Event</th><th>Description</th></tr>
+<tr><td><code>frame</code></td><td>Telemetry frame (full or delta). Delta frames have <code>"_delta": true</code>.</td></tr>
+<tr><td><code>status</code></td><td>Adapter status change (JSON with <code>source</code>, connection info).</td></tr>
+<tr><td><code>sinks</code></td><td>Sink config list updated (JSON array of all sinks).</td></tr>
+<tr><td><code>annotations</code></td><td>Annotation list updated (JSON array of all annotations).</td></tr>
 </table></div>
 <pre>curl -N "http://localhost:9100/api/stream?rate=10&metric_mask=vehicle,timing"</pre>
 </div>
@@ -90,6 +102,79 @@ nav a:hover{color:#00d4ff}
 <div class="endpoint">
 <span class="method post">POST</span><span class="path">/api/adapters/:name/toggle</span>
 <p class="desc">Enable or disable an adapter by key name.</p>
+</div>
+
+<h2 id="metrics">Custom Metrics</h2>
+
+<p class="desc" style="margin-bottom:12px">Submit arbitrary metrics that get merged into telemetry frames. <strong>Sticky</strong> metrics (no tick) appear in every frame. <strong>Tick-specific</strong> metrics appear only in the frame with a matching tick number. Custom metrics are included in SSE <code>frame</code> events and <code>GET /api/metrics</code> responses.</p>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/metrics</span>
+<p class="desc">Submit custom metrics under a namespace. Metrics are merged into the telemetry frame JSON at the top level using the namespace as the key.</p>
+<pre>// Sticky metric — merged into every frame
+{"namespace": "analysis", "metrics": {"brake_bias": 0.57, "fuel_delta": -0.03}}
+
+// Tick-specific — merged only into frame with tick 42000
+{"namespace": "analysis", "metrics": {"optimal_line": true}, "tick": 42000}</pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/metrics</span>
+<p class="desc">Get the latest telemetry frame with custom metrics merged in. Supports <code>metric_mask</code> query param for section filtering.</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/metrics')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/metrics/custom</span>
+<p class="desc">List all currently stored custom metrics (sticky and tick-specific).</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/metrics/custom')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method delete">DELETE</span><span class="path">/api/metrics/custom</span>
+<p class="desc">Clear all custom metrics (both sticky and tick-specific).</p>
+</div>
+
+<div class="endpoint">
+<span class="method delete">DELETE</span><span class="path">/api/metrics/custom/:namespace</span>
+<p class="desc">Clear custom metrics for a specific namespace only.</p>
+</div>
+
+<h2 id="annotations">Annotations</h2>
+
+<p class="desc" style="margin-bottom:12px">Annotate the telemetry timeline with labeled, colored regions. Annotations can specify ranges by tick number or session time. They appear as colored overlays on the graph widgets and are broadcast to all SSE clients via the <code>annotations</code> event.</p>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/annotations</span>
+<p class="desc">Create a new annotation. If <code>id</code> is omitted, one is auto-generated. At least one of the tick or time range fields should be provided.</p>
+<pre>{
+  "title": "Lock-up",
+  "color": "#ff6b6b",
+  "start_tick": 42000,
+  "end_tick": 42300
+}
+
+// Or using session time (seconds):
+{
+  "title": "Pit window",
+  "color": "rgba(0, 200, 100, 0.3)",
+  "start_time_s": 120.5,
+  "end_time_s": 135.0
+}</pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/annotations</span>
+<p class="desc">List all current annotations.</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/annotations')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method delete">DELETE</span><span class="path">/api/annotations/:id</span>
+<p class="desc">Delete an annotation by ID. Returns 204 on success, 404 if not found.</p>
 </div>
 
 <h2 id="replay">Replay</h2>
@@ -238,6 +323,57 @@ nav a:hover{color:#00d4ff}
 <span class="method post">POST</span><span class="path">/api/convert/ibt</span>
 <p class="desc">Convert an .ibt file to ZSTD-compressed NDJSON stream. Accepts multipart/form-data.</p>
 <pre>curl -X POST -F "file=@race.ibt" http://localhost:9100/api/convert/ibt -o output.ost.ndjson.zstd</pre>
+</div>
+
+<h2 id="sessions">Sessions (serve mode)</h2>
+
+<p class="desc" style="margin-bottom:12px">When the server is started with <code>--serve</code>, session endpoints are available. Users can upload .ibt files to create shareable sessions. Admin endpoints require HTTP Basic auth with <code>OST_ADMIN_USER</code> / <code>OST_ADMIN_PASS</code> credentials.</p>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/sessions/upload</span>
+<p class="desc">Upload an .ibt file to create a new session. Returns a shareable URL with an access token. Public — no auth required.</p>
+<pre>curl -X POST -F "file=@race.ibt" http://localhost:9100/api/sessions/upload
+
+// Response:
+{
+  "id": "a1b2c3d4e5f6",
+  "token": "0123456789abcdef...",
+  "url": "/s/a1b2c3d4e5f6?token=0123456789abcdef...",
+  "track_name": "Spa-Francorchamps",
+  "car_name": "BMW M4 GT3",
+  "total_frames": 108000,
+  "duration_secs": 1800.0
+}</pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/sessions</span><span class="tag">Admin</span>
+<p class="desc">List all stored sessions. Requires admin authentication.</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/sessions')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method delete">DELETE</span><span class="path">/api/sessions/:id</span><span class="tag">Admin</span>
+<p class="desc">Delete a session and its data. Requires admin authentication.</p>
+</div>
+
+<div class="endpoint">
+<span class="method post">POST</span><span class="path">/api/sessions/:id/load</span>
+<p class="desc">Load a session into the replay state. Requires the session's access token as <code>?token=</code> query parameter.</p>
+<pre>curl -X POST "http://localhost:9100/api/sessions/abc123/load?token=secret_token"</pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/api/sessions/stats</span>
+<p class="desc">Get session storage statistics (count, total size, disk cap).</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/sessions/stats')">Try it</button>
+<pre class="try-result"></pre>
+</div>
+
+<div class="endpoint">
+<span class="method get">GET</span><span class="path">/s/:id?token=...</span>
+<p class="desc">View a session. Validates the access token, loads the session into replay, and serves the telemetry UI. Share this URL to give others access to the session.</p>
 </div>
 
 <script>

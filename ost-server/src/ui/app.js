@@ -73,7 +73,7 @@ function updateThroughput() {
     const fps = (_frameTimestamps.length - 1) / elapsed;
     const pct = Math.round((fps / expectedRate) * 100);
     throughputEl.textContent = `${pct}%`;
-    throughputEl.className = 'header-throughput' + (pct < 98 ? ' throughput-warn' : '');
+    throughputEl.className = 'perf-value' + (pct < 98 ? ' throughput-warn' : '');
 }
 
 // Remote OST instance support
@@ -216,6 +216,7 @@ grid.gs.batchUpdate();
 const staticWidgets = [
     new VehicleWidget(),
     new GForceWidget(),
+    new TrackMapWidget(),
     new WheelsWidget(),
     new AllMetricsWidget(),
 ];
@@ -628,10 +629,61 @@ function updateSessionBar() {
     sbLap.textContent = t?.lap_number ?? '--';
 }
 
+// ==================== FPS Performance Tracking ====================
+const _perfFpsEl = document.getElementById('perf-fps');
+const _perf1pctEl = document.getElementById('perf-1pct');
+const _perf01pctEl = document.getElementById('perf-01pct');
+const _perfRenderEl = document.getElementById('perf-render');
+const _FRAME_WINDOW = 300;   // ~5 seconds at 60fps
+const _frameTimes = new Float64Array(_FRAME_WINDOW); // Fixed-size circular buffer (O(1) writes)
+let _frameTimesHead = 0;     // Write index in circular buffer
+let _frameTimesFill = 0;     // How many entries populated (caps at _FRAME_WINDOW)
+let _lastFrameTime = 0;
+let _perfUpdateCounter = 0;
+
+function updatePerfToolbar(now, renderStart) {
+    // Track frame-to-frame time for FPS using O(1) circular buffer
+    if (_lastFrameTime > 0) {
+        _frameTimes[_frameTimesHead] = now - _lastFrameTime;
+        _frameTimesHead = (_frameTimesHead + 1) % _FRAME_WINDOW;
+        if (_frameTimesFill < _FRAME_WINDOW) _frameTimesFill++;
+    }
+    _lastFrameTime = now;
+
+    // Update display every 30 frames (~0.5s)
+    if (++_perfUpdateCounter < 30) return;
+    _perfUpdateCounter = 0;
+
+    if (_frameTimesFill < 10) return;
+
+    const sample = _frameTimes.subarray(0, _frameTimesFill); // Valid entries (order irrelevant for stats)
+
+    // Average FPS
+    const avgInterval = sample.reduce((a, b) => a + b, 0) / _frameTimesFill;
+    _perfFpsEl.textContent = (1000 / avgInterval).toFixed(0);
+
+    // Sort a copy for percentile calculations
+    const sorted = Array.from(sample).sort((a, b) => b - a); // Longest first
+    // 1% low: average of the worst 1% of frame times → FPS
+    const p1count = Math.max(1, Math.floor(sorted.length * 0.01));
+    const p1avg = sorted.slice(0, p1count).reduce((a, b) => a + b, 0) / p1count;
+    _perf1pctEl.textContent = (1000 / p1avg).toFixed(0);
+
+    // 0.1% low: average of the worst 0.1% of frame times → FPS
+    const p01count = Math.max(1, Math.floor(sorted.length * 0.001));
+    const p01avg = sorted.slice(0, p01count).reduce((a, b) => a + b, 0) / p01count;
+    _perf01pctEl.textContent = (1000 / p01avg).toFixed(0);
+
+    // Render time (time spent in current frame's widget updates)
+    const renderMs = performance.now() - renderStart;
+    _perfRenderEl.textContent = renderMs.toFixed(1) + 'ms';
+}
+
 // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
 let _lastPrefetchTime = 0;
 function renderLoop() {
     const now = performance.now();
+    const renderStart = now;
     const activeReplay = replayBuf.count > 0 ? replayBuf : null;
     const activeHistory = !activeReplay && historyMode && historyBuf.count > 0 ? historyBuf : null;
     const activeBuf = activeReplay || activeHistory;
@@ -681,6 +733,7 @@ function renderLoop() {
             if (w._visible) w.update(store, now, activeBuf);
         }
     }
+    updatePerfToolbar(now, renderStart);
     requestAnimationFrame(renderLoop);
 }
 

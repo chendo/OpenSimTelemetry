@@ -480,11 +480,10 @@ class ReplayPlayer {
     }
 
     fmtTime(secs) {
-        if (!secs || isNaN(secs)) return '0:00.0';
+        if (!secs || isNaN(secs)) return '0:00.000';
         const m = Math.floor(secs / 60);
-        const s = Math.floor(secs % 60);
-        const t = Math.floor((secs * 10) % 10);
-        return `${m}:${String(s).padStart(2, '0')}.${t}`;
+        const s = (secs % 60).toFixed(3).padStart(6, '0');
+        return `${m}:${s}`;
     }
 
     stepFrame(delta) {

@@ -2,9 +2,6 @@
 
 Agent Instructions: Read the road map, group related changes, ask any clarifying questions, make a plan, and confirm before working. Remove entry from list when completed and committed.
 
-* Feature: Serving mode, where it allows OST to be deployed to a server for easy trial usage. Users can upload IBT files, which redirects them to a unique session ID. Management interface and API behind HTTP basic. Cap disk usage at 10gb by default, then starts deleting old ones.
-
-
 ## WIP: do not work on these
 
 

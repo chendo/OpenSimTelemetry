@@ -504,6 +504,7 @@ impl DemoAdapter {
             latitude: None,
             longitude: None,
             altitude: None,
+            heading: None,
         });
 
         // --- Vehicle ---

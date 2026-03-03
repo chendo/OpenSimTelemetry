@@ -34,6 +34,8 @@ pub struct ReplayState {
     duration_secs: f64,
     laps: Vec<LapInfo>,
     replay_id: String,
+    /// Pre-computed track outline as [[lat, lng], ...] for the track map widget
+    track_outline: Vec<[f64; 2]>,
 }
 
 impl ReplayState {
@@ -47,6 +49,7 @@ impl ReplayState {
         let car_name = ibt.session_info().car_name.clone();
         let duration_secs = ibt.duration_secs();
         let laps = ibt.build_lap_index().unwrap_or_default();
+        let track_outline = ibt.build_track_outline().unwrap_or_default();
 
         // Compute a stable replay ID from file metadata
         let mut hasher = DefaultHasher::new();
@@ -70,6 +73,7 @@ impl ReplayState {
             duration_secs,
             laps,
             replay_id,
+            track_outline,
         })
     }
 
@@ -147,6 +151,31 @@ impl ReplayState {
             }
         }
 
+        // Build track outline from GPS data
+        let mut track_outline = Vec::new();
+        let mut last_lat = f64::NAN;
+        let mut last_lng = f64::NAN;
+        const MIN_DELTA: f64 = 0.000005;
+        for f in &frames {
+            let on_track = f.vehicle.as_ref().and_then(|v| v.on_track);
+            if on_track == Some(false) {
+                continue;
+            }
+            if let Some(m) = &f.motion {
+                if let (Some(lat), Some(lng)) = (m.latitude, m.longitude) {
+                    if lat == 0.0 && lng == 0.0 {
+                        continue;
+                    }
+                    if (lat - last_lat).abs() < MIN_DELTA && (lng - last_lng).abs() < MIN_DELTA {
+                        continue;
+                    }
+                    track_outline.push([lat, lng]);
+                    last_lat = lat;
+                    last_lng = lng;
+                }
+            }
+        }
+
         let mut hasher = DefaultHasher::new();
         file_size.hash(&mut hasher);
         total_frames.hash(&mut hasher);
@@ -168,6 +197,7 @@ impl ReplayState {
             duration_secs,
             laps,
             replay_id,
+            track_outline,
         })
     }
 
@@ -249,6 +279,16 @@ impl ReplayState {
 
     pub fn is_playing(&self) -> bool {
         self.playing
+    }
+
+    pub fn track_outline(&self) -> &[[f64; 2]] {
+        &self.track_outline
+    }
+
+    /// Clear the temp path so the file is NOT deleted on drop.
+    /// Used for session files that should persist.
+    pub fn set_persistent(&mut self) {
+        self.temp_path = None;
     }
 
     pub fn play(&mut self) {

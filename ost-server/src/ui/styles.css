@@ -31,6 +31,7 @@ body {
     background: var(--bg-primary);
     color: var(--text-primary);
     overflow-x: hidden;
+    padding-bottom: 22px;
 }
 
 /* ==================== Header Bar ==================== */
@@ -200,14 +201,7 @@ body {
     color: var(--text-secondary);
 }
 
-.header-throughput {
-    font-family: var(--font-mono);
-    font-size: 0.65rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    min-width: 32px;
-}
-.header-throughput.throughput-warn { color: #eab308; }
+.throughput-warn { color: #eab308 !important; }
 
 .header-reset-btn {
     background: transparent;
@@ -474,14 +468,6 @@ body {
     padding: 2px 0 0;
 }
 
-/* ==================== Memory Display ==================== */
-.header-memory {
-    font-family: var(--font-mono);
-    font-size: 0.65rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    min-width: 32px;
-}
 
 /* ==================== Recording Indicator ==================== */
 .recording-dot {
@@ -1043,6 +1029,10 @@ body {
     height: 100%;
     display: block;
 }
+
+/* ==================== Track Map Widget ==================== */
+.trackmap-layout { width: 100%; height: 100%; position: relative; }
+.trackmap-layout canvas { width: 100%; height: 100%; display: block; }
 
 /* ==================== Wheels Widget ==================== */
 .wheel-layout {
@@ -1865,3 +1855,24 @@ body {
     color: var(--text-muted);
     min-width: 30px;
 }
+
+/* ==================== Performance Toolbar ==================== */
+.perf-toolbar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 22px;
+    background: var(--bg-inset);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 12px;
+    z-index: 100;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.6rem;
+}
+.perf-item { display: flex; align-items: center; gap: 4px; }
+.perf-label { color: var(--text-muted); }
+.perf-value { color: var(--text-secondary); min-width: 28px; }

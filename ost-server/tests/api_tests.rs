@@ -8,9 +8,11 @@ use hyper::Request;
 use ost_core::TelemetryAdapter;
 use ost_server::{
     api::create_router,
+    sessions::SessionStore,
     state::{AppState, SinkConfig},
 };
 use std::path::Path;
+use std::sync::Arc;
 use tower::ServiceExt;
 
 /// Helper: build a router with fresh AppState (no adapters registered)
@@ -1487,4 +1489,196 @@ async fn test_delete_nonexistent_annotation_returns_404() {
         .await
         .unwrap();
     assert_eq!(response.status(), 404);
+}
+
+// ==================== Session Endpoints (serve mode) ====================
+
+/// Helper: build a serve-mode AppState with temp session directory
+fn serve_app() -> (axum::Router, AppState, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!(
+        "ost-test-sessions-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let store = SessionStore::new(dir.clone(), 10 * 1024 * 1024 * 1024).unwrap();
+    let mut state = AppState::new();
+    state.serve_mode = true;
+    state.session_store = Some(Arc::new(store));
+    state.admin_user = Some("admin".to_string());
+    state.admin_pass = Some("secret".to_string());
+    let router = create_router(state.clone());
+    (router, state, dir)
+}
+
+#[tokio::test]
+async fn test_session_endpoints_return_400_when_not_serve_mode() {
+    let app = app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
+async fn test_session_list_empty_in_serve_mode() {
+    let (app, _state, dir) = serve_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions")
+                .header(
+                    "Authorization",
+                    format!("Basic {}", base64_encode("admin:secret")),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Vec<serde_json::Value> =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert!(body.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_upload_rejects_non_ibt() {
+    let (app, _state, dir) = serve_app();
+    let (boundary, body) = multipart_body("data.csv", b"not an ibt file");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/sessions/upload")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_landing_page_in_serve_mode() {
+    let (app, _state, dir) = serve_app();
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body = body_string(response.into_body()).await;
+    assert!(body.contains("OpenSimTelemetry"));
+    assert!(body.contains("upload"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_list_requires_admin_auth() {
+    let (app, _state, dir) = serve_app();
+    // Without auth header → 401
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+
+    // With correct auth → 200
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions")
+                .header(
+                    "Authorization",
+                    format!("Basic {}", base64_encode("admin:secret")),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_delete_nonexistent_returns_404() {
+    let (app, _state, dir) = serve_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/sessions/nonexistent")
+                .header(
+                    "Authorization",
+                    format!("Basic {}", base64_encode("admin:secret")),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_view_requires_token() {
+    let (app, _state, dir) = serve_app();
+    // Access session page without token → 404 (session doesn't exist)
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/s/nonexistent?token=bad")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_stats() {
+    let (app, _state, dir) = serve_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions/stats")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(body["session_count"], 0);
+    assert_eq!(body["total_size_bytes"], 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn base64_encode(s: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(s)
 }

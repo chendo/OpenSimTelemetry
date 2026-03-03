@@ -664,7 +664,21 @@ class GraphWidget extends Widget {
         // Compute max values grouped by raw unit for shared scaling
         const unitMax = {};
         for (const trace of traces) {
-            if (trace.norm === 'autoscale' || trace.norm === 'centered') {
+            if (trace.norm === 'autoscale') {
+                // maxSeen is monotonically increasing — no need to scan all dataCount entries.
+                // Update it from the latest visible entry only (O(1) instead of O(dataCount)).
+                const ukey = trace.unit || trace.key;
+                const latestEntry = getEntry(dataCount - 1);
+                if (latestEntry) {
+                    const v = trace.getValue(latestEntry);
+                    if (v != null) {
+                        const av = Math.abs(v);
+                        if (av > (this.maxSeen[ukey] || 0)) this.maxSeen[ukey] = av;
+                    }
+                }
+                unitMax[ukey] = Math.max(this.maxSeen[ukey] || 0.001, unitMax[ukey] || 0);
+            } else if (trace.norm === 'centered') {
+                // centered uses current window max (intentionally doesn't persist)
                 let mx = 0;
                 for (let i = 0; i < dataCount; i++) {
                     const entry = getEntry(i);
@@ -674,10 +688,6 @@ class GraphWidget extends Widget {
                 }
                 const ukey = trace.unit || trace.key;
                 unitMax[ukey] = Math.max(mx, unitMax[ukey] || 0, 0.001);
-                if (trace.norm === 'autoscale') {
-                    this.maxSeen[ukey] = Math.max(unitMax[ukey], this.maxSeen[ukey] || 0);
-                    unitMax[ukey] = this.maxSeen[ukey];
-                }
             }
         }
 
@@ -698,7 +708,8 @@ class GraphWidget extends Widget {
         const barTraceCount = boolTraces.length + textTraces.length;
         const boolAreaH = barTraceCount > 0 ? barTraceCount * (boolBarH + boolBarGap) + 4 : 0;
         const axisColW = 45;
-        const numAxes = axes.length;
+        // Percentage axes don't need labels (0-100% is obvious), so exclude from padding
+        const numAxes = axes.filter(g => g.norm !== 'pct').length;
         const padLeft = 8;
         const padRight = numAxes >= 1 ? numAxes * axisColW + 7 : 36;
         const pad = { top: 8 + boolAreaH, right: padRight, bottom: 16, left: padLeft };
@@ -743,19 +754,17 @@ class GraphWidget extends Widget {
         }
 
         // Y-axes — one column per axis group, stacked on the right
+        // Percentage axes are skipped (0-100% is self-evident)
         ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
-        for (let ai = 0; ai < numAxes; ai++) {
+        let axisCol = 0;
+        for (let ai = 0; ai < axes.length; ai++) {
             const g = axes[ai];
-            const colX = w - padRight + 4 + ai * axisColW;
+            if (g.norm === 'pct') continue; // No labels needed for percentage
+            const colX = w - padRight + 4 + axisCol * axisColW;
+            axisCol++;
             ctx.fillStyle = numAxes === 1 ? 'rgba(255,255,255,0.25)' : g.color;
 
-            if (g.norm === 'pct') {
-                for (let i = 0; i <= 4; i++) {
-                    const frac = 1 - i / 4;
-                    const y = pad.top + ph * (1 - frac);
-                    ctx.fillText((frac * 100).toFixed(0) + '%', colX, y + 3);
-                }
-            } else if (g.norm === 'centered') {
+            if (g.norm === 'centered') {
                 const count = Math.round(g.niceDisplayMax / g.step);
                 for (let i = 0; i <= count * 2; i++) {
                     const displayVal = -g.niceDisplayMax + i * g.step;

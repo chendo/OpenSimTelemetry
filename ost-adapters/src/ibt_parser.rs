@@ -518,6 +518,84 @@ impl IbtFile {
         Ok(laps)
     }
 
+    /// Efficiently scan all frames to extract the track outline as lat/lng pairs.
+    /// Only includes points where the car is on-track (`IsOnTrack == true`).
+    /// Uses bulk binary reads (like `build_lap_index`) to avoid parsing all ~200 variables.
+    pub fn build_track_outline(&mut self) -> Result<Vec<[f64; 2]>> {
+        let record_count = self.record_count();
+        if record_count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let lat_vh = self.var_index.get("Lat").map(|&i| &self.var_headers[i]);
+        let lon_vh = self.var_index.get("Lon").map(|&i| &self.var_headers[i]);
+
+        let (lat_vh, lon_vh) = match (lat_vh, lon_vh) {
+            (Some(a), Some(b)) => (a.clone(), b.clone()),
+            _ => return Ok(Vec::new()), // No GPS data available
+        };
+
+        let on_track_vh = self
+            .var_index
+            .get("IsOnTrack")
+            .map(|&i| self.var_headers[i].clone());
+
+        // Bulk read all sample buffers
+        let buf_len = self.header.buf_len as usize;
+        let total_bytes = buf_len * record_count;
+        self.file.seek(SeekFrom::Start(self.sample_data_offset))?;
+        let mut bulk_buf = vec![0u8; total_bytes];
+        self.file.read_exact(&mut bulk_buf)?;
+
+        let mut points = Vec::new();
+        let mut last_lat = f64::NAN;
+        let mut last_lng = f64::NAN;
+        // Minimum distance threshold (~0.5m) to deduplicate stationary points
+        const MIN_DELTA: f64 = 0.000005;
+
+        for i in 0..record_count {
+            let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
+
+            // Check on-track flag (skip off-track points)
+            if let Some(ref vh) = on_track_vh {
+                let off = vh.offset as usize;
+                if off < frame_buf.len() && frame_buf[off] == 0 {
+                    continue;
+                }
+            }
+
+            // Read lat (f64)
+            let lat_off = lat_vh.offset as usize;
+            if lat_off + 8 > frame_buf.len() {
+                continue;
+            }
+            let lat = f64::from_le_bytes(frame_buf[lat_off..lat_off + 8].try_into().unwrap());
+
+            // Read lon (f64)
+            let lon_off = lon_vh.offset as usize;
+            if lon_off + 8 > frame_buf.len() {
+                continue;
+            }
+            let lng = f64::from_le_bytes(frame_buf[lon_off..lon_off + 8].try_into().unwrap());
+
+            // Skip zero/invalid coordinates
+            if lat == 0.0 && lng == 0.0 {
+                continue;
+            }
+
+            // Deduplicate: skip if very close to previous point
+            if (lat - last_lat).abs() < MIN_DELTA && (lng - last_lng).abs() < MIN_DELTA {
+                continue;
+            }
+
+            points.push([lat, lng]);
+            last_lat = lat;
+            last_lng = lng;
+        }
+
+        Ok(points)
+    }
+
     /// Read a contiguous range of samples in a single disk operation.
     /// Much faster than calling `read_sample()` in a loop because it avoids
     /// per-frame seek overhead.
@@ -692,6 +770,13 @@ impl IbtFile {
             _ => None,
         };
 
+        // YawNorth: yaw relative to geographic north (radians, CCW positive)
+        // Convert to compass heading (degrees, CW from north)
+        let heading = get_f32("YawNorth").map(|yn| {
+            let deg = -yn * (180.0 / std::f32::consts::PI);
+            Degrees(deg.rem_euclid(360.0))
+        });
+
         let motion = Some(MotionData {
             position: None,
             velocity,
@@ -705,6 +790,7 @@ impl IbtFile {
             latitude: get_f64("Lat"),
             longitude: get_f64("Lon"),
             altitude: get_f32("Alt").map(Meters),
+            heading,
         });
 
         // =================================================================

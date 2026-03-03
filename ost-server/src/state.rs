@@ -3,6 +3,7 @@
 use crate::history::HistoryBuffer;
 use crate::persistence::PersistenceConfig;
 use crate::replay::ReplayState;
+use crate::sessions::SessionStore;
 use ost_core::{adapter::TelemetryAdapter, model::TelemetryFrame};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -57,6 +58,16 @@ pub struct AppState {
 
     /// Broadcast channel for annotation updates (serialized JSON strings)
     pub annotations_tx: broadcast::Sender<String>,
+
+    /// Whether the server is running in serve mode (--serve flag)
+    pub serve_mode: bool,
+
+    /// Session store for serve mode (None when not in serve mode)
+    pub session_store: Option<Arc<SessionStore>>,
+
+    /// Admin credentials for serve mode (from OST_ADMIN_USER / OST_ADMIN_PASS)
+    pub admin_user: Option<String>,
+    pub admin_pass: Option<String>,
 }
 
 /// Storage for user-submitted custom metrics.
@@ -167,6 +178,10 @@ impl AppState {
             custom_metrics: Arc::new(std::sync::RwLock::new(CustomMetrics::default())),
             annotations: Arc::new(std::sync::RwLock::new(Vec::new())),
             annotations_tx,
+            serve_mode: false,
+            session_store: None,
+            admin_user: None,
+            admin_pass: None,
         }
     }
 

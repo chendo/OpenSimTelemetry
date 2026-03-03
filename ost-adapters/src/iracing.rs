@@ -147,6 +147,13 @@ mod windows_impl {
                 _ => None,
             };
 
+            // YawNorth: yaw relative to geographic north (radians, CCW positive)
+            // Convert to compass heading (degrees, CW from north)
+            let heading = get_f32("YawNorth").map(|yn| {
+                let deg = -yn * (180.0 / std::f32::consts::PI);
+                Degrees(deg.rem_euclid(360.0))
+            });
+
             let motion = Some(MotionData {
                 position: None,
                 velocity,
@@ -160,6 +167,7 @@ mod windows_impl {
                 latitude: get_f64("Lat"),
                 longitude: get_f64("Lon"),
                 altitude: get_f32("Alt").map(Meters),
+                heading,
             });
 
             // =================================================================

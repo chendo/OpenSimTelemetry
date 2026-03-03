@@ -123,6 +123,9 @@ pub struct MotionData {
 
     /// Altitude above sea level (meters)
     pub altitude: Option<Meters>,
+
+    /// Compass heading (degrees, clockwise from true north: 0=N, 90=E, 180=S, 270=W)
+    pub heading: Option<Degrees>,
 }
 
 // =============================================================================
@@ -1346,6 +1349,7 @@ mod tests {
                 latitude: None,
                 longitude: None,
                 altitude: None,
+                heading: None,
             }),
             vehicle: Some(VehicleData {
                 speed: Some(MetersPerSecond(30.0)),

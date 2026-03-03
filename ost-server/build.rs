@@ -20,6 +20,7 @@ fn main() {
         "widgets-vehicle.js",
         "widgets-graph.js",
         "widgets-data.js",
+        "widgets-map.js",
         "widgets-replay.js",
         "app.js",
     ];

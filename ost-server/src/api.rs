@@ -273,8 +273,18 @@ async fn auth_middleware(
 
 /// Create the main application router
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
-        .route("/", get(web_ui::serve_ui))
+    let serve_mode = state.serve_mode;
+    let mut router = Router::new();
+
+    if serve_mode {
+        router = router
+            .route("/", get(serve_landing_page))
+            .route("/s/:id", get(serve_session_page));
+    } else {
+        router = router.route("/", get(web_ui::serve_ui));
+    }
+
+    router = router
         .route("/api/docs", get(api_docs))
         .route("/api/adapters", get(list_adapters))
         .route("/api/adapters/:name/toggle", post(toggle_adapter))
@@ -305,6 +315,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/replay/info", get(replay_info))
         .route("/api/replay/frames", get(replay_frames))
+        .route("/api/replay/trackmap", get(replay_trackmap))
         .route("/api/replay/control", post(replay_control))
         .route("/api/replay", delete(replay_delete))
         // History buffer config & aggregation
@@ -328,6 +339,17 @@ pub fn create_router(state: AppState) -> Router {
             "/api/persistence/files/:name",
             delete(persistence_delete_file),
         )
+        // Session endpoints (serve mode)
+        .route(
+            "/api/sessions/upload",
+            post(session_upload).layer(DefaultBodyLimit::max(1024 * 1024 * 1024)),
+        )
+        .route("/api/sessions", get(list_sessions))
+        .route("/api/sessions/:id", delete(delete_session))
+        .route("/api/sessions/:id/load", post(load_session))
+        .route("/api/sessions/stats", get(session_stats));
+
+    router
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -1165,6 +1187,21 @@ async fn replay_info(
     }
 }
 
+/// Return the pre-computed track outline for the current replay.
+/// The outline is an array of [lat, lng] pairs extracted from on-track GPS data.
+async fn replay_trackmap(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let replay = state.replay.read().await;
+    if let Some(rs) = &*replay {
+        Ok(Json(serde_json::json!({
+            "outline": rs.track_outline(),
+        })))
+    } else {
+        Err((StatusCode::NOT_FOUND, "No active replay".into()))
+    }
+}
+
 #[derive(Deserialize)]
 struct ReplayFramesQuery {
     start: usize,
@@ -1944,6 +1981,528 @@ async fn persistence_delete_file(
 
     tracing::info!("Deleted telemetry file: {}", name);
     Ok(StatusCode::NO_CONTENT)
+}
+
+// === Session Endpoints (serve mode) ===
+
+/// Check admin credentials for serve mode.
+/// Returns Ok(()) if authorized, Err response if not.
+fn check_admin_auth(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), (StatusCode, String)> {
+    let (Some(admin_user), Some(admin_pass)) = (&state.admin_user, &state.admin_pass) else {
+        // No admin credentials configured — allow access
+        return Ok(());
+    };
+
+    if let Some(auth) = headers.get(header::AUTHORIZATION) {
+        if let Ok(val) = auth.to_str() {
+            if let Some(encoded) = val.strip_prefix("Basic ") {
+                use base64::Engine;
+                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(encoded) {
+                    if let Ok(creds) = std::str::from_utf8(&decoded) {
+                        if let Some((user, pass)) = creds.split_once(':') {
+                            if user == admin_user && pass == admin_pass {
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Err((
+        StatusCode::UNAUTHORIZED,
+        "Admin authentication required".to_string(),
+    ))
+}
+
+/// Upload an .ibt file and create a new session (serve mode)
+async fn session_upload(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let store = state
+        .session_store
+        .as_ref()
+        .ok_or((StatusCode::BAD_REQUEST, "Not in serve mode".to_string()))?;
+
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Failed to read upload: {}", e),
+            )
+        })?
+        .ok_or((StatusCode::BAD_REQUEST, "No file provided".to_string()))?;
+
+    let file_name = field.file_name().unwrap_or("upload.ibt").to_string();
+
+    if !file_name.to_lowercase().ends_with(".ibt") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Only .ibt files are supported".to_string(),
+        ));
+    }
+
+    let data = field.bytes().await.map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Failed to read file data: {}", e),
+        )
+    })?;
+
+    tracing::info!("Session upload: {} ({} bytes)", file_name, data.len());
+
+    let store = store.clone();
+    let session_info = tokio::task::spawn_blocking(move || store.create_session(&file_name, &data))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Session creation failed: {}", e),
+            )
+        })?
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    let url = format!("/s/{}?token={}", session_info.id, session_info.token);
+
+    Ok(Json(serde_json::json!({
+        "id": session_info.id,
+        "token": session_info.token,
+        "url": url,
+        "track_name": session_info.track_name,
+        "car_name": session_info.car_name,
+        "total_frames": session_info.total_frames,
+        "duration_secs": session_info.duration_secs,
+    })))
+}
+
+/// List all sessions (admin only in serve mode)
+async fn list_sessions(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<Vec<crate::sessions::SessionInfo>>, (StatusCode, String)> {
+    check_admin_auth(&state, &headers)?;
+
+    let store = state
+        .session_store
+        .as_ref()
+        .ok_or((StatusCode::BAD_REQUEST, "Not in serve mode".to_string()))?;
+
+    Ok(Json(store.list_sessions()))
+}
+
+/// Delete a session (admin only in serve mode)
+async fn delete_session(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    check_admin_auth(&state, &headers)?;
+
+    let store = state
+        .session_store
+        .as_ref()
+        .ok_or((StatusCode::BAD_REQUEST, "Not in serve mode".to_string()))?;
+
+    if store.delete_session(&id) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "Session not found".to_string()))
+    }
+}
+
+/// Load a session into the replay state
+async fn load_session(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let store = state
+        .session_store
+        .as_ref()
+        .ok_or((StatusCode::BAD_REQUEST, "Not in serve mode".to_string()))?;
+
+    // Validate session token
+    let session = store
+        .get_session(&id)
+        .ok_or((StatusCode::NOT_FOUND, "Session not found".to_string()))?;
+
+    let token = params.get("token").map(|s| s.as_str()).unwrap_or("");
+    if token != session.token {
+        return Err((StatusCode::FORBIDDEN, "Invalid session token".to_string()));
+    }
+
+    let ibt_path = store
+        .get_session_file(&id)
+        .ok_or((StatusCode::NOT_FOUND, "Session file not found".to_string()))?;
+
+    // Cancel any existing replay playback
+    {
+        let cancel = state.replay_cancel.read().await;
+        if let Some(token) = cancel.as_ref() {
+            token.cancel();
+        }
+    }
+
+    // Load .ibt file into replay state
+    let mut replay_state = tokio::task::spawn_blocking(move || {
+        ReplayState::from_file(&ibt_path).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load session: {}", e),
+            )
+        })
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Session loading failed: {}", e),
+        )
+    })??;
+
+    let info = replay_state.info();
+
+    {
+        let mut replay = state.replay.write().await;
+        replay_state.set_persistent(); // Don't delete session file on drop
+        *replay = Some(replay_state);
+    }
+
+    // Broadcast status update
+    let _ = state.status_tx.send(
+        serde_json::json!({
+            "source": "replay",
+            "replay_active": true,
+        })
+        .to_string(),
+    );
+
+    Ok(Json(serde_json::json!({
+        "status": "loaded",
+        "track_name": info.track_name,
+        "car_name": info.car_name,
+        "total_frames": info.total_frames,
+        "duration_secs": info.duration_secs,
+    })))
+}
+
+/// Session storage stats
+async fn session_stats(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let store = state
+        .session_store
+        .as_ref()
+        .ok_or((StatusCode::BAD_REQUEST, "Not in serve mode".to_string()))?;
+
+    Ok(Json(store.storage_stats()))
+}
+
+/// Serve the landing page for serve mode
+async fn serve_landing_page(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let store = match &state.session_store {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [(header::CONTENT_TYPE, "text/plain")],
+                "Not in serve mode".to_string(),
+            );
+        }
+    };
+
+    let is_admin = check_admin_auth(&state, &headers).is_ok() && state.admin_user.is_some();
+
+    let sessions = store.list_sessions();
+    let stats = store.storage_stats();
+
+    let mut session_rows = String::new();
+    for s in &sessions {
+        let duration_fmt = format_duration(s.duration_secs);
+        let size_mb = s.file_size as f64 / 1_048_576.0;
+        let created = &s.created_at[..19]; // Trim to YYYY-MM-DDTHH:MM:SS
+
+        session_rows.push_str(&format!(
+            r#"<tr>
+                <td><a href="/s/{id}?token={token}">{track}</a></td>
+                <td>{car}</td>
+                <td>{duration}</td>
+                <td>{size:.1} MB</td>
+                <td>{created}</td>
+                <td><a href="/s/{id}?token={token}" class="btn btn-view">View</a>{delete}</td>
+            </tr>"#,
+            id = s.id,
+            token = s.token,
+            track = html_escape(&s.track_name),
+            car = html_escape(&s.car_name),
+            duration = duration_fmt,
+            size = size_mb,
+            created = created,
+            delete = if is_admin {
+                format!(
+                    r#" <button class="btn btn-delete" onclick="deleteSession('{}')">Delete</button>"#,
+                    s.id
+                )
+            } else {
+                String::new()
+            },
+        ));
+    }
+
+    let storage_mb = stats["total_size_mb"].as_f64().unwrap_or(0.0);
+    let max_mb = stats["max_storage_mb"].as_f64().unwrap_or(10240.0);
+
+    let html = format!(
+        r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenSimTelemetry</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #e0e0e0; }}
+  .container {{ max-width: 900px; margin: 0 auto; padding: 2rem 1rem; }}
+  h1 {{ font-size: 1.5rem; margin-bottom: 0.5rem; color: #fff; }}
+  .subtitle {{ color: #888; margin-bottom: 2rem; font-size: 0.9rem; }}
+  .upload-zone {{
+    border: 2px dashed #333; border-radius: 8px; padding: 2rem; text-align: center;
+    margin-bottom: 2rem; transition: border-color 0.2s, background 0.2s; cursor: pointer;
+  }}
+  .upload-zone.dragover {{ border-color: #4a9eff; background: rgba(74, 158, 255, 0.05); }}
+  .upload-zone p {{ color: #888; margin-bottom: 0.5rem; }}
+  .upload-zone .hint {{ font-size: 0.8rem; color: #555; }}
+  .upload-zone input[type="file"] {{ display: none; }}
+  .progress {{ display: none; margin-top: 1rem; }}
+  .progress-bar {{ height: 4px; background: #222; border-radius: 2px; overflow: hidden; }}
+  .progress-fill {{ height: 100%; background: #4a9eff; width: 0%; transition: width 0.3s; }}
+  .progress-text {{ font-size: 0.8rem; color: #888; margin-top: 0.25rem; }}
+  table {{ width: 100%; border-collapse: collapse; }}
+  th {{ text-align: left; padding: 0.5rem; color: #888; font-size: 0.8rem; border-bottom: 1px solid #222; }}
+  td {{ padding: 0.5rem; border-bottom: 1px solid #1a1a1a; font-size: 0.9rem; }}
+  td a {{ color: #4a9eff; text-decoration: none; }}
+  td a:hover {{ text-decoration: underline; }}
+  .btn {{ padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.8rem; text-decoration: none; border: none; cursor: pointer; }}
+  .btn-view {{ background: #1a3a5c; color: #4a9eff; }}
+  .btn-view:hover {{ background: #244a70; }}
+  .btn-delete {{ background: #3a1a1a; color: #ff6b6b; margin-left: 0.5rem; }}
+  .btn-delete:hover {{ background: #4a2020; }}
+  .stats {{ color: #555; font-size: 0.8rem; margin-top: 1rem; }}
+  .empty {{ color: #555; text-align: center; padding: 2rem; }}
+  .error {{ color: #ff6b6b; margin-top: 0.5rem; display: none; }}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>OpenSimTelemetry</h1>
+  <p class="subtitle">Upload an iRacing telemetry file (.ibt) to view and share</p>
+
+  <div class="upload-zone" id="upload-zone">
+    <p>Drop .ibt file here or click to browse</p>
+    <p class="hint">Supports iRacing .ibt telemetry files</p>
+    <input type="file" id="file-input" accept=".ibt">
+    <div class="progress" id="progress">
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      <p class="progress-text" id="progress-text">Uploading...</p>
+    </div>
+    <p class="error" id="error"></p>
+  </div>
+
+  <h2 style="font-size:1.1rem; margin-bottom:0.75rem;">Sessions</h2>
+  {sessions_content}
+  <p class="stats">Storage: {storage_mb:.1} MB / {max_mb:.0} MB ({count} sessions)</p>
+</div>
+
+<script>
+const zone = document.getElementById('upload-zone');
+const input = document.getElementById('file-input');
+const progress = document.getElementById('progress');
+const progressFill = document.getElementById('progress-fill');
+const progressText = document.getElementById('progress-text');
+const errorEl = document.getElementById('error');
+
+zone.addEventListener('click', () => input.click());
+zone.addEventListener('dragover', (e) => {{ e.preventDefault(); zone.classList.add('dragover'); }});
+zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+zone.addEventListener('drop', (e) => {{
+  e.preventDefault(); zone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+}});
+input.addEventListener('change', () => {{ if (input.files.length) uploadFile(input.files[0]); }});
+
+function uploadFile(file) {{
+  if (!file.name.toLowerCase().endsWith('.ibt')) {{
+    showError('Only .ibt files are supported'); return;
+  }}
+  errorEl.style.display = 'none';
+  progress.style.display = 'block';
+  progressFill.style.width = '0%';
+  progressText.textContent = 'Uploading ' + file.name + '...';
+
+  const xhr = new XMLHttpRequest();
+  xhr.upload.addEventListener('progress', (e) => {{
+    if (e.lengthComputable) {{
+      const pct = Math.round(e.loaded / e.total * 100);
+      progressFill.style.width = pct + '%';
+      progressText.textContent = 'Uploading... ' + pct + '%';
+    }}
+  }});
+  xhr.addEventListener('load', () => {{
+    if (xhr.status >= 200 && xhr.status < 300) {{
+      const data = JSON.parse(xhr.responseText);
+      progressText.textContent = 'Processing complete! Redirecting...';
+      progressFill.style.width = '100%';
+      window.location.href = data.url;
+    }} else {{
+      let msg = 'Upload failed';
+      try {{ msg = JSON.parse(xhr.responseText).message || xhr.responseText; }} catch(_) {{ msg = xhr.responseText; }}
+      showError(msg);
+    }}
+  }});
+  xhr.addEventListener('error', () => showError('Upload failed — network error'));
+
+  const fd = new FormData();
+  fd.append('file', file);
+  xhr.open('POST', '/api/sessions/upload');
+  xhr.send(fd);
+}}
+
+function showError(msg) {{
+  errorEl.textContent = msg;
+  errorEl.style.display = 'block';
+  progress.style.display = 'none';
+}}
+
+function deleteSession(id) {{
+  if (!confirm('Delete this session?')) return;
+  fetch('/api/sessions/' + id, {{ method: 'DELETE' }})
+    .then(() => window.location.reload());
+}}
+</script>
+</body>
+</html>"##,
+        sessions_content = if sessions.is_empty() {
+            r#"<p class="empty">No sessions yet. Upload a .ibt file to get started.</p>"#
+                .to_string()
+        } else {
+            format!(
+                r#"<table>
+                <thead><tr><th>Track</th><th>Car</th><th>Duration</th><th>Size</th><th>Uploaded</th><th></th></tr></thead>
+                <tbody>{}</tbody>
+                </table>"#,
+                session_rows
+            )
+        },
+        storage_mb = storage_mb,
+        max_mb = max_mb,
+        count = sessions.len(),
+    );
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        html,
+    )
+}
+
+/// Serve a session page — validates token, loads replay, serves UI
+async fn serve_session_page(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let store = state
+        .session_store
+        .as_ref()
+        .ok_or((StatusCode::BAD_REQUEST, "Not in serve mode".to_string()))?;
+
+    let session = store
+        .get_session(&id)
+        .ok_or((StatusCode::NOT_FOUND, "Session not found".to_string()))?;
+
+    let token = params.get("token").map(|s| s.as_str()).unwrap_or("");
+    if token != session.token {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Invalid or missing session token".to_string(),
+        ));
+    }
+
+    let ibt_path = store
+        .get_session_file(&id)
+        .ok_or((StatusCode::NOT_FOUND, "Session file missing".to_string()))?;
+
+    // Load session into replay state (cancel existing playback first)
+    {
+        let cancel = state.replay_cancel.read().await;
+        if let Some(ct) = cancel.as_ref() {
+            ct.cancel();
+        }
+    }
+
+    let mut replay_state = tokio::task::spawn_blocking(move || ReplayState::from_file(&ibt_path))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load session: {}", e),
+            )
+        })?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to parse session file: {}", e),
+            )
+        })?;
+
+    {
+        let mut replay = state.replay.write().await;
+        replay_state.set_persistent(); // Don't delete session file on drop
+        *replay = Some(replay_state);
+    }
+
+    // Broadcast status update
+    let _ = state.status_tx.send(
+        serde_json::json!({
+            "source": "replay",
+            "replay_active": true,
+        })
+        .to_string(),
+    );
+
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        web_ui::get_ui_html().to_string(),
+    ))
+}
+
+fn format_duration(secs: f64) -> String {
+    let total = secs as u64;
+    let m = total / 60;
+    let s = total % 60;
+    if m > 0 {
+        format!("{}m {:02}s", m, s)
+    } else {
+        format!("{}s", s)
+    }
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 // === Interactive API Docs ===
