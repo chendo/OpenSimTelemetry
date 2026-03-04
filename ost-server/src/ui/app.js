@@ -701,7 +701,13 @@ function updatePerfToolbar(now, renderMs) {
 
 // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
 let _lastPrefetchTime = 0;
+let _idleFrames = 0;
+let _renderTimer = null; // non-null while sleeping (setTimeout pending)
+const _IDLE_AFTER = 20;  // frames before entering sleep (~170ms at 120fps)
+const _IDLE_MS = 50;     // sleep poll rate (~20fps)
+
 function renderLoop() {
+    _renderTimer = null; // clear if we were called from setTimeout
     const now = performance.now();
     const renderStart = now;
     const activeReplay = replayBuf.count > 0 ? replayBuf : null;
@@ -735,7 +741,8 @@ function renderLoop() {
 
     if (activeBuf) {
         const frame = activeBuf.currentFrame();
-        if (frame) {
+        // Only mark dirty when the buffer cursor actually moved or on initial load
+        if (frame && (activeBuf._dirty || !store.currentFrame)) {
             store.currentFrame = frame;
             store._dirty = true;
         }
@@ -745,7 +752,8 @@ function renderLoop() {
     updateSeekBar();
     updateSessionBar();
 
-    if (store._dirty || _uiDirty || (activeBuf && activeBuf._dirty)) {
+    const wasDirty = store._dirty || _uiDirty || (activeBuf && activeBuf._dirty);
+    if (wasDirty) {
         store._dirty = false;
         _uiDirty = false;
         if (activeBuf) activeBuf._dirty = false;
@@ -753,8 +761,16 @@ function renderLoop() {
             if (w._visible) w.update(store, now, activeBuf);
         }
     }
+    if (wasDirty || activeBuf?.playing) _idleFrames = 0; else _idleFrames++;
+
     updatePerfToolbar(now, performance.now() - renderStart);
-    requestAnimationFrame(renderLoop);
+
+    // Adaptive scheduling: full rAF rate when active, ~20fps when idle
+    if (_idleFrames < _IDLE_AFTER) {
+        requestAnimationFrame(renderLoop);
+    } else {
+        _renderTimer = setTimeout(renderLoop, _IDLE_MS);
+    }
 }
 
 // ==================== History Seek Bar ====================
@@ -1527,6 +1543,17 @@ updateRecordingIndicator();
         body: JSON.stringify({ auto_save: autoSave, frequency_hz: freq })
     }).catch(() => {});
 })();
+
+// Wake the render loop out of idle sleep when requestRedraw() is called
+_wakeupRender = function () {
+    _idleFrames = 0;
+    if (_renderTimer !== null) {
+        clearTimeout(_renderTimer);
+        _renderTimer = null;
+        requestAnimationFrame(renderLoop);
+    }
+    // If rAF is already pending, resetting _idleFrames is enough
+};
 
 // Start
 connectSSE();

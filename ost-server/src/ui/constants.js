@@ -19,7 +19,8 @@ const HISTORY_DURATION_OPTIONS = [
 // Global crosshair state: when hovering any graph, all graphs show a vertical cursor at the same timestamp
 const crosshair = { t: null };
 let _uiDirty = false;
-function requestRedraw() { _uiDirty = true; }
+let _wakeupRender = null; // assigned by renderLoop setup in app.js
+function requestRedraw() { _uiDirty = true; _wakeupRender?.(); }
 let streamPaused = false;
 
 /* ==================== Semantic Metric Colours ==================== */
