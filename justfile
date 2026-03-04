@@ -26,6 +26,48 @@ build-windows:
 run:
     cargo run -p ost-server
 
+# Run with Ctrl+R to restart, Ctrl+C to quit
+dev:
+    #!/usr/bin/env bash
+    echo "Dev mode — Ctrl+R to restart, Ctrl+C to quit"
+
+    SERVER_PID=""
+
+    _cleanup() {
+        [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
+        exit 0
+    }
+    trap _cleanup INT TERM
+
+    _start() {
+        [ -n "$SERVER_PID" ] && { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; }
+        cargo run -p ost-server &
+        SERVER_PID=$!
+    }
+
+    _start
+
+    while true; do
+        # Detect server crash
+        if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+            wait "$SERVER_PID"
+            code=$?
+            printf "\n\033[31m✗ Server exited (code %d). Enter to restart, Ctrl+C to quit.\033[0m " "$code"
+            IFS= read -r || _cleanup
+            _start
+            continue
+        fi
+
+        # Poll for Ctrl+R (0x12) — non-blocking single-char read with 0.2 s timeout
+        char=""
+        IFS= read -r -s -n 1 -t 0.2 char 2>/dev/null || true
+
+        [ "$char" = $'\x12' ] && {
+            printf "\n\033[33m↺ Restarting...\033[0m\n"
+            _start
+        }
+    done
+
 # Run the server locally (release)
 run-release:
     cargo run --release -p ost-server

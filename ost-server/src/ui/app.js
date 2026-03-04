@@ -634,14 +634,19 @@ const _perfFpsEl = document.getElementById('perf-fps');
 const _perf1pctEl = document.getElementById('perf-1pct');
 const _perf01pctEl = document.getElementById('perf-01pct');
 const _perfRenderEl = document.getElementById('perf-render');
+const _perfRender1pctEl = document.getElementById('perf-render-1pct');
+const _perfRender01pctEl = document.getElementById('perf-render-01pct');
 const _FRAME_WINDOW = 300;   // ~5 seconds at 60fps
 const _frameTimes = new Float64Array(_FRAME_WINDOW); // Fixed-size circular buffer (O(1) writes)
 let _frameTimesHead = 0;     // Write index in circular buffer
 let _frameTimesFill = 0;     // How many entries populated (caps at _FRAME_WINDOW)
+const _renderTimes = new Float64Array(_FRAME_WINDOW); // Per-frame render durations (ms)
+let _renderTimesHead = 0;
+let _renderTimesFill = 0;
 let _lastFrameTime = 0;
 let _perfUpdateCounter = 0;
 
-function updatePerfToolbar(now, renderStart) {
+function updatePerfToolbar(now, renderMs) {
     // Track frame-to-frame time for FPS using O(1) circular buffer
     if (_lastFrameTime > 0) {
         _frameTimes[_frameTimesHead] = now - _lastFrameTime;
@@ -649,6 +654,11 @@ function updatePerfToolbar(now, renderStart) {
         if (_frameTimesFill < _FRAME_WINDOW) _frameTimesFill++;
     }
     _lastFrameTime = now;
+
+    // Track render time
+    _renderTimes[_renderTimesHead] = renderMs;
+    _renderTimesHead = (_renderTimesHead + 1) % _FRAME_WINDOW;
+    if (_renderTimesFill < _FRAME_WINDOW) _renderTimesFill++;
 
     // Update display every 30 frames (~0.5s)
     if (++_perfUpdateCounter < 30) return;
@@ -674,9 +684,19 @@ function updatePerfToolbar(now, renderStart) {
     const p01avg = sorted.slice(0, p01count).reduce((a, b) => a + b, 0) / p01count;
     _perf01pctEl.textContent = (1000 / p01avg).toFixed(0);
 
-    // Render time (time spent in current frame's widget updates)
-    const renderMs = performance.now() - renderStart;
+    // Render time: current, 1%, 0.1% worst-case (ms)
     _perfRenderEl.textContent = renderMs.toFixed(1) + 'ms';
+
+    if (_renderTimesFill >= 10) {
+        const rsorted = Array.from(_renderTimes.subarray(0, _renderTimesFill)).sort((a, b) => b - a);
+        const rp1count = Math.max(1, Math.floor(rsorted.length * 0.01));
+        const rp1avg = rsorted.slice(0, rp1count).reduce((a, b) => a + b, 0) / rp1count;
+        _perfRender1pctEl.textContent = rp1avg.toFixed(1) + 'ms';
+
+        const rp01count = Math.max(1, Math.floor(rsorted.length * 0.001));
+        const rp01avg = rsorted.slice(0, rp01count).reduce((a, b) => a + b, 0) / rp01count;
+        _perfRender01pctEl.textContent = rp01avg.toFixed(1) + 'ms';
+    }
 }
 
 // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
@@ -733,7 +753,7 @@ function renderLoop() {
             if (w._visible) w.update(store, now, activeBuf);
         }
     }
-    updatePerfToolbar(now, renderStart);
+    updatePerfToolbar(now, performance.now() - renderStart);
     requestAnimationFrame(renderLoop);
 }
 
