@@ -1059,16 +1059,6 @@ async fn replay_upload(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    {
-        let replay = state.replay.read().await;
-        if replay.is_some() {
-            return Err((
-                StatusCode::CONFLICT,
-                "A replay is already active. Delete it first.".to_string(),
-            ));
-        }
-    }
-
     let field = multipart
         .next_field()
         .await
