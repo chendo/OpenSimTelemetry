@@ -105,6 +105,7 @@ class ReplayPlayer {
             this.info = result.info;
             this.active = true;
             this.currentSpeed = 1;
+            this.buf.reset(); // Clear any stale cache from a previous replay
             await this.enterReplayMode();
         } catch (e) {
             console.error('Upload failed:', e);

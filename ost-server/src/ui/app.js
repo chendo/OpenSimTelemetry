@@ -1543,7 +1543,6 @@ const dropOverlay = document.getElementById('drop-overlay');
 
 document.body.addEventListener('dragenter', (e) => {
     e.preventDefault();
-    if (replayPlayer.active) return;
     dragCounter++;
     dropOverlay.classList.add('active');
 });
@@ -1557,7 +1556,7 @@ document.body.addEventListener('drop', (e) => {
     e.preventDefault();
     dragCounter = 0;
     dropOverlay.classList.remove('active');
-    if (!replayPlayer.active && e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer.files.length > 0) {
         const file = e.dataTransfer.files[0];
         if (file.name.toLowerCase().endsWith('.ibt')) replayPlayer.upload(file);
     }
