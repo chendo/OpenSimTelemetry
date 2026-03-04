@@ -1682,3 +1682,330 @@ fn base64_encode(s: &str) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(s)
 }
+
+// ==================== Session lifecycle tests (require fixture) ====================
+
+/// Helper: upload the race.ibt fixture to the session store and return the parsed response.
+async fn upload_session_fixture(app: axum::Router) -> serde_json::Value {
+    let ibt_data = std::fs::read(fixture_path()).expect("fixture read");
+    let (boundary, body) = multipart_body("race.ibt", &ibt_data);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/sessions/upload")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "session upload should succeed");
+    serde_json::from_str(&body_string(resp.into_body()).await).unwrap()
+}
+
+/// Helper: list all sessions with admin auth.
+async fn list_sessions_admin(app: axum::Router) -> Vec<serde_json::Value> {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions")
+                .header(
+                    "Authorization",
+                    format!("Basic {}", base64_encode("admin:secret")),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    serde_json::from_str(&body_string(resp.into_body()).await).unwrap()
+}
+
+#[tokio::test]
+async fn test_session_upload_creates_session() {
+    if !has_fixture() {
+        return;
+    }
+    let (app, _state, dir) = serve_app();
+    let info = upload_session_fixture(app).await;
+
+    assert!(!info["id"].as_str().unwrap_or("").is_empty(), "id present");
+    assert!(
+        !info["token"].as_str().unwrap_or("").is_empty(),
+        "token present"
+    );
+    assert!(
+        info["url"].as_str().unwrap_or("").starts_with("/s/"),
+        "url starts with /s/"
+    );
+    assert!(info["total_frames"].as_u64().unwrap_or(0) > 0, "has frames");
+    assert!(
+        info["duration_secs"].as_f64().unwrap_or(0.0) > 0.0,
+        "has duration"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_upload_appears_in_list() {
+    if !has_fixture() {
+        return;
+    }
+    let (app, _state, dir) = serve_app();
+    let info = upload_session_fixture(app.clone()).await;
+    let session_id = info["id"].as_str().unwrap().to_string();
+
+    let sessions = list_sessions_admin(app).await;
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["id"], session_id);
+    assert!(sessions[0]["track_name"].as_str().is_some());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_upload_multiple_all_listed() {
+    if !has_fixture() {
+        return;
+    }
+    let (app, _state, dir) = serve_app();
+    let ibt_data = std::fs::read(fixture_path()).expect("fixture read");
+
+    // Upload two sessions (same file, different filename → different IDs)
+    for name in ["lap1.ibt", "lap2.ibt"] {
+        let (boundary, body) = multipart_body(name, &ibt_data);
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/sessions/upload")
+                    .header(
+                        "content-type",
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+    }
+
+    let sessions = list_sessions_admin(app).await;
+    assert_eq!(sessions.len(), 2, "both sessions listed");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_delete_removes_from_list() {
+    if !has_fixture() {
+        return;
+    }
+    let (app, _state, dir) = serve_app();
+    let info = upload_session_fixture(app.clone()).await;
+    let session_id = info["id"].as_str().unwrap().to_string();
+
+    // Delete the session
+    let del_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/sessions/{session_id}"))
+                .header(
+                    "Authorization",
+                    format!("Basic {}", base64_encode("admin:secret")),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(del_resp.status(), 204);
+
+    // List should now be empty
+    let sessions = list_sessions_admin(app).await;
+    assert!(sessions.is_empty(), "session list empty after delete");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_load_with_valid_token() {
+    if !has_fixture() {
+        return;
+    }
+    let (app, _state, dir) = serve_app();
+    let info = upload_session_fixture(app.clone()).await;
+    let session_id = info["id"].as_str().unwrap().to_string();
+    let token = info["token"].as_str().unwrap().to_string();
+
+    let load_resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/sessions/{session_id}/load?token={token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(load_resp.status(), 200);
+    let result: serde_json::Value =
+        serde_json::from_str(&body_string(load_resp.into_body()).await).unwrap();
+    assert_eq!(result["status"], "loaded");
+    assert!(result["total_frames"].as_u64().unwrap_or(0) > 0);
+    assert!(result["duration_secs"].as_f64().unwrap_or(0.0) > 0.0);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_load_with_invalid_token() {
+    if !has_fixture() {
+        return;
+    }
+    let (app, _state, dir) = serve_app();
+    let info = upload_session_fixture(app.clone()).await;
+    let session_id = info["id"].as_str().unwrap().to_string();
+
+    let load_resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/sessions/{session_id}/load?token=wrongtoken"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(load_resp.status(), 403);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_load_nonexistent_returns_404() {
+    let (app, _state, dir) = serve_app();
+    let load_resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/sessions/doesnotexist/load?token=anything")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(load_resp.status(), 404);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_stats_after_upload() {
+    if !has_fixture() {
+        return;
+    }
+    let (app, _state, dir) = serve_app();
+    upload_session_fixture(app.clone()).await;
+
+    let stats_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions/stats")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stats_resp.status(), 200);
+    let stats: serde_json::Value =
+        serde_json::from_str(&body_string(stats_resp.into_body()).await).unwrap();
+    assert_eq!(stats["session_count"], 1);
+    assert!(
+        stats["total_size_bytes"].as_u64().unwrap_or(0) > 0,
+        "disk usage recorded"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_persistence_across_store_reload() {
+    if !has_fixture() {
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!(
+        "ost-test-persist-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let ibt_data = std::fs::read(fixture_path()).expect("fixture read");
+
+    // Create session via first store instance
+    let store1 = SessionStore::new(dir.clone(), 10 * 1024 * 1024 * 1024).unwrap();
+    let info = store1.create_session("race.ibt", &ibt_data).unwrap();
+    drop(store1);
+
+    // Re-open store from same directory — sessions are persisted as files on disk
+    let store2 = SessionStore::new(dir.clone(), 10 * 1024 * 1024 * 1024).unwrap();
+    let sessions = store2.list_sessions();
+    assert_eq!(sessions.len(), 1, "session survives store reload");
+    assert_eq!(sessions[0].id, info.id);
+    assert_eq!(sessions[0].track_name, info.track_name);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_view_page_with_valid_token() {
+    if !has_fixture() {
+        return;
+    }
+    let (app, _state, dir) = serve_app();
+    let info = upload_session_fixture(app.clone()).await;
+    let url = info["url"].as_str().unwrap().to_string();
+
+    let page_resp = app
+        .oneshot(Request::builder().uri(&url).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(page_resp.status(), 200);
+    let html = body_string(page_resp.into_body()).await;
+    assert!(html.contains("<html"), "response is HTML");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_session_view_page_with_wrong_token() {
+    if !has_fixture() {
+        return;
+    }
+    let (app, _state, dir) = serve_app();
+    let info = upload_session_fixture(app.clone()).await;
+    let session_id = info["id"].as_str().unwrap().to_string();
+
+    let page_resp = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/s/{session_id}?token=wrongtoken"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page_resp.status(), 403);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
