@@ -33,7 +33,7 @@ function updateStatus() {
         const active = store.adapters.find(a => a.active);
         if (active) {
             const now = performance.now();
-            const hasRecentFrames = _frameTimestamps.some(t => now - t < 2000);
+            const hasRecentFrames = _tsCount > 0 && (now - _tsRing[(_tsHead - 1 + _TS_CAP) % _TS_CAP]) < 2000;
             if (hasRecentFrames) {
                 text = `Receiving from ${active.name}`;
                 dotClass = 'dot-active';
@@ -50,27 +50,41 @@ function updateStatus() {
     _updateRemoteState();
 }
 
-// Telemetry throughput tracking
+// Telemetry throughput tracking — ring buffer (no allocation on update)
 const throughputEl = document.getElementById('header-throughput');
-let _frameTimestamps = [];  // recent SSE frame arrival times
-let _expectedTickRate = 60; // default; updated from frame data
+const _TS_CAP = 256;
+const _tsRing = new Float64Array(_TS_CAP);
+let _tsHead = 0, _tsTail = 0, _tsCount = 0;
+let _expectedTickRate = 60;
 let _throughputInterval = null;
+
+function _tsPush(t) {
+    _tsRing[_tsHead] = t;
+    _tsHead = (_tsHead + 1) % _TS_CAP;
+    if (_tsCount === _TS_CAP) _tsTail = (_tsTail + 1) % _TS_CAP;
+    else _tsCount++;
+}
+function _tsReset() { _tsHead = 0; _tsTail = 0; _tsCount = 0; }
+function _tsTrim(cutoff) {
+    while (_tsCount > 0 && _tsRing[_tsTail] < cutoff) {
+        _tsTail = (_tsTail + 1) % _TS_CAP;
+        _tsCount--;
+    }
+}
 
 function updateThroughput() {
     const now = performance.now();
-    // Keep only last 2 seconds of timestamps
-    _frameTimestamps = _frameTimestamps.filter(t => now - t < 2000);
-    updateStatus();  // re-evaluate receiving vs waiting
-    if (_frameTimestamps.length < 2) {
+    _tsTrim(now - 2000);
+    updateStatus();
+    if (_tsCount < 2) {
         throughputEl.textContent = '';
         return;
     }
-    // During replay, expected rate = tickRate * playbackSpeed; otherwise use live tick rate
     const expectedRate = replayBuf.count > 0
         ? (replayBuf.tickRate || 60) * (replayBuf.playbackSpeed || 1)
         : _expectedTickRate;
-    const elapsed = (now - _frameTimestamps[0]) / 1000;
-    const fps = (_frameTimestamps.length - 1) / elapsed;
+    const elapsed = (now - _tsRing[_tsTail]) / 1000;
+    const fps = (_tsCount - 1) / elapsed;
     const pct = Math.round((fps / expectedRate) * 100);
     throughputEl.textContent = `${pct}%`;
     throughputEl.className = 'perf-value' + (pct < 98 ? ' throughput-warn' : '');
@@ -162,7 +176,7 @@ function connectSSE() {
     };
     es.onerror = () => {
         sseConnected = false; updateStatus(); es.close();
-        _frameTimestamps = [];
+        _tsReset();
         _fullFrame = null;
         updateThroughput();
         setTimeout(connectSSE, 5000);
@@ -190,8 +204,8 @@ function connectSSE() {
             }
             _fullFrame = frame;
             if (!streamPaused) store.pushFrame(frame);
-            const wasEmpty = _frameTimestamps.length === 0;
-            _frameTimestamps.push(performance.now());
+            const wasEmpty = _tsCount === 0;
+            _tsPush(performance.now());
             if (wasEmpty) updateStatus();
         }
         catch (err) { console.error('Parse error:', err); }
