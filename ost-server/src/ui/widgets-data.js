@@ -1,6 +1,6 @@
 /* ==================== AllMetricsWidget ==================== */
 class AllMetricsWidget extends Widget {
-    constructor() { super('allfields', 'Metrics', { col: 9, row: 15, width: 4, height: 5 }); }
+    constructor() { super('allfields', 'Metrics', { col: 9, row: 23, width: 4, height: 9 }); }
 
     buildContent(c) {
         c.innerHTML = `

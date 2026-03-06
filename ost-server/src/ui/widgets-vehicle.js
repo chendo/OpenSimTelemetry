@@ -1,6 +1,6 @@
 /* ==================== VehicleWidget ==================== */
 class VehicleWidget extends Widget {
-    constructor() { super('vehicle', 'Vehicle', { col: 1, row: 1, width: 4, height: 8 }); }
+    constructor() { super('vehicle', 'Vehicle', { col: 1, row: 1, width: 3, height: 8 }); }
 
     buildContent(c) {
         c.innerHTML = `
@@ -183,7 +183,7 @@ class VehicleWidget extends Widget {
 /* ==================== GForceWidget ==================== */
 class GForceWidget extends Widget {
     constructor() {
-        super('gforce', 'G-Force', { col: 5, row: 1, width: 4, height: 8 });
+        super('gforce', 'G-Force', { col: 7, row: 1, width: 3, height: 8 });
         this.trailMax = 40;
         this._trail = new Array(this.trailMax);
         this._trailHead = 0;
@@ -390,7 +390,7 @@ function tireTemperatureColor(tempC) {
 
 class WheelsWidget extends Widget {
     constructor() {
-        super('wheels', 'Wheels', { col: 9, row: 1, width: 4, height: 8 });
+        super('wheels', 'Wheels', { col: 10, row: 1, width: 3, height: 8 });
         this.suspRange = { min: Infinity, max: -Infinity };
         // Suspension travel ring buffers per corner (~2s at 60Hz)
         this._suspHistLen = 120;

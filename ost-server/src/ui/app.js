@@ -246,12 +246,12 @@ if (savedGraphs && savedGraphs.length > 0) {
         grid.addWidget(gw);
     }
 } else {
-    const pedals = new GraphWidget('graph-pedals', { col: 1, row: 9, width: 12, height: 9 },
+    const pedals = new GraphWidget('graph-pedals', { col: 1, row: 9, width: 12, height: 7 },
         ['speed', 'rpm', 'throttle', 'brake', 'clutch', 'abs_active']);
     pedals.init();
     pedals.setTitle('Pedals and Speed');
     grid.addWidget(pedals);
-    const steering = new GraphWidget('graph-steering', { col: 1, row: 18, width: 12, height: 9 },
+    const steering = new GraphWidget('graph-steering', { col: 1, row: 16, width: 12, height: 7 },
         ['steering', 'yaw_rate', 'lat_g']);
     steering.init();
     steering.setTitle('Steering');

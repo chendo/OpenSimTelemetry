@@ -2,7 +2,7 @@
 const LAYOUT_KEY = 'ost-dashboard-layout';
 const LAYOUT_VERSION_KEY = 'ost-dashboard-version';
 const GRAPHS_KEY = 'ost-dashboard-graphs';
-const LAYOUT_VERSION = '7'; // Rearrange default layout: Vehicle/GForce/Wheels top row
+const LAYOUT_VERSION = '8'; // 4-up top row (3-col each), shorter graphs, wider Metrics
 const BUFFER_MAX = 3600;
 
 // History buffer settings

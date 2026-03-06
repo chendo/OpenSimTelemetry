@@ -1,7 +1,7 @@
 /* ==================== Track Map Widget ==================== */
 class TrackMapWidget extends Widget {
     constructor() {
-        super('trackmap', 'Track Map', { col: 5, row: 1, width: 4, height: 8 });
+        super('trackmap', 'Track Map', { col: 4, row: 1, width: 3, height: 8 });
         this._outline = null;    // [[lat, lng], ...] from server
         this._bounds = null;     // {minLat, maxLat, minLng, maxLng}
         this._currentPos = null; // {lat, lng}
