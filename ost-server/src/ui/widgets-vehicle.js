@@ -186,11 +186,21 @@ class GForceWidget extends Widget {
         this._trailHead = 0;
         this._trailCount = 0;
         this.gScale = 2.0;
-        this._history = [];
+        // 60s history ring buffer (capacity 4096 > 60fps*60s=3600)
+        const hc = 4096;
+        this._histCap = hc;
+        this._histT = new Float64Array(hc);
+        this._histLat = new Float64Array(hc);
+        this._histLong = new Float64Array(hc);
+        this._histHead = 0;
+        this._histTail = 0;
+        this._histCount = 0;
         this._maxLat = 0;
         this._maxLong = 0;
         this._maxLatPt = null;
         this._maxLongPt = null;
+        this._maxLatIdx = -1;
+        this._maxLongIdx = -1;
     }
 
     buildContent(c) {
@@ -221,31 +231,62 @@ class GForceWidget extends Widget {
         this._trailHead = (this._trailHead + 1) % this.trailMax;
         if (this._trailCount < this.trailMax) this._trailCount++;
 
-        // 60s max tracking
-        this._history.push({ t: now, lat: gx, long: gz });
-        const cutoff = now - 60000;
-        while (this._history.length > 0 && this._history[0].t < cutoff) this._history.shift();
-        let maxLat = 0, maxLong = 0, maxLatPt = null, maxLongPt = null;
-        for (const h of this._history) {
-            const aLat = Math.abs(h.lat);
-            if (aLat > maxLat) { maxLat = aLat; maxLatPt = { x: h.lat, y: h.long }; }
-            const aLong = Math.abs(h.long);
-            if (aLong > maxLong) { maxLong = aLong; maxLongPt = { x: h.lat, y: h.long }; }
+        // 60s history ring buffer — O(1) push + trim
+        const cap = this._histCap;
+        const wi = this._histHead;
+        this._histT[wi] = now;
+        this._histLat[wi] = gx;
+        this._histLong[wi] = gz;
+        this._histHead = (wi + 1) % cap;
+        if (this._histCount === cap) {
+            if (this._histTail === this._maxLatIdx) this._maxLatIdx = -1;
+            if (this._histTail === this._maxLongIdx) this._maxLongIdx = -1;
+            this._histTail = (this._histTail + 1) % cap;
+        } else {
+            this._histCount++;
         }
-        this._maxLat = maxLat;
-        this._maxLong = maxLong;
-        this._maxLatPt = maxLatPt;
-        this._maxLongPt = maxLongPt;
+        const cutoff = now - 60000;
+        while (this._histCount > 0 && this._histT[this._histTail] < cutoff) {
+            if (this._histTail === this._maxLatIdx) this._maxLatIdx = -1;
+            if (this._histTail === this._maxLongIdx) this._maxLongIdx = -1;
+            this._histTail = (this._histTail + 1) % cap;
+            this._histCount--;
+        }
+        // O(1) max update; rescan only when max was evicted (rare)
+        const aLat = Math.abs(gx);
+        if (aLat >= this._maxLat || this._maxLatIdx === -1) {
+            this._maxLat = aLat; this._maxLatPt = { x: gx, y: gz }; this._maxLatIdx = wi;
+        }
+        const aLong = Math.abs(gz);
+        if (aLong >= this._maxLong || this._maxLongIdx === -1) {
+            this._maxLong = aLong; this._maxLongPt = { x: gx, y: gz }; this._maxLongIdx = wi;
+        }
+        if (this._maxLatIdx === -1) this._rescanMax('Lat');
+        if (this._maxLongIdx === -1) this._rescanMax('Long');
 
         this.valEls.lat.textContent = gx.toFixed(2);
         this.valEls.long.textContent = gz.toFixed(2);
         this.valEls.vert.textContent = gy.toFixed(2);
-        this.valEls.latMax.textContent = maxLat > 0 ? 'max ' + maxLat.toFixed(2) : '--';
-        this.valEls.longMax.textContent = maxLong > 0 ? 'max ' + maxLong.toFixed(2) : '--';
+        this.valEls.latMax.textContent = this._maxLat > 0 ? 'max ' + this._maxLat.toFixed(2) : '--';
+        this.valEls.longMax.textContent = this._maxLong > 0 ? 'max ' + this._maxLong.toFixed(2) : '--';
         const yawRate = f.motion?.yaw_rate ?? 0;
         this.valEls.yaw.textContent = yawRate.toFixed(1);
 
         this.renderCanvas();
+    }
+
+    _rescanMax(which) {
+        const src = which === 'Lat' ? this._histLat : this._histLong;
+        let mx = 0, mxIdx = -1, mxPt = null;
+        const cap = this._histCap;
+        for (let i = 0; i < this._histCount; i++) {
+            const idx = (this._histTail + i) % cap;
+            const av = Math.abs(src[idx]);
+            if (av > mx) { mx = av; mxIdx = idx; mxPt = { x: this._histLat[idx], y: this._histLong[idx] }; }
+        }
+        this['_max' + which] = mx;
+        this['_max' + which + 'Pt'] = mxPt;
+        this['_max' + which + 'Idx'] = mxIdx;
     }
 
     renderCanvas() {
