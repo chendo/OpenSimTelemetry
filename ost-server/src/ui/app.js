@@ -954,6 +954,7 @@ seekLiveBtn.addEventListener('click', () => {
     resetLiveScrollOffset();
 });
 
+let _lastSeekMax = -1;
 function updateSeekBar() {
     // Hide during replay
     if (replayBuf.count > 0 || (typeof replayPlayer !== 'undefined' && replayPlayer.active)) {
@@ -964,9 +965,13 @@ function updateSeekBar() {
     if (!historyInfo) return;
 
     const total = historyInfo.total_frames;
-    seekSlider.max = Math.max(0, total - 1);
+    const newMax = Math.max(0, total - 1);
+    if (newMax !== _lastSeekMax) {
+        seekSlider.max = newMax;
+        _lastSeekMax = newMax;
+    }
     if (!historyMode) {
-        seekSlider.value = seekSlider.max;
+        seekSlider.value = newMax;
     }
     updateSeekTimeDisplay();
     updateSeekLapMarkers();
