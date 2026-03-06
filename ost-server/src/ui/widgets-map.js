@@ -148,7 +148,7 @@ class TrackMapWidget extends Widget {
             y: (b.maxLat - lat) * scale + offY,
         });
 
-        // Draw track outline
+        // Draw track outline (break path on teleports/resets)
         ctx.beginPath();
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
         ctx.lineWidth = 2.5 * dpr;
@@ -156,8 +156,15 @@ class TrackMapWidget extends Widget {
         ctx.lineCap = 'round';
         for (let i = 0; i < pts.length; i++) {
             const p = project(pts[i][0], pts[i][1]);
-            if (i === 0) ctx.moveTo(p.x, p.y);
-            else ctx.lineTo(p.x, p.y);
+            if (i === 0) {
+                ctx.moveTo(p.x, p.y);
+            } else {
+                // Detect teleport: >0.001° (~111m) jump means pit reset or tow
+                const dlat = Math.abs(pts[i][0] - pts[i - 1][0]);
+                const dlng = Math.abs(pts[i][1] - pts[i - 1][1]);
+                if (dlat > 0.001 || dlng > 0.001) ctx.moveTo(p.x, p.y);
+                else ctx.lineTo(p.x, p.y);
+            }
         }
         ctx.stroke();
 
