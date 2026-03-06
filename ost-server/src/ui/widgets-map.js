@@ -8,6 +8,9 @@ class TrackMapWidget extends Widget {
         this._heading = null;    // compass heading in degrees (0=N, 90=E, CW)
         this._fetchKey = null;   // replay_id used for last fetch
         this._fetching = false;
+        this._prevLat = NaN;
+        this._prevLng = NaN;
+        this._prevHeading = NaN;
     }
 
     buildContent(c) {
@@ -32,8 +35,15 @@ class TrackMapWidget extends Widget {
         }
 
         // Compass heading from server (0=N, 90=E, CW in degrees)
-        this._heading = m?.heading ?? null;
+        const heading = m?.heading ?? null;
 
+        // Skip redraw if position and heading unchanged
+        if (lat === this._prevLat && lng === this._prevLng && heading === this._prevHeading) return;
+        this._prevLat = lat;
+        this._prevLng = lng;
+        this._prevHeading = heading;
+
+        this._heading = heading;
         this._currentPos = { lat, lng };
         this.renderCanvas();
     }
