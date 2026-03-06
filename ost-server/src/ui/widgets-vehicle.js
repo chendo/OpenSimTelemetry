@@ -554,14 +554,14 @@ class WheelsWidget extends Widget {
                 els.suspbar.style.background = this._loadColor(t);
                 els.susp.textContent = mm.toFixed(1);
 
-                // Only push to ring buffer on genuinely new frames (not UI redraws)
+                // Only push to ring buffer and redraw sparkline on genuinely new frames
                 if (isNewFrame) {
                     const hist = this._suspHist[key];
                     hist.buf[hist.head] = mm;
                     hist.head = (hist.head + 1) % hist.buf.length;
                     if (hist.count < hist.buf.length) hist.count++;
+                    this._renderSuspSparkline(els.spark, hist);
                 }
-                this._renderSuspSparkline(els.spark, this._suspHist[key]);
             }
 
             // Tire surface temps
