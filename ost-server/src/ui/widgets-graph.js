@@ -50,6 +50,7 @@ class GraphWidget extends Widget {
         }
         this.timeWindowMs = 60000;
         this.maxSeen = {};
+        this._centeredMax = {}; // { [ukey]: { max, scanAt } } — cached window max
         this.closable = !!id && id !== 'graph';
         this.titleEditable = true;
         this.onTitleChange = () => { if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs(); };
@@ -269,6 +270,7 @@ class GraphWidget extends Widget {
         this.hiddenMetrics.clear();
         this.customMetrics.clear();
         this.maxSeen = {};
+        this._centeredMax = {};
         // Set graph name
         this.setTitle(preset.name);
         // Resolve each pattern
@@ -678,16 +680,26 @@ class GraphWidget extends Widget {
                 }
                 unitMax[ukey] = Math.max(this.maxSeen[ukey] || 0.001, unitMax[ukey] || 0);
             } else if (trace.norm === 'centered') {
-                // centered uses current window max (intentionally doesn't persist)
-                let mx = 0;
-                for (let i = 0; i < dataCount; i++) {
-                    const entry = getEntry(i);
-                    if (!entry) continue;
-                    const v = trace.getValue(entry);
-                    if (v != null) { const av = Math.abs(v); if (av > mx) mx = av; }
-                }
+                // Cached window max: O(1) update from latest entry, full rescan once per second
                 const ukey = trace.unit || trace.key;
-                unitMax[ukey] = Math.max(mx, unitMax[ukey] || 0, 0.001);
+                const cm = this._centeredMax[ukey] || (this._centeredMax[ukey] = { max: 0, scanAt: 0 });
+                const latestEntry = getEntry(dataCount - 1);
+                if (latestEntry) {
+                    const v = trace.getValue(latestEntry);
+                    if (v != null) { const av = Math.abs(v); if (av > cm.max) cm.max = av; }
+                }
+                if (now - cm.scanAt > 1000) {
+                    cm.scanAt = now;
+                    let mx = 0;
+                    for (let i = 0; i < dataCount; i++) {
+                        const entry = getEntry(i);
+                        if (!entry) continue;
+                        const v = trace.getValue(entry);
+                        if (v != null) { const av = Math.abs(v); if (av > mx) mx = av; }
+                    }
+                    cm.max = mx;
+                }
+                unitMax[ukey] = Math.max(cm.max, unitMax[ukey] || 0, 0.001);
             }
         }
 
