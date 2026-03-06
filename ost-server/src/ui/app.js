@@ -584,14 +584,18 @@ function _fmtDuration(s) {
     return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
+let _sessionBarKey = '';
 function updateSessionBar() {
     const f = store.currentFrame;
     if (!f) {
-        sessionBarInfo.innerHTML = '<span style="color:var(--text-muted)">Waiting for data...</span>';
-        sbCur.textContent = '--:--.---';
-        sbBest.textContent = '--:--.---';
-        sbLast.textContent = '--:--.---';
-        sbLap.textContent = '--';
+        if (_sessionBarKey !== '') {
+            sessionBarInfo.innerHTML = '<span style="color:var(--text-muted)">Waiting for data...</span>';
+            sbCur.textContent = '--:--.---';
+            sbBest.textContent = '--:--.---';
+            sbLast.textContent = '--:--.---';
+            sbLap.textContent = '--';
+            _sessionBarKey = '';
+        }
         return;
     }
 
@@ -601,28 +605,35 @@ function updateSessionBar() {
     const d = f.driver;
     const v = f.vehicle;
 
-    // Build info string: "<Driver> | <Car> @ <Track> | <Weather> | State: <status> <duration>"
-    let parts = [];
-    if (d?.name) parts.push(`<strong>${d.name}</strong>`);
-    const car = v?.car_name || '--';
-    const track = s?.track_name || '--';
-    parts.push(`<strong>${car}</strong> @ <strong>${track}</strong>`);
-    // Weather conditions
-    const weatherParts = [];
-    if (w?.air_temp != null) weatherParts.push(`Air ${w.air_temp.toFixed(0)}\u00B0C`);
-    if (w?.track_temp != null) weatherParts.push(`Track ${w.track_temp.toFixed(0)}\u00B0C`);
-    if (w?.track_wetness) weatherParts.push(w.track_wetness);
-    if (weatherParts.length > 0) parts.push(weatherParts.join(', '));
-    // Session type/state + duration
-    const stateParts = [];
-    if (s?.session_type) stateParts.push(s.session_type);
-    if (s?.session_state) stateParts.push(s.session_state);
-    const dur = _fmtDuration(s?.session_time);
-    if (dur) stateParts.push(dur);
-    if (stateParts.length > 0) parts.push('State: ' + stateParts.join(' \u2014 '));
-    sessionBarInfo.innerHTML = parts.join(' | ');
+    // Only rebuild static HTML when driver/car/track/weather/state actually change
+    const sessionTimeSec = s?.session_time != null ? Math.floor(s.session_time) : null;
+    const key = (d?.name || '') + '|' + (v?.car_name || '') + '|' + (s?.track_name || '') + '|'
+        + (w?.air_temp != null ? w.air_temp.toFixed(0) : '') + '|'
+        + (w?.track_temp != null ? w.track_temp.toFixed(0) : '') + '|'
+        + (w?.track_wetness || '') + '|' + (s?.session_type || '') + '|'
+        + (s?.session_state || '') + '|' + sessionTimeSec;
+    if (key !== _sessionBarKey) {
+        _sessionBarKey = key;
+        let parts = [];
+        if (d?.name) parts.push(`<strong>${d.name}</strong>`);
+        const car = v?.car_name || '--';
+        const track = s?.track_name || '--';
+        parts.push(`<strong>${car}</strong> @ <strong>${track}</strong>`);
+        const weatherParts = [];
+        if (w?.air_temp != null) weatherParts.push(`Air ${w.air_temp.toFixed(0)}\u00B0C`);
+        if (w?.track_temp != null) weatherParts.push(`Track ${w.track_temp.toFixed(0)}\u00B0C`);
+        if (w?.track_wetness) weatherParts.push(w.track_wetness);
+        if (weatherParts.length > 0) parts.push(weatherParts.join(', '));
+        const stateParts = [];
+        if (s?.session_type) stateParts.push(s.session_type);
+        if (s?.session_state) stateParts.push(s.session_state);
+        const dur = _fmtDuration(s?.session_time);
+        if (dur) stateParts.push(dur);
+        if (stateParts.length > 0) parts.push('State: ' + stateParts.join(' \u2014 '));
+        sessionBarInfo.innerHTML = parts.join(' | ');
+    }
 
-    // Lap timing
+    // Lap timing (always update — these change frequently but use textContent, not innerHTML)
     sbCur.textContent = _fmtLapTime(t?.current_lap_time);
     sbBest.textContent = _fmtLapTime(t?.best_lap_time);
     sbLast.textContent = _fmtLapTime(t?.last_lap_time);
