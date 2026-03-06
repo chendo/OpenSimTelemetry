@@ -79,6 +79,7 @@ class DashboardGrid {
     constructor(containerEl) {
         this.container = containerEl;
         this.widgets = new Map();
+        this._initializing = true;
         this.gs = GridStack.init({
             column: 12,
             cellHeight: 40,
@@ -95,8 +96,8 @@ class DashboardGrid {
             const w = el.querySelector('.widget')?._widget;
             if (w) w.onResize();
         });
-        // Auto-save on any layout change
-        this.gs.on('change', () => this.saveLayout());
+        // Auto-save on any layout change (skip during init)
+        this.gs.on('change', () => { if (!this._initializing) this.saveLayout(); });
     }
 
     addWidget(widget) {

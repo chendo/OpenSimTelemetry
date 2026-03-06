@@ -2,7 +2,7 @@
 const LAYOUT_KEY = 'ost-dashboard-layout';
 const LAYOUT_VERSION_KEY = 'ost-dashboard-version';
 const GRAPHS_KEY = 'ost-dashboard-graphs';
-const LAYOUT_VERSION = '9'; // Fix top-row order: Vehicle/TrackMap/GForce/Wheels
+const LAYOUT_VERSION = '11'; // Remove batchUpdate to fix width=3 quarters
 const BUFFER_MAX = 3600;
 
 // History buffer settings

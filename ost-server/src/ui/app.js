@@ -224,9 +224,7 @@ function connectSSE() {
     });
 }
 
-// Create all widgets in a batch to avoid excessive change events
-grid.gs.batchUpdate();
-
+// Add static widgets (change events suppressed by _initializing flag)
 const staticWidgets = [
     new VehicleWidget(),
     new TrackMapWidget(),
@@ -258,8 +256,9 @@ if (savedGraphs && savedGraphs.length > 0) {
     grid.addWidget(steering);
 }
 
-grid.gs.batchUpdate(false);
 grid.restoreLayout();
+grid._initializing = false;
+grid.saveLayout();
 
 // Header dropdown menus — generic toggle logic
 function setupDropdown(btnId, menuId) {
