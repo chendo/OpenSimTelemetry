@@ -201,6 +201,8 @@ class GForceWidget extends Widget {
         this._maxLongPt = null;
         this._maxLatIdx = -1;
         this._maxLongIdx = -1;
+        this._prevGx = NaN;
+        this._prevGz = NaN;
     }
 
     buildContent(c) {
@@ -272,7 +274,10 @@ class GForceWidget extends Widget {
         const yawRate = f.motion?.yaw_rate ?? 0;
         this.valEls.yaw.textContent = yawRate.toFixed(1);
 
-        this.renderCanvas();
+        if (gx !== this._prevGx || gz !== this._prevGz) {
+            this._prevGx = gx; this._prevGz = gz;
+            this.renderCanvas();
+        }
     }
 
     _rescanMax(which) {
