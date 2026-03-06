@@ -224,14 +224,21 @@ const METRIC_UNIT_MAP = {
     '*.air_density':           { unit: 'kg/m\u00B3', norm: 'autoscale' },
 };
 
+const _metricUnitCache = new Map();
 function getMetricUnitInfo(path) {
-    if (METRIC_UNIT_MAP[path]) return METRIC_UNIT_MAP[path];
-    const parts = path.split('.');
-    for (let i = 1; i < parts.length; i++) {
-        const suffix = '*.' + parts.slice(i).join('.');
-        if (METRIC_UNIT_MAP[suffix]) return METRIC_UNIT_MAP[suffix];
+    let result = _metricUnitCache.get(path);
+    if (result !== undefined) return result;
+    if (METRIC_UNIT_MAP[path]) { result = METRIC_UNIT_MAP[path]; }
+    else {
+        result = { unit: '', norm: 'autoscale' };
+        const parts = path.split('.');
+        for (let i = 1; i < parts.length; i++) {
+            const suffix = '*.' + parts.slice(i).join('.');
+            if (METRIC_UNIT_MAP[suffix]) { result = METRIC_UNIT_MAP[suffix]; break; }
+        }
     }
-    return { unit: '', norm: 'autoscale' };
+    _metricUnitCache.set(path, result);
+    return result;
 }
 
 // Apply user unit preferences to a base unit and value.
