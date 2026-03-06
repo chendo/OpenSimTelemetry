@@ -697,31 +697,44 @@ function updatePerfToolbar(now, renderMs) {
     const avgInterval = sample.reduce((a, b) => a + b, 0) / _frameTimesFill;
     _perfFpsEl.textContent = (1000 / avgInterval).toFixed(0);
 
-    // Sort a copy for percentile calculations
-    const sorted = Array.from(sample).sort((a, b) => b - a); // Longest first
-    // 1% low: average of the worst 1% of frame times → FPS
-    const p1count = Math.max(1, Math.floor(sorted.length * 0.01));
-    const p1avg = sorted.slice(0, p1count).reduce((a, b) => a + b, 0) / p1count;
+    // O(n) top-k scan instead of O(n log n) sort for percentiles
+    const p1count = Math.max(1, Math.floor(_frameTimesFill * 0.01));
+    const p1avg = _topKAvg(sample, _frameTimesFill, p1count);
     _perf1pctEl.textContent = (1000 / p1avg).toFixed(0);
 
-    // 0.1% low: average of the worst 0.1% of frame times → FPS
-    const p01count = Math.max(1, Math.floor(sorted.length * 0.001));
-    const p01avg = sorted.slice(0, p01count).reduce((a, b) => a + b, 0) / p01count;
+    const p01count = Math.max(1, Math.floor(_frameTimesFill * 0.001));
+    const p01avg = _topKAvg(sample, _frameTimesFill, p01count);
     _perf01pctEl.textContent = (1000 / p01avg).toFixed(0);
 
-    // Render time: current, 1%, 0.1% worst-case (ms)
     _perfRenderEl.textContent = renderMs.toFixed(1) + 'ms';
 
     if (_renderTimesFill >= 10) {
-        const rsorted = Array.from(_renderTimes.subarray(0, _renderTimesFill)).sort((a, b) => b - a);
-        const rp1count = Math.max(1, Math.floor(rsorted.length * 0.01));
-        const rp1avg = rsorted.slice(0, rp1count).reduce((a, b) => a + b, 0) / rp1count;
-        _perfRender1pctEl.textContent = rp1avg.toFixed(1) + 'ms';
+        const rsample = _renderTimes.subarray(0, _renderTimesFill);
+        const rp1count = Math.max(1, Math.floor(_renderTimesFill * 0.01));
+        _perfRender1pctEl.textContent = _topKAvg(rsample, _renderTimesFill, rp1count).toFixed(1) + 'ms';
 
-        const rp01count = Math.max(1, Math.floor(rsorted.length * 0.001));
-        const rp01avg = rsorted.slice(0, rp01count).reduce((a, b) => a + b, 0) / rp01count;
-        _perfRender01pctEl.textContent = rp01avg.toFixed(1) + 'ms';
+        const rp01count = Math.max(1, Math.floor(_renderTimesFill * 0.001));
+        _perfRender01pctEl.textContent = _topKAvg(rsample, _renderTimesFill, rp01count).toFixed(1) + 'ms';
     }
+}
+
+// Find average of the k largest values in arr[0..n) — O(n*k) but k is tiny (1-3)
+function _topKAvg(arr, n, k) {
+    const top = new Float64Array(k);
+    top.fill(-Infinity);
+    for (let i = 0; i < n; i++) {
+        const v = arr[i];
+        if (v > top[k - 1]) {
+            top[k - 1] = v;
+            for (let j = k - 2; j >= 0; j--) {
+                if (top[j + 1] > top[j]) { const t = top[j]; top[j] = top[j + 1]; top[j + 1] = t; }
+                else break;
+            }
+        }
+    }
+    let sum = 0;
+    for (let i = 0; i < k; i++) sum += top[i];
+    return sum / k;
 }
 
 // Render loop (decoupled from SSE; also redraws on UI interactions like hover/toggle)
