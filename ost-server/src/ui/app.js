@@ -748,15 +748,13 @@ function renderLoop() {
         }
     }
 
-    // Update bars
-    updateSeekBar();
-    updateSessionBar();
-
     const wasDirty = store._dirty || _uiDirty || (activeBuf && activeBuf._dirty);
     if (wasDirty) {
         store._dirty = false;
         _uiDirty = false;
         if (activeBuf) activeBuf._dirty = false;
+        updateSeekBar();
+        updateSessionBar();
         for (const w of grid.widgets.values()) {
             if (w._visible) w.update(store, now, activeBuf);
         }
