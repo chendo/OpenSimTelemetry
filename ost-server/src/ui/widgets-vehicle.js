@@ -78,8 +78,11 @@ class VehicleWidget extends Widget {
         this.els.cltBar.style.height = clt + '%';
         this.els.cltPct.textContent = Math.round(clt);
 
-        this._steerAngle = -(v?.steering_angle ?? 0) * Math.PI / 180;  // negate: iRacing positive=left, canvas positive=clockwise
-        this.renderWheel();
+        const newAngle = -(v?.steering_angle ?? 0) * Math.PI / 180;  // negate: iRacing positive=left, canvas positive=clockwise
+        if (newAngle !== this._steerAngle) {
+            this._steerAngle = newAngle;
+            this.renderWheel();
+        }
     }
 
     renderWheel() {
