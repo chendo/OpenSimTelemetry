@@ -229,8 +229,8 @@ grid.gs.batchUpdate();
 
 const staticWidgets = [
     new VehicleWidget(),
-    new GForceWidget(),
     new TrackMapWidget(),
+    new GForceWidget(),
     new WheelsWidget(),
     new AllMetricsWidget(),
 ];
