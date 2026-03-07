@@ -224,7 +224,9 @@ function connectSSE() {
     });
 }
 
-// Add static widgets (change events suppressed by _initializing flag)
+// Create all widgets in a batch to avoid layout thrash
+grid.gs.batchUpdate();
+
 const staticWidgets = [
     new VehicleWidget(),
     new TrackMapWidget(),
@@ -256,6 +258,7 @@ if (savedGraphs && savedGraphs.length > 0) {
     grid.addWidget(steering);
 }
 
+grid.gs.batchUpdate(false);
 grid.restoreLayout();
 grid._initializing = false;
 grid.saveLayout();
@@ -778,8 +781,7 @@ function renderLoop() {
 
     if (activeBuf) {
         const frame = activeBuf.currentFrame();
-        // Only mark dirty when the buffer cursor actually moved or on initial load
-        if (frame && (activeBuf._dirty || !store.currentFrame)) {
+        if (frame && frame !== store.currentFrame) {
             store.currentFrame = frame;
             store._dirty = true;
         }
