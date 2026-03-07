@@ -147,7 +147,7 @@ mod windows_impl {
                 _ => None,
             };
 
-            // YawNorth: yaw relative to geographic north (radians, CCW positive)
+            // YawNorth: yaw relative to geographic north (radians)
             // Convert to compass heading (degrees, CW from north)
             let heading = get_f32("YawNorth").map(|yn| {
                 let deg = -yn * (180.0 / std::f32::consts::PI);

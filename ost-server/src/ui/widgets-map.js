@@ -5,12 +5,10 @@ class TrackMapWidget extends Widget {
         this._outline = null;    // [[lat, lng], ...] from server
         this._bounds = null;     // {minLat, maxLat, minLng, maxLng}
         this._currentPos = null; // {lat, lng}
-        this._heading = null;    // compass heading in degrees (0=N, 90=E, CW)
         this._fetchKey = null;   // replay_id used for last fetch
         this._fetching = false;
         this._prevLat = NaN;
         this._prevLng = NaN;
-        this._prevHeading = NaN;
     }
 
     buildContent(c) {
@@ -34,16 +32,10 @@ class TrackMapWidget extends Widget {
             return;
         }
 
-        // Compass heading from server (0=N, 90=E, CW in degrees)
-        const heading = m?.heading ?? null;
-
-        // Skip redraw if position and heading unchanged
-        if (lat === this._prevLat && lng === this._prevLng && heading === this._prevHeading) return;
+        // Skip redraw if position unchanged
+        if (lat === this._prevLat && lng === this._prevLng) return;
         this._prevLat = lat;
         this._prevLng = lng;
-        this._prevHeading = heading;
-
-        this._heading = heading;
         this._currentPos = { lat, lng };
         this.renderCanvas();
     }
@@ -62,7 +54,6 @@ class TrackMapWidget extends Widget {
 
             this._outline = data.outline;
             this._fetchKey = rid;
-            this._heading = null;
 
             // Compute bounds
             let minLat = Infinity, maxLat = -Infinity;
@@ -148,7 +139,7 @@ class TrackMapWidget extends Widget {
             y: (b.maxLat - lat) * scale + offY,
         });
 
-        // Draw track outline (break path on teleports/resets)
+        // Draw track outline (single validated lap — no teleport gaps expected)
         ctx.beginPath();
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
         ctx.lineWidth = 2.5 * dpr;
@@ -156,50 +147,39 @@ class TrackMapWidget extends Widget {
         ctx.lineCap = 'round';
         for (let i = 0; i < pts.length; i++) {
             const p = project(pts[i][0], pts[i][1]);
-            if (i === 0) {
-                ctx.moveTo(p.x, p.y);
-            } else {
-                // Detect teleport: >0.001° (~111m) jump means pit reset or tow
-                const dlat = Math.abs(pts[i][0] - pts[i - 1][0]);
-                const dlng = Math.abs(pts[i][1] - pts[i - 1][1]);
-                if (dlat > 0.001 || dlng > 0.001) ctx.moveTo(p.x, p.y);
-                else ctx.lineTo(p.x, p.y);
-            }
+            if (i === 0) ctx.moveTo(p.x, p.y);
+            else ctx.lineTo(p.x, p.y);
         }
         ctx.stroke();
+
+        // Draw start/finish line (perpendicular to track direction at first point)
+        if (pts.length > 5) {
+            const sf = project(pts[0][0], pts[0][1]);
+            // Use a point a few samples ahead for a stable direction
+            const ahead = project(pts[5][0], pts[5][1]);
+            const dx = ahead.x - sf.x;
+            const dy = ahead.y - sf.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len > 0) {
+                const half = 10 * dpr;
+                const px = -dy / len * half;
+                const py = dx / len * half;
+                ctx.beginPath();
+                ctx.moveTo(sf.x - px, sf.y - py);
+                ctx.lineTo(sf.x + px, sf.y + py);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                ctx.lineWidth = 2 * dpr;
+                ctx.stroke();
+            }
+        }
 
         // Draw car position
         if (pos) {
             const cp = project(pos.lat, pos.lng);
-
-            if (this._heading != null) {
-                // heading: compass degrees CW from north (0=N, 90=E, 180=S, 270=W)
-                // Canvas: 0=right, rotation CW. North=up on our map.
-                // Canvas angle = (heading - 90) degrees, converted to radians
-                const angle = (this._heading - 90) * Math.PI / 180;
-                const arrowLen = 12 * dpr;
-                const arrowW = 4 * dpr;
-
-                ctx.save();
-                ctx.translate(cp.x, cp.y);
-                ctx.rotate(angle);
-
-                ctx.beginPath();
-                ctx.moveTo(arrowLen, 0);
-                ctx.lineTo(-arrowW, -arrowW);
-                ctx.lineTo(-arrowW * 0.3, 0);
-                ctx.lineTo(-arrowW, arrowW);
-                ctx.closePath();
-                ctx.fillStyle = '#00d68f';
-                ctx.fill();
-
-                ctx.restore();
-            } else {
-                ctx.beginPath();
-                ctx.arc(cp.x, cp.y, 5 * dpr, 0, Math.PI * 2);
-                ctx.fillStyle = '#00d68f';
-                ctx.fill();
-            }
+            ctx.beginPath();
+            ctx.arc(cp.x, cp.y, 5 * dpr, 0, Math.PI * 2);
+            ctx.fillStyle = '#00d68f';
+            ctx.fill();
         }
     }
 }

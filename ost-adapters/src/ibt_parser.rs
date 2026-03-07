@@ -436,25 +436,36 @@ impl IbtFile {
     }
 
     /// Scan all frames to build a lap index for replay seeking.
-    /// Efficiently reads only the `Lap` and `LapLastLapTime` variables
-    /// from each frame buffer instead of parsing all ~200 variables.
+    /// Uses GPS proximity (start ≈ end within 10m) plus `LapLastLapTime`
+    /// to identify genuinely completed laps vs out-laps and session resets.
     pub fn build_lap_index(&mut self) -> Result<Vec<LapInfo>> {
         let record_count = self.record_count();
         if record_count == 0 {
             return Ok(Vec::new());
         }
 
-        let lap_vh = self.var_index.get("Lap").map(|&i| &self.var_headers[i]);
-        let session_time_vh = self
-            .var_index
-            .get("SessionTime")
-            .map(|&i| &self.var_headers[i]);
-
-        let lap_vh = match lap_vh {
+        let lap_vh = match self.var_index.get("Lap").map(|&i| &self.var_headers[i]) {
             Some(vh) => vh.clone(),
             None => return Ok(Vec::new()),
         };
-        let session_time_vh = session_time_vh.cloned();
+
+        // Optional vars for lap validation
+        let last_lap_time_vh = self
+            .var_index
+            .get("LapLastLapTime")
+            .map(|&i| self.var_headers[i].clone());
+        let session_time_vh = self
+            .var_index
+            .get("SessionTime")
+            .map(|&i| self.var_headers[i].clone());
+        let lat_vh = self
+            .var_index
+            .get("Lat")
+            .map(|&i| self.var_headers[i].clone());
+        let lon_vh = self
+            .var_index
+            .get("Lon")
+            .map(|&i| self.var_headers[i].clone());
 
         // Bulk read all sample buffers
         let buf_len = self.header.buf_len as usize;
@@ -463,25 +474,46 @@ impl IbtFile {
         let mut bulk_buf = vec![0u8; total_bytes];
         self.file.read_exact(&mut bulk_buf)?;
 
-        // Helper to read SessionTime (f64) from a frame buffer
-        let read_session_time = |frame_buf: &[u8]| -> Option<f64> {
-            let vh = session_time_vh.as_ref()?;
-            let offset = vh.offset as usize;
+        // Helpers to read typed values from a frame buffer
+        let read_f32 = |frame_buf: &[u8], vh: &VarHeader| -> Option<f32> {
+            let off = vh.offset as usize;
+            if off + 4 <= frame_buf.len() {
+                Some(f32::from_le_bytes(
+                    frame_buf[off..off + 4].try_into().unwrap(),
+                ))
+            } else {
+                None
+            }
+        };
+        let read_f64 = |frame_buf: &[u8], vh: &VarHeader| -> Option<f64> {
+            let off = vh.offset as usize;
             match vh.var_type {
-                VarType::Double if offset + 8 <= frame_buf.len() => Some(f64::from_le_bytes(
-                    frame_buf[offset..offset + 8].try_into().unwrap(),
+                VarType::Double if off + 8 <= frame_buf.len() => Some(f64::from_le_bytes(
+                    frame_buf[off..off + 8].try_into().unwrap(),
                 )),
-                VarType::Float if offset + 4 <= frame_buf.len() => Some(f32::from_le_bytes(
-                    frame_buf[offset..offset + 4].try_into().unwrap(),
-                ) as f64),
+                VarType::Float if off + 4 <= frame_buf.len() => {
+                    Some(f32::from_le_bytes(frame_buf[off..off + 4].try_into().unwrap()) as f64)
+                }
                 _ => None,
             }
         };
 
-        // Find lap transitions and record SessionTime at each transition
+        /// Approximate distance in meters between two WGS84 points
+        fn gps_distance_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+            let dlat_m = (lat2 - lat1) * 111_320.0;
+            let mid_lat = (lat1 + lat2) / 2.0;
+            let dlon_m = (lon2 - lon1) * 111_320.0 * mid_lat.to_radians().cos();
+            (dlat_m * dlat_m + dlon_m * dlon_m).sqrt()
+        }
+
+        // Find lap transitions
         let mut laps: Vec<LapInfo> = Vec::new();
         let mut prev_lap: Option<i32> = None;
-        let mut transition_times: Vec<Option<f64>> = Vec::new(); // SessionTime at each transition
+        // Track first and last GPS positions to validate the lap forms a closed loop
+        let mut first_lat: Option<f64> = None;
+        let mut first_lon: Option<f64> = None;
+        let mut last_lat: f64 = 0.0;
+        let mut last_lon: f64 = 0.0;
 
         for i in 0..record_count {
             let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
@@ -493,24 +525,82 @@ impl IbtFile {
                 i32::from_le_bytes(frame_buf[lap_offset..lap_offset + 4].try_into().unwrap());
 
             if prev_lap.is_none() || prev_lap != Some(lap_num) {
-                let session_time = read_session_time(frame_buf);
+                // Lap transition detected — validate the PREVIOUS lap
+                if !laps.is_empty() {
+                    let prev_idx = laps.len() - 1;
+
+                    // A complete lap must start and end at the same position (within 10m)
+                    let lap_complete = if let (Some(flat), Some(flon)) = (first_lat, first_lon) {
+                        let dist = gps_distance_m(flat, flon, last_lat, last_lon);
+                        dist < 10.0
+                    } else {
+                        false
+                    };
+
+                    if lap_complete {
+                        // Use iRacing's official LapLastLapTime (set at start of new lap)
+                        let official_time = last_lap_time_vh
+                            .as_ref()
+                            .and_then(|vh| read_f32(frame_buf, vh))
+                            .filter(|&t| t > 0.0)
+                            .map(|t| t as f64);
+
+                        // Verify frame range duration matches the reported lap time.
+                        // After session resets, LapLastLapTime can be stale from a
+                        // previous session while the frame range is much shorter.
+                        let t_end = session_time_vh
+                            .as_ref()
+                            .and_then(|vh| read_f64(frame_buf, vh));
+                        let prev_frame =
+                            &bulk_buf[laps[prev_idx].start_frame * buf_len..][..buf_len];
+                        let t_start = session_time_vh
+                            .as_ref()
+                            .and_then(|vh| read_f64(prev_frame, vh));
+                        let frame_duration = match (t_start, t_end) {
+                            (Some(ts), Some(te)) if te > ts => Some(te - ts),
+                            _ => None,
+                        };
+
+                        if let Some(t) = official_time {
+                            // Only accept if frame duration is within 10% of reported time
+                            let duration_ok =
+                                frame_duration.is_some_and(|fd| fd > t * 0.9 && fd < t * 1.1);
+                            if duration_ok {
+                                laps[prev_idx].lap_time_secs = Some(t);
+                            }
+                        } else if let Some(fd) = frame_duration {
+                            // Fallback: use frame duration directly
+                            if fd > 0.0 && fd < 3600.0 {
+                                laps[prev_idx].lap_time_secs = Some(fd);
+                            }
+                        }
+                    }
+                }
+
+                // Start tracking new lap
+                first_lat = None;
+                first_lon = None;
                 laps.push(LapInfo {
                     lap_number: lap_num,
                     start_frame: i,
                     lap_time_secs: None,
                 });
-                transition_times.push(session_time);
                 prev_lap = Some(lap_num);
             }
-        }
 
-        // Compute lap times from SessionTime deltas between consecutive transitions
-        // Lap N's time = SessionTime at start of lap N+1 - SessionTime at start of lap N
-        for i in 0..laps.len().saturating_sub(1) {
-            if let (Some(t_start), Some(t_end)) = (transition_times[i], transition_times[i + 1]) {
-                let dt = t_end - t_start;
-                if dt > 0.0 && dt < 3600.0 {
-                    laps[i].lap_time_secs = Some(dt);
+            // Track first and last GPS positions for the current lap
+            if let (Some(ref la_vh), Some(ref lo_vh)) = (&lat_vh, &lon_vh) {
+                if let (Some(lat), Some(lon)) =
+                    (read_f64(frame_buf, la_vh), read_f64(frame_buf, lo_vh))
+                {
+                    if lat != 0.0 || lon != 0.0 {
+                        if first_lat.is_none() {
+                            first_lat = Some(lat);
+                            first_lon = Some(lon);
+                        }
+                        last_lat = lat;
+                        last_lon = lon;
+                    }
                 }
             }
         }
@@ -518,14 +608,40 @@ impl IbtFile {
         Ok(laps)
     }
 
-    /// Efficiently scan all frames to extract the track outline as lat/lng pairs.
+    /// Extract the track outline as lat/lng pairs from the fastest complete lap.
+    /// Falls back to scanning all frames if no complete lap exists.
     /// Only includes points where the car is on-track (`IsOnTrack == true`).
-    /// Uses bulk binary reads (like `build_lap_index`) to avoid parsing all ~200 variables.
-    pub fn build_track_outline(&mut self) -> Result<Vec<[f64; 2]>> {
+    pub fn build_track_outline(&mut self, laps: &[LapInfo]) -> Result<Vec<[f64; 2]>> {
         let record_count = self.record_count();
         if record_count == 0 {
             return Ok(Vec::new());
         }
+
+        // Find fastest complete lap. Only laps validated by iRacing's LapLastLapTime
+        // and LapDistPct (reaching ~100%) have lap_time_secs set.
+        let best_lap = laps
+            .iter()
+            .enumerate()
+            .filter(|(_i, lap)| lap.lap_time_secs.is_some())
+            .min_by(|(_, a), (_, b)| {
+                a.lap_time_secs
+                    .unwrap()
+                    .partial_cmp(&b.lap_time_secs.unwrap())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+        // Determine frame range to scan
+        let (start_frame, end_frame) = if let Some((idx, _lap)) = best_lap {
+            let start = laps[idx].start_frame;
+            let end = if idx + 1 < laps.len() {
+                laps[idx + 1].start_frame
+            } else {
+                record_count
+            };
+            (start, end)
+        } else {
+            (0, record_count)
+        };
 
         let lat_vh = self.var_index.get("Lat").map(|&i| &self.var_headers[i]);
         let lon_vh = self.var_index.get("Lon").map(|&i| &self.var_headers[i]);
@@ -540,23 +656,23 @@ impl IbtFile {
             .get("IsOnTrack")
             .map(|&i| self.var_headers[i].clone());
 
-        // Bulk read all sample buffers
+        // Read only the frame range we need
         let buf_len = self.header.buf_len as usize;
-        let total_bytes = buf_len * record_count;
-        self.file.seek(SeekFrom::Start(self.sample_data_offset))?;
-        let mut bulk_buf = vec![0u8; total_bytes];
+        let range_bytes = buf_len * (end_frame - start_frame);
+        let seek_offset = self.sample_data_offset + (start_frame * buf_len) as u64;
+        self.file.seek(SeekFrom::Start(seek_offset))?;
+        let mut bulk_buf = vec![0u8; range_bytes];
         self.file.read_exact(&mut bulk_buf)?;
 
         let mut points = Vec::new();
         let mut last_lat = f64::NAN;
         let mut last_lng = f64::NAN;
-        // Minimum distance threshold (~0.5m) to deduplicate stationary points
         const MIN_DELTA: f64 = 0.000005;
 
-        for i in 0..record_count {
+        let frame_count = end_frame - start_frame;
+        for i in 0..frame_count {
             let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
 
-            // Check on-track flag (skip off-track points)
             if let Some(ref vh) = on_track_vh {
                 let off = vh.offset as usize;
                 if off < frame_buf.len() && frame_buf[off] == 0 {
@@ -564,26 +680,22 @@ impl IbtFile {
                 }
             }
 
-            // Read lat (f64)
             let lat_off = lat_vh.offset as usize;
             if lat_off + 8 > frame_buf.len() {
                 continue;
             }
             let lat = f64::from_le_bytes(frame_buf[lat_off..lat_off + 8].try_into().unwrap());
 
-            // Read lon (f64)
             let lon_off = lon_vh.offset as usize;
             if lon_off + 8 > frame_buf.len() {
                 continue;
             }
             let lng = f64::from_le_bytes(frame_buf[lon_off..lon_off + 8].try_into().unwrap());
 
-            // Skip zero/invalid coordinates
             if lat == 0.0 && lng == 0.0 {
                 continue;
             }
 
-            // Deduplicate: skip if very close to previous point
             if (lat - last_lat).abs() < MIN_DELTA && (lng - last_lng).abs() < MIN_DELTA {
                 continue;
             }
@@ -770,7 +882,7 @@ impl IbtFile {
             _ => None,
         };
 
-        // YawNorth: yaw relative to geographic north (radians, CCW positive)
+        // YawNorth: yaw relative to geographic north (radians)
         // Convert to compass heading (degrees, CW from north)
         let heading = get_f32("YawNorth").map(|yn| {
             let deg = -yn * (180.0 / std::f32::consts::PI);

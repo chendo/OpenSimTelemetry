@@ -49,7 +49,10 @@ impl ReplayState {
         let car_name = ibt.session_info().car_name.clone();
         let duration_secs = ibt.duration_secs();
         let laps = ibt.build_lap_index().unwrap_or_default();
-        let track_outline = ibt.build_track_outline().unwrap_or_default();
+        let track_outline = ibt.build_track_outline(&laps).unwrap_or_else(|e| {
+            tracing::warn!("build_track_outline failed: {e}");
+            Vec::new()
+        });
 
         // Compute a stable replay ID from file metadata
         let mut hasher = DefaultHasher::new();
@@ -130,33 +133,95 @@ impl ReplayState {
             .and_then(|v| v.car_name.clone())
             .unwrap_or_default();
 
-        // Build lap index from timing data
-        let mut laps = Vec::new();
+        // Build lap index from timing data, validating with GPS proximity (start ≈ end)
+        fn gps_distance_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+            let dlat_m = (lat2 - lat1) * 111_320.0;
+            let mid_lat = (lat1 + lat2) / 2.0;
+            let dlon_m = (lon2 - lon1) * 111_320.0 * mid_lat.to_radians().cos();
+            (dlat_m * dlat_m + dlon_m * dlon_m).sqrt()
+        }
+
+        let mut laps: Vec<LapInfo> = Vec::new();
         let mut last_lap: Option<u32> = None;
+        let mut first_lat: Option<f64> = None;
+        let mut first_lon: Option<f64> = None;
+        let mut last_lat: f64 = 0.0;
+        let mut last_lon: f64 = 0.0;
         for (i, f) in frames.iter().enumerate() {
             if let Some(lap_num) = f.timing.as_ref().and_then(|t| t.lap_number) {
                 if last_lap.is_some_and(|prev| prev != lap_num) {
-                    let lap_time = f
-                        .timing
-                        .as_ref()
-                        .and_then(|t| t.last_lap_time)
-                        .map(|s| s.0 as f64);
+                    // Lap transition — validate previous lap forms a closed loop (within 10m)
+                    if !laps.is_empty() {
+                        let lap_complete = if let (Some(flat), Some(flon)) = (first_lat, first_lon)
+                        {
+                            gps_distance_m(flat, flon, last_lat, last_lon) < 10.0
+                        } else {
+                            false
+                        };
+                        if lap_complete {
+                            let prev_idx = laps.len() - 1;
+                            let lap_time = f
+                                .timing
+                                .as_ref()
+                                .and_then(|t| t.last_lap_time)
+                                .map(|s| s.0 as f64)
+                                .filter(|&t| t > 0.0);
+                            laps[prev_idx].lap_time_secs = lap_time;
+                        }
+                    }
+                    first_lat = None;
+                    first_lon = None;
                     laps.push(LapInfo {
                         lap_number: lap_num as i32,
                         start_frame: i,
-                        lap_time_secs: lap_time,
+                        lap_time_secs: None,
                     });
                 }
                 last_lap = Some(lap_num);
             }
+            // Track first and last GPS positions for the current lap
+            if let Some(m) = &f.motion {
+                if let (Some(lat), Some(lon)) = (m.latitude, m.longitude) {
+                    if lat != 0.0 || lon != 0.0 {
+                        if first_lat.is_none() {
+                            first_lat = Some(lat);
+                            first_lon = Some(lon);
+                        }
+                        last_lat = lat;
+                        last_lon = lon;
+                    }
+                }
+            }
         }
 
-        // Build track outline from GPS data
+        // Build track outline from GPS data — use fastest complete lap
+        let best_lap = laps
+            .iter()
+            .enumerate()
+            .filter(|(_i, lap)| lap.lap_time_secs.is_some())
+            .min_by(|(_, a), (_, b)| {
+                a.lap_time_secs
+                    .unwrap()
+                    .partial_cmp(&b.lap_time_secs.unwrap())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        let (start_frame, end_frame) = if let Some((idx, _)) = best_lap {
+            let start = laps[idx].start_frame;
+            let end = if idx + 1 < laps.len() {
+                laps[idx + 1].start_frame
+            } else {
+                total_frames
+            };
+            (start, end)
+        } else {
+            (0, total_frames)
+        };
+
         let mut track_outline = Vec::new();
         let mut last_lat = f64::NAN;
         let mut last_lng = f64::NAN;
         const MIN_DELTA: f64 = 0.000005;
-        for f in &frames {
+        for f in &frames[start_frame..end_frame] {
             let on_track = f.vehicle.as_ref().and_then(|v| v.on_track);
             if on_track == Some(false) {
                 continue;
