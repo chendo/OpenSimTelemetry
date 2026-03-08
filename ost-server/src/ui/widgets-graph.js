@@ -814,49 +814,9 @@ class GraphWidget extends Widget {
             return Math.max(0, Math.min(1, val));
         };
 
-        // Draw loading indicator (diagonal hatching) for unloaded regions
+        // Show error text for failed chunks in the visible range
         if (isReplay) {
-            const drawHatch = (x0, x1) => {
-                if (x1 - x0 < 1) return;
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(x0, pad.top, x1 - x0, ph);
-                ctx.clip();
-                ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-                ctx.lineWidth = 1;
-                const spacing = 8;
-                for (let lx = x0 - ph; lx < x1 + ph; lx += spacing) {
-                    ctx.beginPath();
-                    ctx.moveTo(lx, pad.top + ph);
-                    ctx.lineTo(lx + ph, pad.top);
-                    ctx.stroke();
-                }
-                ctx.restore();
-            };
-            // Check at chunk boundaries for efficiency
             const chunkSize = replayBuf._chunkSize || 300;
-            let gapStartX = null;
-            for (let i = 0; i < dataCount; i += chunkSize) {
-                const entry = getEntry(i);
-                const x = pad.left + ((entryTime(i) - tMin) / tRange) * pw;
-                if (!entry) {
-                    if (gapStartX == null) gapStartX = x;
-                } else {
-                    if (gapStartX != null) { drawHatch(gapStartX, x); gapStartX = null; }
-                }
-            }
-            // Check last entry
-            if (dataCount > 0) {
-                const lastEntry = getEntry(dataCount - 1);
-                if (!lastEntry && gapStartX == null) {
-                    // Last chunk is unloaded but wasn't caught by step
-                    const lastChunkStart = dataCount - (dataCount % chunkSize || chunkSize);
-                    gapStartX = pad.left + ((entryTime(lastChunkStart) - tMin) / tRange) * pw;
-                }
-            }
-            if (gapStartX != null) drawHatch(gapStartX, pad.left + pw);
-
-            // Show error text for failed chunks in the visible range
             if (replayBuf._failedChunks && replayBuf._failedChunks.size > 0) {
                 const errors = new Set();
                 for (const [chunkIdx, errMsg] of replayBuf._failedChunks) {

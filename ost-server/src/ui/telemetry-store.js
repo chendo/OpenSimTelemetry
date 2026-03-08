@@ -329,10 +329,17 @@ class ReplayBuffer {
         this._fetchDebounce = setTimeout(() => this.ensureLoaded(metrics), delayMs);
     }
 
-    // Check if cursor's chunk needs fetching
+    // Check if any viewport chunk (cursor ± 35s) needs fetching
     needsFetch() {
-        const idx = this._chunkIndex(this.cursor);
-        return !this._loadedChunks.has(idx) && !this._fetchingChunks.has(idx);
+        const cursorChunk = this._chunkIndex(this.cursor);
+        const maxChunk = this._chunkIndex(this.totalFrames - 1);
+        const viewportChunks = Math.ceil((this.tickRate * 35) / this._chunkSize);
+        for (let i = -viewportChunks; i <= viewportChunks; i++) {
+            const idx = cursorChunk + i;
+            if (idx < 0 || idx > maxChunk) continue;
+            if (!this._loadedChunks.has(idx) && !this._fetchingChunks.has(idx)) return true;
+        }
+        return false;
     }
 
     // Get entries for a centered time window around cursor.
