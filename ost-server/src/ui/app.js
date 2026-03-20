@@ -759,10 +759,14 @@ function renderLoop() {
         replayBuf.advancePlayback(now);
         // Skip fetch during scrubbing — seek handlers manage it to avoid abort conflicts
         if (!replayBuf.scrubbing) {
-            if (replayBuf.needsFetch()) {
-                replayBuf.ensureLoaded(buildReplayMetricMask());
-            } else if (replayBuf.playing && now - _lastPrefetchTime > 1000) {
-                _lastPrefetchTime = now;
+            const scrollIdle = now - _lastScrollTime > 150;
+            if (replayBuf.playing) {
+                // During playback, fetch immediately for smooth streaming
+                if (replayBuf.needsFetch() || now - _lastPrefetchTime > 1000) {
+                    _lastPrefetchTime = now;
+                    replayBuf.ensureLoaded(buildReplayMetricMask());
+                }
+            } else if (scrollIdle && replayBuf.needsFetch()) {
                 replayBuf.ensureLoaded(buildReplayMetricMask());
             }
         }
@@ -880,12 +884,13 @@ function resetLiveScrollOffset() {
 }
 
 // Called by GraphWidget horizontal scroll to move cursor
+let _lastScrollTime = 0;
 function graphScrollCursor(delta) {
     // Replay mode
     if (replayBuf.count > 0) {
         replayBuf.cursor = Math.max(0, Math.min(replayBuf.totalFrames - 1, replayBuf.cursor + delta));
         replayBuf._dirty = true;
-        replayBuf.ensureLoaded(buildReplayMetricMask());
+        _lastScrollTime = performance.now();
         requestRedraw();
         return;
     }
