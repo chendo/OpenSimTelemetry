@@ -874,11 +874,17 @@ impl IbtFile {
         });
 
         let rotation = match (get_f32("Pitch"), get_f32("Yaw"), get_f32("Roll")) {
-            (Some(p), Some(y), Some(r)) => Some(Vector3::new(
-                Degrees::from_radians(p),
-                Degrees::from_radians(y),
-                Degrees::from_radians(r),
-            )),
+            (Some(p), Some(y), Some(r)) => {
+                // Yaw: iRacing uses 0=east, CCW positive (radians)
+                // Normalize to 0-360 compass bearing (0=N, 90=E, CW)
+                let yaw_deg = y * (180.0 / std::f32::consts::PI);
+                let compass = (90.0 - yaw_deg).rem_euclid(360.0);
+                Some(Vector3::new(
+                    Degrees::from_radians(p),
+                    Degrees(compass),
+                    Degrees::from_radians(r),
+                ))
+            }
             _ => None,
         };
 
