@@ -618,7 +618,7 @@ function updateSessionBar() {
     const s = f.session;
     const w = f.weather;
     const t = f.timing;
-    const d = f.driver;
+    const d = f.drivers?.current;
     const v = f.vehicle;
 
     // Only rebuild static HTML when driver/car/track/weather/state actually change

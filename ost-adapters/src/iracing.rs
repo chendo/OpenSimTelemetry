@@ -138,25 +138,14 @@ mod windows_impl {
                 )
             });
 
-            let rotation = match (get_f32("Pitch"), get_f32("Yaw"), get_f32("Roll")) {
-                (Some(p), Some(y), Some(r)) => {
-                    // Yaw: iRacing uses 0=east, CCW positive (radians)
-                    // Normalize to 0-360 compass bearing (0=N, 90=E, CW)
-                    let yaw_deg = y * (180.0 / std::f32::consts::PI);
-                    let compass = (90.0 - yaw_deg).rem_euclid(360.0);
-                    Some(Vector3::new(
-                        Degrees::from_radians(p),
-                        Degrees(compass),
-                        Degrees::from_radians(r),
-                    ))
-                }
-                _ => None,
-            };
+            let pitch_val = get_f32("Pitch").map(Degrees::from_radians);
+            let yaw_val = get_f32("Yaw").map(Degrees::from_radians);
+            let roll_val = get_f32("Roll").map(Degrees::from_radians);
 
-            // YawNorth: yaw relative to geographic north (radians)
-            // Convert to compass heading (degrees, CW from north)
+            // YawNorth: compass heading in radians (0=north, CW-positive).
+            // Just convert to degrees.
             let heading = get_f32("YawNorth").map(|yn| {
-                let deg = -yn * (180.0 / std::f32::consts::PI);
+                let deg = yn * (180.0 / std::f32::consts::PI);
                 Degrees(deg.rem_euclid(360.0))
             });
 
@@ -165,11 +154,12 @@ mod windows_impl {
                 velocity,
                 acceleration,
                 g_force,
-                rotation,
+                pitch: pitch_val,
+                roll: roll_val,
+                yaw: yaw_val,
                 pitch_rate: get_f32("PitchRate").map(DegreesPerSecond::from_radians),
                 yaw_rate: get_f32("YawRate").map(DegreesPerSecond::from_radians),
                 roll_rate: get_f32("RollRate").map(DegreesPerSecond::from_radians),
-                angular_acceleration: None,
                 latitude: get_f64("Lat"),
                 longitude: get_f64("Lon"),
                 altitude: get_f32("Alt").map(Meters),
@@ -235,6 +225,33 @@ mod windows_impl {
                     .session_details
                     .as_ref()
                     .map(|s| s.drivers.setup_name.clone()),
+                abs: get_f32("dcABS"),
+                abs_active: get_bool("BrakeABSactive"),
+                traction_control: get_f32("dcTractionControl"),
+                traction_control_2: get_f32("dcTractionControl2"),
+                brake_bias: get_f32("dcBrakeBias").map(Percentage::new),
+                anti_roll_front: get_f32("dcAntiRollFront"),
+                anti_roll_rear: get_f32("dcAntiRollRear"),
+                drs_status: get_i32("DRS_Status").map(|v| v as u32),
+                push_to_pass_status: None,
+                push_to_pass_count: None,
+                throttle_shape: get_f32("dcThrottleShape"),
+                shift_light_first_rpm: self
+                    .session_details
+                    .as_ref()
+                    .map(|s| Rpm(s.drivers.shift_light_first_rpm)),
+                shift_light_shift_rpm: self
+                    .session_details
+                    .as_ref()
+                    .map(|s| Rpm(s.drivers.shift_light_shift_rpm)),
+                shift_light_last_rpm: self
+                    .session_details
+                    .as_ref()
+                    .map(|s| Rpm(s.drivers.shift_light_last_rpm)),
+                shift_light_blink_rpm: self
+                    .session_details
+                    .as_ref()
+                    .map(|s| Rpm(s.drivers.shift_light_blink_rpm)),
             });
 
             // =================================================================
@@ -457,39 +474,6 @@ mod windows_impl {
             });
 
             // =================================================================
-            // Electronics
-            // =================================================================
-            let electronics = Some(ElectronicsData {
-                abs: get_f32("dcABS"),
-                abs_active: get_bool("BrakeABSactive"),
-                traction_control: get_f32("dcTractionControl"),
-                traction_control_2: get_f32("dcTractionControl2"),
-                brake_bias: get_f32("dcBrakeBias").map(Percentage::new),
-                anti_roll_front: get_f32("dcAntiRollFront"),
-                anti_roll_rear: get_f32("dcAntiRollRear"),
-                drs_status: get_i32("DRS_Status").map(|v| v as u32),
-                push_to_pass_status: None,
-                push_to_pass_count: None,
-                throttle_shape: get_f32("dcThrottleShape"),
-                shift_light_first_rpm: self
-                    .session_details
-                    .as_ref()
-                    .map(|s| Rpm(s.drivers.shift_light_first_rpm)),
-                shift_light_shift_rpm: self
-                    .session_details
-                    .as_ref()
-                    .map(|s| Rpm(s.drivers.shift_light_shift_rpm)),
-                shift_light_last_rpm: self
-                    .session_details
-                    .as_ref()
-                    .map(|s| Rpm(s.drivers.shift_light_last_rpm)),
-                shift_light_blink_rpm: self
-                    .session_details
-                    .as_ref()
-                    .map(|s| Rpm(s.drivers.shift_light_blink_rpm)),
-            });
-
-            // =================================================================
             // Competitors (from CarIdx arrays)
             // =================================================================
             let competitors = self.extract_competitors(&all_vars);
@@ -497,7 +481,7 @@ mod windows_impl {
             // =================================================================
             // Driver (from session info)
             // =================================================================
-            let driver = self.session_details.as_ref().map(|s| {
+            let current_driver = self.session_details.as_ref().map(|s| {
                 let player_idx = s.drivers.car_index;
                 let driver_info = s
                     .drivers
@@ -505,7 +489,7 @@ mod windows_impl {
                     .iter()
                     .find(|d| d.index == player_idx);
 
-                DriverData {
+                CurrentDriver {
                     name: driver_info.map(|d| d.user_name.clone()),
                     car_index: Some(player_idx as u32),
                     car_number: driver_info.map(|d| d.car_number.to_string()),
@@ -583,10 +567,11 @@ mod windows_impl {
                 session,
                 weather,
                 pit,
-                electronics,
                 damage: None,
-                competitors,
-                driver,
+                drivers: Some(DriversData {
+                    current: current_driver,
+                    competitors,
+                }),
                 extras,
             }
         }

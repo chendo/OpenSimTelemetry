@@ -269,10 +269,8 @@ mod tests {
             session: None,
             weather: None,
             pit: None,
-            electronics: None,
             damage: None,
-            competitors: None,
-            driver: None,
+            drivers: None,
             extras: Default::default(),
         }
     }
@@ -481,6 +479,21 @@ mod tests {
             car_name: Some("McLaren".to_string()),
             car_class: None,
             setup_name: None,
+            abs: None,
+            abs_active: None,
+            traction_control: None,
+            traction_control_2: None,
+            brake_bias: None,
+            anti_roll_front: None,
+            anti_roll_rear: None,
+            drs_status: None,
+            push_to_pass_status: None,
+            push_to_pass_count: None,
+            throttle_shape: None,
+            shift_light_first_rpm: None,
+            shift_light_shift_rpm: None,
+            shift_light_last_rpm: None,
+            shift_light_blink_rpm: None,
         });
         buf.push(frame);
         assert_eq!(buf.track_name(), "Spa");

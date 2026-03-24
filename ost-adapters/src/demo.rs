@@ -488,19 +488,12 @@ impl DemoAdapter {
                 GForce(-1.0 + jitter(n * 4.0, 0.02)),
                 GForce(long_g),
             )),
-            rotation: Some(Vector3::new(
-                Degrees::from_radians(pitch),
-                Degrees(0.0), // yaw is absolute, not useful for demo
-                Degrees::from_radians(roll),
-            )),
+            pitch: Some(Degrees::from_radians(pitch)),
+            roll: Some(Degrees::from_radians(roll)),
+            yaw: Some(Degrees(0.0)), // yaw is absolute, not useful for demo
             pitch_rate: Some(DegreesPerSecond::from_radians(jitter(n * 4.1, 0.01))),
             yaw_rate: Some(DegreesPerSecond::from_radians(steering * speed * 0.02)), // yaw rate from steering + speed
             roll_rate: Some(DegreesPerSecond::from_radians(jitter(n * 4.2, 0.01))),
-            angular_acceleration: Some(Vector3::new(
-                DegreesPerSecondSquared(0.0),
-                DegreesPerSecondSquared(0.0),
-                DegreesPerSecondSquared(0.0),
-            )),
             latitude: None,
             longitude: None,
             altitude: None,
@@ -534,6 +527,21 @@ impl DemoAdapter {
             car_name: Some("Formula Demo".to_string()),
             car_class: Some("Open Wheel".to_string()),
             setup_name: Some("baseline".to_string()),
+            abs: Some(2.0),
+            abs_active: Some(brake > 0.8 && speed > 5.0),
+            traction_control: Some(3.0),
+            traction_control_2: None,
+            brake_bias: Some(Percentage::new(0.56)),
+            anti_roll_front: None,
+            anti_roll_rear: None,
+            drs_status: None,
+            push_to_pass_status: None,
+            push_to_pass_count: None,
+            throttle_shape: None,
+            shift_light_first_rpm: Some(Rpm(6500.0)),
+            shift_light_shift_rpm: Some(Rpm(7500.0)),
+            shift_light_last_rpm: Some(Rpm(7800.0)),
+            shift_light_blink_rpm: Some(Rpm(7900.0)),
         });
 
         // --- Engine ---
@@ -658,26 +666,6 @@ impl DemoAdapter {
             }),
         });
 
-        // --- Electronics ---
-        let abs_active = brake > 0.8 && speed > 5.0; // simulate ABS firing under heavy braking
-        let electronics = Some(ElectronicsData {
-            abs: Some(2.0),
-            abs_active: Some(abs_active),
-            traction_control: Some(3.0),
-            traction_control_2: None,
-            brake_bias: Some(Percentage::new(0.56)),
-            anti_roll_front: None,
-            anti_roll_rear: None,
-            drs_status: None,
-            push_to_pass_status: None,
-            push_to_pass_count: None,
-            throttle_shape: None,
-            shift_light_first_rpm: Some(Rpm(6500.0)),
-            shift_light_shift_rpm: Some(Rpm(7500.0)),
-            shift_light_last_rpm: Some(Rpm(7800.0)),
-            shift_light_blink_rpm: Some(Rpm(7900.0)),
-        });
-
         // --- Damage ---
         let damage = Some(DamageData {
             front: Some(Percentage::new(0.0)),
@@ -737,7 +725,7 @@ impl DemoAdapter {
         ]);
 
         // --- Driver ---
-        let driver = Some(DriverData {
+        let current_driver = Some(CurrentDriver {
             name: Some("Demo Player".to_string()),
             car_index: Some(0),
             car_number: Some("42".to_string()),
@@ -772,10 +760,11 @@ impl DemoAdapter {
             session,
             weather,
             pit,
-            electronics,
             damage,
-            competitors,
-            driver,
+            drivers: Some(DriversData {
+                current: current_driver,
+                competitors,
+            }),
             extras,
         }
     }

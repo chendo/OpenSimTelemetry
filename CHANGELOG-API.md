@@ -4,25 +4,81 @@ Breaking changes and migration notes for consumers of the OpenSimTelemetry API (
 
 ## Unreleased
 
-### Data Model Redesign
+### Namespace Refactor (Breaking)
 
-The telemetry data model was completely redesigned for comprehensive iRacing coverage. If you were consuming the original model, all field paths have changed. The current model is structured as:
+Three structural changes to the telemetry frame layout:
+
+**1. `motion.rotation` flattened to individual fields**
+
+| Before | After |
+|--------|-------|
+| `motion.rotation.x` | `motion.pitch` |
+| `motion.rotation.y` | `motion.yaw` |
+| `motion.rotation.z` | `motion.roll` |
+| `motion.angular_acceleration.*` | Removed (was always null) |
+
+`motion.pitch` and `motion.roll` are car body tilt angles in degrees. `motion.yaw` is the raw track-relative yaw (degrees) — for compass heading use `motion.heading` (0-360°, 0=N).
+
+**2. `electronics` merged into `vehicle`**
+
+| Before | After |
+|--------|-------|
+| `electronics.abs` | `vehicle.abs` |
+| `electronics.abs_active` | `vehicle.abs_active` |
+| `electronics.traction_control` | `vehicle.traction_control` |
+| `electronics.brake_bias` | `vehicle.brake_bias` |
+| `electronics.drs_status` | `vehicle.drs_status` |
+| `electronics.shift_light_*` | `vehicle.shift_light_*` |
+| ... (all other electronics fields) | `vehicle.*` |
+
+The `electronics` namespace no longer exists. All fields are now under `vehicle`.
+
+**3. `driver` and `competitors` merged into `drivers`**
+
+| Before | After |
+|--------|-------|
+| `driver.name` | `drivers.current.name` |
+| `driver.car_index` | `drivers.current.car_index` |
+| `driver.car_number` | `drivers.current.car_number` |
+| `driver.team_name` | `drivers.current.team_name` |
+| `driver.estimated_lap_time` | `drivers.current.estimated_lap_time` |
+| `competitors[n].*` | `drivers.competitors[n].*` |
+
+**Updated frame structure:**
 
 ```
 TelemetryFrame
-  motion.*        — position, velocity, acceleration, g_force, rotation, pitch/yaw/roll_rate
-  vehicle.*       — speed, rpm, gear, throttle, brake, clutch, steering_angle, fuel
-  engine.*        — oil/water temp & pressure, fuel pressure, manifold pressure, warnings
-  wheels.*        — per-corner (front_left, front_right, rear_left, rear_right):
-                    tire temp/pressure/wear, shock velocity, wheel_speed, brake_temp, slip
-  timing.*        — lap times, lap number, deltas
+  motion.*        — velocity, acceleration, g_force, pitch/roll/yaw, heading, pitch/yaw/roll_rate,
+                    latitude, longitude, altitude
+  vehicle.*       — speed, rpm, gear, inputs, steering, ABS, TC, brake bias, DRS, shift lights
+  engine.*        — oil/water temp & pressure, fuel, voltage, warnings
+  wheels.*        — per-corner: tire temp/pressure/wear, suspension, brake, slip
+  timing.*        — lap times, positions, deltas
   session.*       — track/car names, session type, flags
   weather.*       — air/track temp, wind, humidity
   pit.*           — pit status, services, speed limit
-  electronics.*   — ABS, traction control, DRS
-  damage.*        — body/engine/suspension damage
-  extras.*        — adapter-specific fields not in the standard model
+  damage.*        — body/engine/transmission damage
+  drivers.*       — drivers.current (player info), drivers.competitors[] (other cars)
+  extras.*        — adapter-specific fields (flattened to top level in JSON)
 ```
+
+### Heading Fix (Breaking)
+
+`motion.heading` was incorrectly negated, mirroring east↔west (e.g. NNE appeared as NNW). Now correctly outputs 0-360° compass bearing (0=N, 90=E, 180=S, 270=W) from iRacing's `YawNorth`.
+
+### Performance: IBT Conversion
+
+The `/api/convert/ibt` endpoint is significantly faster:
+- JSON serialization skips null fields (`skip_serializing_if`) — reduces output size dramatically
+- Direct `serde_json::to_writer` instead of `to_string` + copy
+- 256KB buffered writes to the compression stream
+- Zstd compression level reduced from 3 to 1 (minimal ratio difference on repetitive JSONL)
+
+---
+
+### Data Model Redesign
+
+The telemetry data model was completely redesigned for comprehensive iRacing coverage. If you were consuming the original model, all field paths have changed. The current model is structured as above.
 
 ### Field Renames
 

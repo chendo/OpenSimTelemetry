@@ -23,7 +23,7 @@ class GraphWidget extends Widget {
         { path: 'vehicle.brake' },
         { path: 'vehicle.clutch' },
         { path: 'motion.yaw_rate' },
-        { path: 'electronics.abs_active', norm: 'boolean' },
+        { path: 'vehicle.abs_active', norm: 'boolean' },
         { path: 'vehicle.steering_angle' },
     ];
 

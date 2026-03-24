@@ -61,13 +61,9 @@ pub struct TelemetryFrame {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pit: Option<PitData>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub electronics: Option<ElectronicsData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub damage: Option<DamageData>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub competitors: Option<Vec<CompetitorData>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub driver: Option<DriverData>,
+    pub drivers: Option<DriversData>,
 
     /// Game-specific telemetry data that doesn't fit the normalized model.
     /// Keyed by lowercase game namespace (e.g., "iracing"), value is a JSON object
@@ -117,9 +113,17 @@ pub struct MotionData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub g_force: Option<Vector3<GForce>>,
 
-    /// Rotation (pitch, yaw, roll) in degrees
+    /// Pitch angle (degrees)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub rotation: Option<Vector3<Degrees>>,
+    pub pitch: Option<Degrees>,
+
+    /// Roll angle (degrees)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub roll: Option<Degrees>,
+
+    /// Yaw angle (degrees, track-relative)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yaw: Option<Degrees>,
 
     /// Pitch rate (deg/s) — rotation around lateral axis
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -132,10 +136,6 @@ pub struct MotionData {
     /// Roll rate (deg/s) — rotation around longitudinal axis
     #[serde(skip_serializing_if = "Option::is_none")]
     pub roll_rate: Option<DegreesPerSecond>,
-
-    /// Angular acceleration (deg/s²)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub angular_acceleration: Option<Vector3<DegreesPerSecondSquared>>,
 
     /// GPS latitude (degrees, WGS84)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -244,6 +244,67 @@ pub struct VehicleData {
     /// Setup name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub setup_name: Option<String>,
+
+    // === Electronics / driver aids (merged from ElectronicsData) ===
+    /// ABS setting level
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abs: Option<f32>,
+
+    /// ABS currently active (firing)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abs_active: Option<bool>,
+
+    /// Traction control setting
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub traction_control: Option<f32>,
+
+    /// Secondary traction control setting
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub traction_control_2: Option<f32>,
+
+    /// Brake bias (percentage front)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brake_bias: Option<Percentage>,
+
+    /// Front anti-roll bar setting
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anti_roll_front: Option<f32>,
+
+    /// Rear anti-roll bar setting
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anti_roll_rear: Option<f32>,
+
+    /// DRS (drag reduction system) status
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drs_status: Option<u32>,
+
+    /// Push-to-pass status
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub push_to_pass_status: Option<u32>,
+
+    /// Push-to-pass remaining count
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub push_to_pass_count: Option<u32>,
+
+    /// Throttle shape/map setting
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub throttle_shape: Option<f32>,
+
+    /// Shift light: first RPM (begin illumination)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shift_light_first_rpm: Option<Rpm>,
+
+    /// Shift light: optimal shift RPM
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shift_light_shift_rpm: Option<Rpm>,
+
+    /// Shift light: last RPM (full illumination)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shift_light_last_rpm: Option<Rpm>,
+
+    /// Shift light: blink RPM (over-rev warning)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shift_light_blink_rpm: Option<Rpm>,
 }
 
 // =============================================================================
@@ -973,74 +1034,6 @@ pub struct PitServices {
 }
 
 // =============================================================================
-// ElectronicsData
-// =============================================================================
-
-/// Driver aids and electronic systems
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ElectronicsData {
-    /// ABS setting level
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub abs: Option<f32>,
-
-    /// ABS currently active (firing)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub abs_active: Option<bool>,
-
-    /// Traction control setting
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub traction_control: Option<f32>,
-
-    /// Secondary traction control setting
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub traction_control_2: Option<f32>,
-
-    /// Brake bias (percentage front)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub brake_bias: Option<Percentage>,
-
-    /// Front anti-roll bar setting
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub anti_roll_front: Option<f32>,
-
-    /// Rear anti-roll bar setting
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub anti_roll_rear: Option<f32>,
-
-    /// DRS (drag reduction system) status
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub drs_status: Option<u32>,
-
-    /// Push-to-pass status
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub push_to_pass_status: Option<u32>,
-
-    /// Push-to-pass remaining count
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub push_to_pass_count: Option<u32>,
-
-    /// Throttle shape/map setting
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub throttle_shape: Option<f32>,
-
-    /// Shift light: first RPM (begin illumination)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shift_light_first_rpm: Option<Rpm>,
-
-    /// Shift light: optimal shift RPM
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shift_light_shift_rpm: Option<Rpm>,
-
-    /// Shift light: last RPM (full illumination)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shift_light_last_rpm: Option<Rpm>,
-
-    /// Shift light: blink RPM (over-rev warning)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub shift_light_blink_rpm: Option<Rpm>,
-}
-
-// =============================================================================
 // DamageData
 // =============================================================================
 
@@ -1149,12 +1142,25 @@ pub struct CompetitorData {
 }
 
 // =============================================================================
-// DriverData
+// DriversData
+// =============================================================================
+
+/// Container for driver-related data (current player + competitors)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DriversData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<CurrentDriver>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub competitors: Option<Vec<CompetitorData>>,
+}
+
+// =============================================================================
+// CurrentDriver (formerly DriverData)
 // =============================================================================
 
 /// Player driver metadata (mostly from session info, relatively static)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DriverData {
+pub struct CurrentDriver {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1328,20 +1334,12 @@ impl MetricMaskBuilder {
         self.with_metric("pit")
     }
 
-    pub fn electronics(self) -> Self {
-        self.with_metric("electronics")
-    }
-
     pub fn damage(self) -> Self {
         self.with_metric("damage")
     }
 
-    pub fn competitors(self) -> Self {
-        self.with_metric("competitors")
-    }
-
-    pub fn driver(self) -> Self {
-        self.with_metric("driver")
+    pub fn drivers(self) -> Self {
+        self.with_metric("drivers")
     }
 
     pub fn build(self) -> MetricMask {
@@ -1426,24 +1424,14 @@ impl TelemetryFrame {
                 map.insert("pit".to_string(), serde_json::to_value(v)?);
             }
         }
-        if mask.includes("electronics") {
-            if let Some(ref v) = self.electronics {
-                map.insert("electronics".to_string(), serde_json::to_value(v)?);
-            }
-        }
         if mask.includes("damage") {
             if let Some(ref v) = self.damage {
                 map.insert("damage".to_string(), serde_json::to_value(v)?);
             }
         }
-        if mask.includes("competitors") {
-            if let Some(ref v) = self.competitors {
-                map.insert("competitors".to_string(), serde_json::to_value(v)?);
-            }
-        }
-        if mask.includes("driver") {
-            if let Some(ref v) = self.driver {
-                map.insert("driver".to_string(), serde_json::to_value(v)?);
+        if mask.includes("drivers") {
+            if let Some(ref v) = self.drivers {
+                map.insert("drivers".to_string(), serde_json::to_value(v)?);
             }
         }
         // Game-specific namespaces (flattened into top level)
@@ -1529,11 +1517,12 @@ mod tests {
                 velocity: None,
                 acceleration: None,
                 g_force: Some(Vector3::new(GForce(0.3), GForce(1.0), GForce(-0.5))),
-                rotation: None,
+                pitch: None,
+                roll: None,
+                yaw: None,
                 pitch_rate: None,
                 yaw_rate: None,
                 roll_rate: None,
-                angular_acceleration: None,
                 latitude: None,
                 longitude: None,
                 altitude: None,
@@ -1561,6 +1550,21 @@ mod tests {
                 car_name: Some("Test Car".to_string()),
                 car_class: None,
                 setup_name: None,
+                abs: None,
+                abs_active: None,
+                traction_control: None,
+                traction_control_2: None,
+                brake_bias: None,
+                anti_roll_front: None,
+                anti_roll_rear: None,
+                drs_status: None,
+                push_to_pass_status: None,
+                push_to_pass_count: None,
+                throttle_shape: None,
+                shift_light_first_rpm: None,
+                shift_light_shift_rpm: None,
+                shift_light_last_rpm: None,
+                shift_light_blink_rpm: None,
             }),
             engine: Some(EngineData {
                 water_temp: Some(Celsius(90.0)),
@@ -1617,10 +1621,8 @@ mod tests {
             }),
             weather: None,
             pit: None,
-            electronics: None,
             damage: None,
-            competitors: None,
-            driver: None,
+            drivers: None,
             extras: HashMap::new(),
         }
     }

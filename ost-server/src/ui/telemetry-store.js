@@ -94,7 +94,7 @@ function buildReplayMetricMask() {
     metrics.add('timing');       // Session bar lap timing
     metrics.add('session');      // Session bar info
     metrics.add('weather');      // Session bar weather
-    metrics.add('electronics');  // (ABS active, etc.)
+    // ABS/TC fields are now under 'vehicle' which is already included above
     // Collect individual paths from graph widgets
     if (typeof grid !== 'undefined') {
         for (const w of grid.widgets.values()) {

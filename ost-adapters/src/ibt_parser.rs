@@ -873,18 +873,11 @@ impl IbtFile {
             )
         });
 
-        let rotation = match (get_f32("Pitch"), get_f32("Yaw"), get_f32("Roll")) {
-            (Some(p), Some(y), Some(r)) => {
-                // Yaw/Pitch/Roll are car orientation in track coordinates (radians).
-                // Just convert to degrees — compass bearing is handled by `heading` (from YawNorth).
-                Some(Vector3::new(
-                    Degrees::from_radians(p),
-                    Degrees::from_radians(y),
-                    Degrees::from_radians(r),
-                ))
-            }
-            _ => None,
-        };
+        // Pitch/Yaw/Roll are car orientation in track coordinates (radians).
+        // Just convert to degrees — compass bearing is handled by `heading` (from YawNorth).
+        let pitch_val = get_f32("Pitch").map(Degrees::from_radians);
+        let yaw_val = get_f32("Yaw").map(Degrees::from_radians);
+        let roll_val = get_f32("Roll").map(Degrees::from_radians);
 
         // YawNorth: compass heading in radians (0=north, CW-positive).
         // Just convert to degrees.
@@ -898,11 +891,12 @@ impl IbtFile {
             velocity,
             acceleration,
             g_force,
-            rotation,
+            pitch: pitch_val,
+            roll: roll_val,
+            yaw: yaw_val,
             pitch_rate: get_f32("PitchRate").map(DegreesPerSecond::from_radians),
             yaw_rate: get_f32("YawRate").map(DegreesPerSecond::from_radians),
             roll_rate: get_f32("RollRate").map(DegreesPerSecond::from_radians),
-            angular_acceleration: None,
             latitude: get_f64("Lat"),
             longitude: get_f64("Lon"),
             altitude: get_f32("Alt").map(Meters),
@@ -943,6 +937,21 @@ impl IbtFile {
             car_name: Some(self.session_info.car_name.clone()).filter(|s| !s.is_empty()),
             car_class: None,
             setup_name: None,
+            abs: get_f32("dcABS"),
+            abs_active: get_bool("BrakeABSactive"),
+            traction_control: get_f32("dcTractionControl"),
+            traction_control_2: None,
+            brake_bias: get_f32("dcBrakeBias").map(Percentage::new),
+            anti_roll_front: None,
+            anti_roll_rear: None,
+            drs_status: get_i32("DRS_Status").map(|v| v as u32),
+            push_to_pass_status: None,
+            push_to_pass_count: None,
+            throttle_shape: None,
+            shift_light_first_rpm: None,
+            shift_light_shift_rpm: None,
+            shift_light_last_rpm: None,
+            shift_light_blink_rpm: None,
         });
 
         // =================================================================
@@ -1091,27 +1100,6 @@ impl IbtFile {
         });
 
         // =================================================================
-        // Electronics
-        // =================================================================
-        let electronics = Some(ElectronicsData {
-            abs: get_f32("dcABS"),
-            abs_active: get_bool("BrakeABSactive"),
-            traction_control: get_f32("dcTractionControl"),
-            traction_control_2: None,
-            brake_bias: get_f32("dcBrakeBias").map(Percentage::new),
-            anti_roll_front: None,
-            anti_roll_rear: None,
-            drs_status: get_i32("DRS_Status").map(|v| v as u32),
-            push_to_pass_status: None,
-            push_to_pass_count: None,
-            throttle_shape: None,
-            shift_light_first_rpm: None,
-            shift_light_shift_rpm: None,
-            shift_light_last_rpm: None,
-            shift_light_blink_rpm: None,
-        });
-
-        // =================================================================
         // Game-specific namespace: all iRacing variables under "iracing"
         // =================================================================
         let mut iracing_data = serde_json::Map::new();
@@ -1144,16 +1132,17 @@ impl IbtFile {
             session,
             weather,
             pit,
-            electronics,
             damage: None,
-            competitors: None,
-            driver: if !self.session_info.driver_name.is_empty() {
-                Some(DriverData {
-                    name: Some(self.session_info.driver_name.clone()),
-                    car_index: Some(self.session_info.driver_car_idx as u32),
-                    car_number: None,
-                    team_name: None,
-                    estimated_lap_time: None,
+            drivers: if !self.session_info.driver_name.is_empty() {
+                Some(DriversData {
+                    current: Some(CurrentDriver {
+                        name: Some(self.session_info.driver_name.clone()),
+                        car_index: Some(self.session_info.driver_car_idx as u32),
+                        car_number: None,
+                        team_name: None,
+                        estimated_lap_time: None,
+                    }),
+                    competitors: None,
                 })
             } else {
                 None
@@ -1640,9 +1629,9 @@ SessionInfo:
             let gear = get(&m, "vehicle.gear").unwrap_or_default();
             let throttle = get(&m, "vehicle.throttle").unwrap_or_default();
             let brake = get(&m, "vehicle.brake").unwrap_or_default();
-            let rot_x = get(&m, "motion.rotation.x").unwrap_or_default();
-            let rot_y = get(&m, "motion.rotation.y").unwrap_or_default();
-            let rot_z = get(&m, "motion.rotation.z").unwrap_or_default();
+            let rot_x = get(&m, "motion.pitch").unwrap_or_default();
+            let rot_y = get(&m, "motion.yaw").unwrap_or_default();
+            let rot_z = get(&m, "motion.roll").unwrap_or_default();
             let heading = get(&m, "motion.heading").unwrap_or_default();
             let lat = get(&m, "motion.latitude").unwrap_or_default();
             let lap = get(&m, "timing.lap_number").unwrap_or_default();
@@ -1698,12 +1687,7 @@ SessionInfo:
             "motion.heading",
             "30.579999923706055",
         );
-        assert_metric(
-            &interval_snapshots,
-            600,
-            "motion.rotation.y",
-            "5.3719000816345215",
-        );
+        assert_metric(&interval_snapshots, 600, "motion.yaw", "5.3719000816345215");
         assert_metric(&interval_snapshots, 600, "timing.lap_number", "0");
 
         // Frame 6000 (~100s): on-track mid-lap
@@ -1774,7 +1758,7 @@ SessionInfo:
         assert_metric(
             &interval_snapshots,
             60000,
-            "motion.rotation.y",
+            "motion.yaw",
             "23.124000549316406",
         );
     }
