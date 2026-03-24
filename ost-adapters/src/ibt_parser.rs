@@ -875,23 +875,21 @@ impl IbtFile {
 
         let rotation = match (get_f32("Pitch"), get_f32("Yaw"), get_f32("Roll")) {
             (Some(p), Some(y), Some(r)) => {
-                // Yaw: iRacing uses 0=east, CCW positive (radians)
-                // Normalize to 0-360 compass bearing (0=N, 90=E, CW)
-                let yaw_deg = y * (180.0 / std::f32::consts::PI);
-                let compass = (90.0 - yaw_deg).rem_euclid(360.0);
+                // Yaw/Pitch/Roll are car orientation in track coordinates (radians).
+                // Just convert to degrees — compass bearing is handled by `heading` (from YawNorth).
                 Some(Vector3::new(
                     Degrees::from_radians(p),
-                    Degrees(compass),
+                    Degrees::from_radians(y),
                     Degrees::from_radians(r),
                 ))
             }
             _ => None,
         };
 
-        // YawNorth: yaw relative to geographic north (radians)
-        // Convert to compass heading (degrees, CW from north)
+        // YawNorth: compass heading in radians (0=north, CW-positive).
+        // Just convert to degrees.
         let heading = get_f32("YawNorth").map(|yn| {
-            let deg = -yn * (180.0 / std::f32::consts::PI);
+            let deg = yn * (180.0 / std::f32::consts::PI);
             Degrees(deg.rem_euclid(360.0))
         });
 
@@ -1479,13 +1477,13 @@ SessionInfo:
 
         assert_eq!(ibt.header.ver, 2);
         assert_eq!(ibt.header.tick_rate, 60);
-        assert_eq!(ibt.header.num_vars, 267);
-        assert_eq!(ibt.disk_sub_header.session_record_count, 16263);
-        assert_eq!(ibt.record_count(), 16263);
+        assert_eq!(ibt.header.num_vars, 268);
+        assert_eq!(ibt.disk_sub_header.session_record_count, 73225);
+        assert_eq!(ibt.record_count(), 73225);
         let duration = ibt.duration_secs();
         assert!(
-            duration > 270.0 && duration < 272.0,
-            "Expected ~271s duration, got {duration}"
+            duration > 1220.0 && duration < 1221.0,
+            "Expected ~1220s duration, got {duration}"
         );
     }
 
@@ -1496,8 +1494,52 @@ SessionInfo:
         }
         let ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
         let info = &ibt.session_info;
-        assert_eq!(info.track_display_name, "Red Bull Ring");
-        assert_eq!(info.session_type, "Lone Qualify");
+        assert_eq!(info.track_display_name, "Tsukuba Circuit 2k Full");
+        assert_eq!(info.session_type, "Practice");
+    }
+
+    /// Flatten a JSON value into sorted key-value pairs, skipping nulls.
+    fn flatten_json(val: &serde_json::Value) -> Vec<(String, String)> {
+        fn recurse(prefix: &str, val: &serde_json::Value, out: &mut Vec<(String, String)>) {
+            match val {
+                serde_json::Value::Object(map) => {
+                    for (k, v) in map {
+                        let key = if prefix.is_empty() {
+                            k.clone()
+                        } else {
+                            format!("{prefix}.{k}")
+                        };
+                        recurse(&key, v, out);
+                    }
+                }
+                serde_json::Value::Array(arr) => {
+                    for (i, v) in arr.iter().enumerate() {
+                        recurse(&format!("{prefix}[{i}]"), v, out);
+                    }
+                }
+                serde_json::Value::Null => {}
+                _ => {
+                    let display = match val {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    out.push((prefix.to_string(), display));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        recurse("", val, &mut out);
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
+    }
+
+    /// Print flattened metrics to stderr.
+    fn print_metrics(label: &str, metrics: &[(String, String)]) {
+        let max_key = metrics.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+        eprintln!("\n=== {label} ===");
+        for (key, val) in metrics {
+            eprintln!("{key:<max_key$}\t\t{val}");
+        }
     }
 
     #[test]
@@ -1537,13 +1579,204 @@ SessionInfo:
 
         // Session data
         let session = frame.session.as_ref().expect("session should be populated");
-        assert_eq!(session.track_name.as_deref(), Some("Red Bull Ring"));
-        assert_eq!(session.session_type, Some(SessionType::Qualifying));
+        assert_eq!(
+            session.track_name.as_deref(),
+            Some("Tsukuba Circuit 2k Full")
+        );
+        assert_eq!(session.session_type, Some(SessionType::Practice));
 
         // Wheels
         let wheels = frame.wheels.as_ref().expect("wheels should be populated");
         assert!(wheels.front_left.suspension_travel.is_some());
         assert!(wheels.front_right.tyre_pressure.is_some());
+
+        // Dump all metrics for frame 1800
+        let json = serde_json::to_value(&frame).expect("serialize");
+        let metrics = flatten_json(&json);
+        print_metrics(&format!("ALL METRICS (frame {idx})"), &metrics);
+
+        // =====================================================================
+        // Sample at 10s intervals and print + assert exact parsed values
+        // =====================================================================
+        let tick_rate = ibt.header.tick_rate as usize;
+        let step = tick_rate * 10; // 600 frames = 10s
+
+        // Helper to get a metric value from flattened list
+        let get = |metrics: &[(String, String)], key: &str| -> Option<String> {
+            metrics
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v.clone())
+        };
+
+        eprintln!("\n=== METRICS AT 10s INTERVALS ===");
+        eprintln!(
+            "{:>6} {:>8} {:>7} {:>4} {:>6} {:>6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>4} {:>8} {:>8}",
+            "frame",
+            "sess_t",
+            "speed",
+            "gear",
+            "throt",
+            "brake",
+            "rot.x",
+            "rot.y",
+            "rot.z",
+            "heading",
+            "lat",
+            "lap",
+            "lap_dst",
+            "lap_time"
+        );
+
+        let mut interval_snapshots: Vec<(usize, Vec<(String, String)>)> = Vec::new();
+        for frame_idx in (0..ibt.record_count()).step_by(step) {
+            let sample = ibt.read_sample(frame_idx).unwrap();
+            let frame = ibt.sample_to_frame(&sample);
+            let json = serde_json::to_value(&frame).expect("serialize");
+            let m = flatten_json(&json);
+
+            let sess_t = get(&m, "session.session_time").unwrap_or_default();
+            let speed = get(&m, "vehicle.speed").unwrap_or_default();
+            let gear = get(&m, "vehicle.gear").unwrap_or_default();
+            let throttle = get(&m, "vehicle.throttle").unwrap_or_default();
+            let brake = get(&m, "vehicle.brake").unwrap_or_default();
+            let rot_x = get(&m, "motion.rotation.x").unwrap_or_default();
+            let rot_y = get(&m, "motion.rotation.y").unwrap_or_default();
+            let rot_z = get(&m, "motion.rotation.z").unwrap_or_default();
+            let heading = get(&m, "motion.heading").unwrap_or_default();
+            let lat = get(&m, "motion.latitude").unwrap_or_default();
+            let lap = get(&m, "timing.lap_number").unwrap_or_default();
+            let lap_dst = get(&m, "timing.lap_distance").unwrap_or_default();
+            let lap_time = get(&m, "timing.current_lap_time").unwrap_or_default();
+
+            eprintln!(
+                "{:6} {:>8} {:>7} {:>4} {:>6} {:>6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>4} {:>8} {:>8}",
+                frame_idx, sess_t, speed, gear, throttle, brake,
+                rot_x, rot_y, rot_z, heading,
+                lat, lap, lap_dst, lap_time
+            );
+
+            interval_snapshots.push((frame_idx, m));
+        }
+
+        // Assert exact values at specific 10s interval frames to detect parsing regressions.
+        // These are hardcoded from a known-good parse of fixtures/race.ibt.
+        // If any assertion fails, the parsing logic has changed.
+        let assert_metric = |snapshots: &[(usize, Vec<(String, String)>)],
+                             frame_idx: usize,
+                             key: &str,
+                             expected: &str| {
+            let (_, metrics) = snapshots
+                .iter()
+                .find(|(idx, _)| *idx == frame_idx)
+                .unwrap_or_else(|| panic!("No snapshot for frame {frame_idx}"));
+            let actual = get(metrics, key);
+            assert_eq!(
+                actual.as_deref(),
+                Some(expected),
+                "frame {frame_idx} metric {key}"
+            );
+        };
+
+        // Frame 0: stationary in pit
+        assert_metric(&interval_snapshots, 0, "vehicle.speed", "0.0");
+        assert_metric(&interval_snapshots, 0, "vehicle.gear", "0");
+        assert_metric(&interval_snapshots, 0, "vehicle.brake", "1.0");
+        assert_metric(&interval_snapshots, 0, "timing.lap_number", "0");
+
+        // Frame 600 (~10s): leaving pit
+        assert_metric(&interval_snapshots, 600, "vehicle.gear", "2");
+        assert_metric(
+            &interval_snapshots,
+            600,
+            "vehicle.speed",
+            "24.08989906311035",
+        );
+        assert_metric(
+            &interval_snapshots,
+            600,
+            "motion.heading",
+            "30.579999923706055",
+        );
+        assert_metric(
+            &interval_snapshots,
+            600,
+            "motion.rotation.y",
+            "5.3719000816345215",
+        );
+        assert_metric(&interval_snapshots, 600, "timing.lap_number", "0");
+
+        // Frame 6000 (~100s): on-track mid-lap
+        assert_metric(&interval_snapshots, 6000, "vehicle.gear", "4");
+        assert_metric(
+            &interval_snapshots,
+            6000,
+            "vehicle.speed",
+            "44.3286018371582",
+        );
+        assert_metric(&interval_snapshots, 6000, "vehicle.throttle", "1.0");
+        assert_metric(&interval_snapshots, 6000, "timing.lap_number", "1");
+        assert_metric(
+            &interval_snapshots,
+            6000,
+            "timing.current_lap_time",
+            "28.792400360107422",
+        );
+
+        // Frame 12000 (~200s): further into the session
+        assert_metric(&interval_snapshots, 12000, "vehicle.gear", "2");
+        assert_metric(
+            &interval_snapshots,
+            12000,
+            "vehicle.speed",
+            "21.92620086669922",
+        );
+        assert_metric(
+            &interval_snapshots,
+            12000,
+            "motion.heading",
+            "118.48809814453125",
+        );
+        assert_metric(&interval_snapshots, 12000, "timing.lap_number", "3");
+
+        // Frame 30000 (~500s): well into session
+        assert_metric(
+            &interval_snapshots,
+            30000,
+            "vehicle.speed",
+            "22.12459945678711",
+        );
+        assert_metric(&interval_snapshots, 30000, "vehicle.gear", "2");
+        assert_metric(&interval_snapshots, 30000, "timing.lap_number", "8");
+        assert_metric(
+            &interval_snapshots,
+            30000,
+            "motion.latitude",
+            "36.15249059429738",
+        );
+        assert_metric(
+            &interval_snapshots,
+            30000,
+            "timing.current_lap_time",
+            "33.53770065307617",
+        );
+
+        // Frame 60000 (~1000s): near end of session, stationary
+        assert_metric(&interval_snapshots, 60000, "vehicle.gear", "0");
+        assert_metric(&interval_snapshots, 60000, "vehicle.speed", "0.0");
+        assert_metric(&interval_snapshots, 60000, "timing.lap_number", "13");
+        assert_metric(
+            &interval_snapshots,
+            60000,
+            "motion.heading",
+            "12.827899932861328",
+        );
+        assert_metric(
+            &interval_snapshots,
+            60000,
+            "motion.rotation.y",
+            "23.124000549316406",
+        );
     }
 
     #[test]
@@ -1588,21 +1821,20 @@ SessionInfo:
         }
         let mut ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
         let laps = ibt.build_lap_index().unwrap();
-        assert_eq!(laps.len(), 3);
-        // Lap 0 is the out-lap (~70s from SessionTime delta)
+        assert_eq!(laps.len(), 18);
+        // Lap 0 is the out-lap (incomplete — no transition before it)
         assert_eq!(laps[0].lap_number, 0);
-        let t0 = laps[0].lap_time_secs.expect("Lap 0 should have a time");
-        assert!(
-            t0 > 60.0 && t0 < 80.0,
-            "Lap 0 (out-lap) time {t0} out of range"
-        );
-        // Lap 1 is the first timed lap (~105s from SessionTime delta)
+        assert!(laps[0].lap_time_secs.is_none());
+        // Lap 1 has a timed lap (~55.5s around Tsukuba)
         assert_eq!(laps[1].lap_number, 1);
         let t1 = laps[1].lap_time_secs.expect("Lap 1 should have a time");
-        assert!(t1 > 100.0 && t1 < 115.0, "Lap 1 time {t1} out of range");
-        // Lap 2 is incomplete (file ends mid-lap, no next transition)
-        assert_eq!(laps[2].lap_number, 2);
-        assert!(laps[2].lap_time_secs.is_none());
+        assert!(
+            t1 > 54.0 && t1 < 57.0,
+            "Lap 1 time {t1} out of range for Tsukuba"
+        );
+        // 12 timed laps total (laps 1-12)
+        let timed_count = laps.iter().filter(|l| l.lap_time_secs.is_some()).count();
+        assert_eq!(timed_count, 12);
     }
 
     #[test]
@@ -1620,8 +1852,8 @@ SessionInfo:
         let vehicle = frame.vehicle.as_ref().expect("vehicle");
         let speed_ms = vehicle.speed.expect("speed").0;
         assert!(
-            speed_ms > 30.0 && speed_ms < 100.0,
-            "Speed at frame 1800 should be 30-100 m/s, got {speed_ms}"
+            speed_ms > 20.0 && speed_ms < 100.0,
+            "Speed at frame 1800 should be 20-100 m/s, got {speed_ms}"
         );
         let rpm = vehicle.rpm.expect("rpm").0;
         assert!(
@@ -1670,8 +1902,11 @@ SessionInfo:
 
         // Session data should match fixture
         let session = frame.session.as_ref().expect("session");
-        assert_eq!(session.track_name.as_deref(), Some("Red Bull Ring"));
-        assert_eq!(session.session_type, Some(SessionType::Qualifying));
+        assert_eq!(
+            session.track_name.as_deref(),
+            Some("Tsukuba Circuit 2k Full")
+        );
+        assert_eq!(session.session_type, Some(SessionType::Practice));
 
         // Should have iracing namespace with raw variables
         let iracing_ns = frame

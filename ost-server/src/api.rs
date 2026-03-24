@@ -1744,14 +1744,15 @@ async fn convert_ibt(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
         let batch_size = 1000;
 
         let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = (|| {
-            let mut encoder = zstd::Encoder::new(sync_write, 3)?;
+            let buffered = std::io::BufWriter::with_capacity(256 * 1024, sync_write);
+            let mut encoder = zstd::Encoder::new(buffered, 1)?;
             for start in (0..total).step_by(batch_size) {
                 let count = batch_size.min(total - start);
                 let samples = ibt.read_samples_range(start, count)?;
                 for sample in &samples {
                     let frame = ibt.sample_to_frame(sample);
-                    let json = serde_json::to_string(&frame)?;
-                    writeln!(encoder, "{}", json)?;
+                    serde_json::to_writer(&mut encoder, &frame)?;
+                    encoder.write_all(b"\n")?;
                 }
             }
             encoder.finish()?;

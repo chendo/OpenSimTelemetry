@@ -57,13 +57,14 @@ impl SessionStore {
         std::fs::write(&ibt_path, data).map_err(|e| format!("Failed to write .ibt file: {}", e))?;
 
         // Parse to extract metadata
-        let replay = ReplayState::from_file(&ibt_path).map_err(|e| {
+        let mut replay = ReplayState::from_file(&ibt_path).map_err(|e| {
             // Clean up on parse failure
             let _ = std::fs::remove_dir_all(&session_dir);
             format!("Failed to parse .ibt file: {}", e)
         })?;
 
         let info = replay.info();
+        replay.set_persistent(); // Don't delete the .ibt file on drop
         let session_info = SessionInfo {
             id: id.clone(),
             token,

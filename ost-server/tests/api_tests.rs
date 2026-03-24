@@ -797,12 +797,12 @@ async fn test_convert_ibt_returns_zstd_stream() {
     // Parse first and last lines as valid TelemetryFrame JSON
     let first: serde_json::Value =
         serde_json::from_str(lines[0]).expect("First line should be valid JSON");
-    assert_eq!(first["game"], "iRacing Replay");
+    assert_eq!(first["meta"]["game"], "iRacing Replay");
     assert!(first["vehicle"].is_object());
 
     let last: serde_json::Value =
         serde_json::from_str(lines.last().unwrap()).expect("Last line should be valid JSON");
-    assert_eq!(last["game"], "iRacing Replay");
+    assert_eq!(last["meta"]["game"], "iRacing Replay");
 }
 
 #[tokio::test]
@@ -871,7 +871,7 @@ async fn test_replay_upload_parses_ibt_and_returns_info() {
         "Should have many frames"
     );
     assert_eq!(info["tick_rate"], 60);
-    assert_eq!(info["track_name"], "Red Bull Ring");
+    assert_eq!(info["track_name"], "Tsukuba Circuit 2k Full");
     assert!(
         info["duration_secs"].as_f64().unwrap() > 200.0,
         "Duration should be > 200s"
@@ -1032,10 +1032,10 @@ async fn test_ibt_frame_golden_structure() {
     let frame = ibt.sample_to_frame(&sample);
     let json = serde_json::to_value(&frame).expect("Frame should serialize");
 
-    // Verify top-level structure
-    assert_eq!(json["game"], "iRacing Replay");
-    assert!(json["timestamp"].is_string());
-    assert!(json["tick"].is_number());
+    // Verify top-level structure (meta is nested, not flattened)
+    assert_eq!(json["meta"]["game"], "iRacing Replay");
+    assert!(json["meta"]["timestamp"].is_string());
+    assert!(json["meta"]["tick"].is_number());
 
     // Vehicle section
     let vehicle = &json["vehicle"];
@@ -1082,20 +1082,17 @@ async fn test_ibt_frame_golden_structure() {
 
     // Session section
     let session = &json["session"];
-    assert_eq!(session["track_name"], "Red Bull Ring");
-    assert_eq!(session["session_type"], "Qualifying");
+    assert_eq!(session["track_name"], "Tsukuba Circuit 2k Full");
+    assert_eq!(session["session_type"], "Practice");
 
-    // Extras should contain iRacing-specific data
-    let extras = &json["extras"];
-    assert!(extras.is_object());
+    // Extras: flattened into top level via #[serde(flatten)]
+    // The extras HashMap has key "iracing" → Object with raw variable data
+    let top = json.as_object().unwrap();
     assert!(
-        extras
-            .as_object()
-            .unwrap()
-            .keys()
-            .any(|k| k.starts_with("iracing/")),
-        "Extras should contain iracing/ prefixed keys"
+        top.contains_key("iracing"),
+        "Should contain 'iracing' key at top level (from flattened extras)"
     );
+    assert!(top["iracing"].is_object());
 }
 
 // ==================== GET /api/history/aggregate ====================

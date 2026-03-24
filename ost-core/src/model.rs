@@ -29,6 +29,7 @@ pub struct MetaData {
     pub game: String,
 
     /// Sample tick/frame number from the sim
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tick: Option<u32>,
 }
 
@@ -43,17 +44,29 @@ pub struct TelemetryFrame {
     pub meta: MetaData,
 
     // === Domain sections ===
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub motion: Option<MotionData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub vehicle: Option<VehicleData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub engine: Option<EngineData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub wheels: Option<WheelData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timing: Option<TimingData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub weather: Option<WeatherData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pit: Option<PitData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub electronics: Option<ElectronicsData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub damage: Option<DamageData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub competitors: Option<Vec<CompetitorData>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub driver: Option<DriverData>,
 
     /// Game-specific telemetry data that doesn't fit the normalized model.
@@ -89,42 +102,55 @@ impl<T> Vector3<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MotionData {
     /// Position in world space (meters)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<Vector3<Meters>>,
 
     /// Linear velocity in car-local space (m/s)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub velocity: Option<Vector3<MetersPerSecond>>,
 
     /// Linear acceleration in car-local space (m/s²)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub acceleration: Option<Vector3<MetersPerSecondSquared>>,
 
     /// G-forces experienced (derived from acceleration)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub g_force: Option<Vector3<GForce>>,
 
     /// Rotation (pitch, yaw, roll) in degrees
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rotation: Option<Vector3<Degrees>>,
 
     /// Pitch rate (deg/s) — rotation around lateral axis
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pitch_rate: Option<DegreesPerSecond>,
 
     /// Yaw rate (deg/s) — rotation around vertical axis
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub yaw_rate: Option<DegreesPerSecond>,
 
     /// Roll rate (deg/s) — rotation around longitudinal axis
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub roll_rate: Option<DegreesPerSecond>,
 
     /// Angular acceleration (deg/s²)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub angular_acceleration: Option<Vector3<DegreesPerSecondSquared>>,
 
     /// GPS latitude (degrees, WGS84)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub latitude: Option<f64>,
 
     /// GPS longitude (degrees, WGS84)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub longitude: Option<f64>,
 
     /// Altitude above sea level (meters)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub altitude: Option<Meters>,
 
     /// Compass heading (degrees, clockwise from true north: 0=N, 90=E, 180=S, 270=W)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub heading: Option<Degrees>,
 }
 
@@ -136,66 +162,87 @@ pub struct MotionData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VehicleData {
     /// Speed magnitude (m/s)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub speed: Option<MetersPerSecond>,
 
     /// Engine RPM
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rpm: Option<Rpm>,
 
     /// Redline RPM (from session info)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_rpm: Option<Rpm>,
 
     /// Idle RPM (from session info)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub idle_rpm: Option<Rpm>,
 
     /// Current gear (-1 = reverse, 0 = neutral, 1+ = forward gears)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gear: Option<i8>,
 
     /// Maximum gears available
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_gears: Option<u8>,
 
     /// Throttle input (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub throttle: Option<Percentage>,
 
     /// Brake input (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub brake: Option<Percentage>,
 
     /// Clutch input (0.0 = engaged, 1.0 = disengaged)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub clutch: Option<Percentage>,
 
     /// Steering wheel angle in degrees
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub steering_angle: Option<Degrees>,
 
     /// Steering wheel torque
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub steering_torque: Option<NewtonMeters>,
 
     /// Steering wheel torque as percentage of max
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub steering_torque_pct: Option<Percentage>,
 
     /// Handbrake input (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub handbrake: Option<Percentage>,
 
     /// Shift indicator / shift light percentage (0.0 = off, 1.0 = full)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shift_indicator: Option<Percentage>,
 
     /// Maximum steering lock angle (for scaling wheel visualizations)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub steering_angle_max: Option<Degrees>,
 
     /// Whether the car is on the track
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub on_track: Option<bool>,
 
     /// Whether the car is in the garage
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub in_garage: Option<bool>,
 
     /// What surface the player's car is currently on
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_surface: Option<TrackSurface>,
 
     /// Player's car name
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub car_name: Option<String>,
 
     /// Player's car class
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub car_class: Option<String>,
 
     /// Setup name
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub setup_name: Option<String>,
 }
 
@@ -230,42 +277,55 @@ pub enum TrackSurface {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineData {
     /// Coolant/water temperature
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub water_temp: Option<Celsius>,
 
     /// Oil temperature
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub oil_temp: Option<Celsius>,
 
     /// Oil pressure
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub oil_pressure: Option<Kilopascals>,
 
     /// Oil level (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub oil_level: Option<Percentage>,
 
     /// Fuel level in liters
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fuel_level: Option<Liters>,
 
     /// Fuel level as percentage of capacity
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fuel_level_pct: Option<Percentage>,
 
     /// Fuel tank capacity in liters (from session info)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fuel_capacity: Option<Liters>,
 
     /// Fuel pressure
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fuel_pressure: Option<Kilopascals>,
 
     /// Fuel consumption rate
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fuel_use_per_hour: Option<LitersPerHour>,
 
     /// Battery/alternator voltage
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub voltage: Option<Volts>,
 
     /// Manifold pressure
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub manifold_pressure: Option<Bar>,
 
     /// Coolant/water level
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub water_level: Option<Liters>,
 
     /// Engine warning flags
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub warnings: Option<EngineWarnings>,
 }
 
@@ -340,81 +400,105 @@ impl WheelData {
 pub struct WheelInfo {
     // --- Suspension ---
     /// Suspension/shock deflection (mm)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub suspension_travel: Option<Millimeters>,
 
     /// Short-term averaged suspension deflection (mm)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub suspension_travel_avg: Option<Millimeters>,
 
     /// Shock velocity (mm/s)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shock_velocity: Option<MillimetersPerSecond>,
 
     /// Short-term averaged shock velocity (mm/s)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shock_velocity_avg: Option<MillimetersPerSecond>,
 
     /// Ride height at this corner (mm)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ride_height: Option<Millimeters>,
 
     // --- Tyre pressure ---
     /// Current tyre air pressure (kPa)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_pressure: Option<Kilopascals>,
 
     /// Cold tyre pressure from setup (kPa)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_cold_pressure: Option<Kilopascals>,
 
     // --- Tyre surface temperatures (inner/middle/outer relative to car center) ---
     /// Surface temp at inner edge (toward car center)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub surface_temp_inner: Option<Celsius>,
 
     /// Surface temp at middle of tread
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub surface_temp_middle: Option<Celsius>,
 
     /// Surface temp at outer edge (away from car center)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub surface_temp_outer: Option<Celsius>,
 
     // --- Tyre carcass temperatures ---
     /// Carcass temp at inner position
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub carcass_temp_inner: Option<Celsius>,
 
     /// Carcass temp at middle position
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub carcass_temp_middle: Option<Celsius>,
 
     /// Carcass temp at outer position
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub carcass_temp_outer: Option<Celsius>,
 
     // --- Wear & dynamics ---
     /// Tyre wear (0.0 = new, 1.0 = worn out)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_wear: Option<Percentage>,
 
     /// Tyre wear at inner edge (toward car center)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_wear_inner: Option<Percentage>,
 
     /// Tyre wear at middle of tread
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_wear_middle: Option<Percentage>,
 
     /// Tyre wear at outer edge (away from car center)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_wear_outer: Option<Percentage>,
 
     /// Wheel rotation speed (RPM)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub wheel_speed: Option<Rpm>,
 
     /// Longitudinal slip ratio
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slip_ratio: Option<f32>,
 
     /// Lateral slip angle (degrees)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slip_angle: Option<Degrees>,
 
     /// Vertical load on tyre (Newtons)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub load: Option<Newtons>,
 
     // --- Brakes ---
     /// Brake line pressure (kPa)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub brake_line_pressure: Option<Kilopascals>,
 
     /// Brake disc/rotor temperature
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub brake_temp: Option<Celsius>,
 
     // --- Compound ---
     /// Tyre compound name or index
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_compound: Option<String>,
 }
 
@@ -463,66 +547,87 @@ impl Default for WheelInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimingData {
     /// Current lap time in seconds
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_lap_time: Option<Seconds>,
 
     /// Last completed lap time
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_lap_time: Option<Seconds>,
 
     /// Personal best lap time
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub best_lap_time: Option<Seconds>,
 
     /// Best N-lap average time
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub best_n_lap_time: Option<Seconds>,
 
     /// Lap number of best N-lap average
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub best_n_lap_num: Option<u32>,
 
     /// Sector times for current/last lap
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sector_times: Option<Vec<Seconds>>,
 
     /// Current lap number
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lap_number: Option<u32>,
 
     /// Laps completed
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub laps_completed: Option<u32>,
 
     /// Distance around track (meters)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lap_distance: Option<Meters>,
 
     /// Distance around track as percentage (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lap_distance_pct: Option<Percentage>,
 
     /// Overall race position
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub race_position: Option<u32>,
 
     /// Position within class
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub class_position: Option<u32>,
 
     /// Total number of cars in session
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub num_cars: Option<u32>,
 
     /// Delta to personal best lap (seconds, negative = ahead)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub delta_best: Option<Seconds>,
 
     /// Whether delta_best is valid/usable
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub delta_best_ok: Option<bool>,
 
     /// Delta to session best lap
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub delta_session_best: Option<Seconds>,
 
     /// Whether delta_session_best is valid
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub delta_session_best_ok: Option<bool>,
 
     /// Delta to optimal lap (theoretical best from best sectors)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub delta_optimal: Option<Seconds>,
 
     /// Whether delta_optimal is valid
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub delta_optimal_ok: Option<bool>,
 
     /// Estimated lap time (from session info)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_lap_time: Option<Seconds>,
 
     /// Total race laps completed by leader
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub race_laps: Option<u32>,
 }
 
@@ -534,39 +639,51 @@ pub struct TimingData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionData {
     /// Session type (practice, qualifying, race, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_type: Option<SessionType>,
 
     /// Current session state (warmup, racing, checkered, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_state: Option<SessionState>,
 
     /// Elapsed session time
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_time: Option<Seconds>,
 
     /// Time remaining in session
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_time_remaining: Option<Seconds>,
 
     /// In-sim time of day
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_time_of_day: Option<Seconds>,
 
     /// Total laps for this session (None = unlimited)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_laps: Option<u32>,
 
     /// Laps remaining in session
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_laps_remaining: Option<u32>,
 
     /// Comprehensive flag state (multiple flags can be active)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub flags: Option<FlagState>,
 
     /// Track display name
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_name: Option<String>,
 
     /// Track configuration/layout name
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_config: Option<String>,
 
     /// Track length
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_length: Option<Meters>,
 
     /// Track type (Road, Oval, Dirt, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_type: Option<String>,
 }
 
@@ -706,42 +823,55 @@ impl FlagState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeatherData {
     /// Air temperature
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub air_temp: Option<Celsius>,
 
     /// Track surface temperature (crew-reported or estimated)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_temp: Option<Celsius>,
 
     /// Measured track surface temperature (direct sensor reading)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_surface_temp: Option<Celsius>,
 
     /// Atmospheric pressure (kPa)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub air_pressure: Option<Kilopascals>,
 
     /// Air density
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub air_density: Option<KilogramsPerCubicMeter>,
 
     /// Relative humidity (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub humidity: Option<Percentage>,
 
     /// Wind speed
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub wind_speed: Option<MetersPerSecond>,
 
     /// Wind direction (degrees, relative to north)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub wind_direction: Option<Degrees>,
 
     /// Fog level (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fog_level: Option<Percentage>,
 
     /// Precipitation amount (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub precipitation: Option<Percentage>,
 
     /// Track wetness level
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_wetness: Option<TrackWetness>,
 
     /// Sky condition description
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub skies: Option<String>,
 
     /// Whether the race has been declared wet
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub declared_wet: Option<bool>,
 }
 
@@ -764,30 +894,39 @@ pub enum TrackWetness {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PitData {
     /// Whether the player's car is on pit road
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub on_pit_road: Option<bool>,
 
     /// Whether a pit stop is currently active
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pit_active: Option<bool>,
 
     /// Pit service status code
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pit_service_status: Option<u32>,
 
     /// Mandatory repair time remaining (seconds)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub repair_time_left: Option<Seconds>,
 
     /// Optional repair time remaining (seconds)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub optional_repair_time_left: Option<Seconds>,
 
     /// Number of fast repairs available
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fast_repair_available: Option<u32>,
 
     /// Number of fast repairs used
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fast_repair_used: Option<u32>,
 
     /// Pit lane speed limit
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pit_speed_limit: Option<MetersPerSecond>,
 
     /// Requested pit services for next stop
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub requested_services: Option<PitServices>,
 }
 
@@ -795,6 +934,7 @@ pub struct PitData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PitServices {
     /// Fuel to add (liters)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fuel_to_add: Option<Liters>,
 
     /// Change front-left tyre
@@ -816,15 +956,19 @@ pub struct PitServices {
     pub fast_repair: bool,
 
     /// Requested cold pressure for front-left
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_pressure_fl: Option<Kilopascals>,
 
     /// Requested cold pressure for front-right
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_pressure_fr: Option<Kilopascals>,
 
     /// Requested cold pressure for rear-left
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_pressure_rl: Option<Kilopascals>,
 
     /// Requested cold pressure for rear-right
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tyre_pressure_rr: Option<Kilopascals>,
 }
 
@@ -836,48 +980,63 @@ pub struct PitServices {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElectronicsData {
     /// ABS setting level
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub abs: Option<f32>,
 
     /// ABS currently active (firing)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub abs_active: Option<bool>,
 
     /// Traction control setting
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub traction_control: Option<f32>,
 
     /// Secondary traction control setting
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub traction_control_2: Option<f32>,
 
     /// Brake bias (percentage front)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub brake_bias: Option<Percentage>,
 
     /// Front anti-roll bar setting
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub anti_roll_front: Option<f32>,
 
     /// Rear anti-roll bar setting
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub anti_roll_rear: Option<f32>,
 
     /// DRS (drag reduction system) status
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub drs_status: Option<u32>,
 
     /// Push-to-pass status
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub push_to_pass_status: Option<u32>,
 
     /// Push-to-pass remaining count
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub push_to_pass_count: Option<u32>,
 
     /// Throttle shape/map setting
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub throttle_shape: Option<f32>,
 
     /// Shift light: first RPM (begin illumination)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shift_light_first_rpm: Option<Rpm>,
 
     /// Shift light: optimal shift RPM
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shift_light_shift_rpm: Option<Rpm>,
 
     /// Shift light: last RPM (full illumination)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shift_light_last_rpm: Option<Rpm>,
 
     /// Shift light: blink RPM (over-rev warning)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shift_light_blink_rpm: Option<Rpm>,
 }
 
@@ -889,21 +1048,27 @@ pub struct ElectronicsData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DamageData {
     /// Front damage (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub front: Option<Percentage>,
 
     /// Rear damage
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rear: Option<Percentage>,
 
     /// Left side damage
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub left: Option<Percentage>,
 
     /// Right side damage
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub right: Option<Percentage>,
 
     /// Engine damage
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub engine: Option<Percentage>,
 
     /// Transmission/gearbox damage
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub transmission: Option<Percentage>,
 }
 
@@ -918,50 +1083,68 @@ pub struct CompetitorData {
     pub car_index: u32,
 
     // --- From session info (relatively static) ---
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub driver_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub car_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub car_class: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub car_number: Option<String>,
 
     // --- From live telemetry (per-tick CarIdx arrays) ---
     /// Current lap
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lap: Option<u32>,
 
     /// Laps completed
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub laps_completed: Option<u32>,
 
     /// Track position as percentage (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lap_distance_pct: Option<Percentage>,
 
     /// Overall position
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<u32>,
 
     /// Position within class
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub class_position: Option<u32>,
 
     /// Whether this car is on pit road
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub on_pit_road: Option<bool>,
 
     /// Surface this car is on
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub track_surface: Option<TrackSurface>,
 
     /// Best lap time
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub best_lap_time: Option<Seconds>,
 
     /// Last lap time
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_lap_time: Option<Seconds>,
 
     /// Estimated time around track
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_time: Option<Seconds>,
 
     /// Current gear
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gear: Option<i8>,
 
     /// Current RPM
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rpm: Option<Rpm>,
 
     /// Steering angle
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub steering: Option<Degrees>,
 }
 
@@ -972,10 +1155,15 @@ pub struct CompetitorData {
 /// Player driver metadata (mostly from session info, relatively static)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriverData {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub car_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub car_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub team_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_lap_time: Option<Seconds>,
 }
 

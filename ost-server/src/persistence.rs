@@ -336,10 +336,10 @@ pub fn storage_stats() -> serde_json::Value {
 pub fn compress_frames(
     frames: &[TelemetryFrame],
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut encoder = zstd::Encoder::new(Vec::new(), 3)?;
+    let mut encoder = zstd::Encoder::new(Vec::new(), 1)?;
     for frame in frames {
-        let json = serde_json::to_string(frame)?;
-        writeln!(encoder, "{}", json)?;
+        serde_json::to_writer(&mut encoder, frame)?;
+        encoder.write_all(b"\n")?;
     }
     let compressed = encoder.finish()?;
     Ok(compressed)
