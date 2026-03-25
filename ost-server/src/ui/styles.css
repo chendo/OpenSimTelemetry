@@ -428,7 +428,7 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
-.preset-metrics {
+.preset-channels {
     font-size: 0.6rem;
     color: var(--text-muted);
     overflow: hidden;
@@ -614,7 +614,7 @@ body {
 }
 
 /* ==================== Common Widget Styles ==================== */
-.metric-label {
+.channel-label {
     font-size: 0.6rem;
     font-weight: 600;
     letter-spacing: 0.08em;
@@ -623,21 +623,21 @@ body {
     margin-bottom: 2px;
 }
 
-.metric-value {
+.channel-value {
     font-size: 1.6rem;
     font-weight: 700;
     color: var(--text-primary);
     line-height: 1.1;
 }
 
-.metric-unit {
+.channel-unit {
     font-size: 0.6rem;
     color: var(--text-muted);
     margin-left: 3px;
     font-weight: 400;
 }
 
-.metric-cell {
+.channel-cell {
     background: var(--bg-inset);
     border-radius: 4px;
     padding: 8px 10px;
@@ -656,7 +656,7 @@ body {
     gap: 6px;
 }
 
-.vehicle-stats-row .metric-cell {
+.vehicle-stats-row .channel-cell {
     flex: 1;
 }
 .vehicle-stat-val {
@@ -858,18 +858,18 @@ body {
 }
 .graph-time-select:focus { outline: none; border-color: var(--accent); }
 
-.graph-add-metric-btn {
+.graph-add-channel-btn {
     border: 1px dashed var(--text-muted) !important;
     color: var(--text-muted) !important;
     font-style: italic;
 }
-.graph-add-metric-btn:hover {
+.graph-add-channel-btn:hover {
     border-color: var(--accent) !important;
     color: var(--accent) !important;
     background: transparent !important;
 }
 
-.metric-picker-checkbox {
+.channel-picker-checkbox {
     margin: 0 6px 0 0;
     cursor: pointer;
     accent-color: var(--accent);
@@ -953,7 +953,7 @@ body {
     opacity: 0.5;
 }
 
-.metric-picker-popover {
+.channel-picker-popover {
     width: 340px;
     max-height: 320px;
     background: var(--bg-card);
@@ -965,7 +965,7 @@ body {
     flex-direction: column;
     overflow: hidden;
 }
-.metric-picker-search {
+.channel-picker-search {
     background: var(--bg-inset);
     border: none;
     border-bottom: 1px solid var(--border-color);
@@ -975,14 +975,14 @@ body {
     font-family: var(--font-family);
     width: 100%;
 }
-.metric-picker-search:focus { outline: none; }
-.metric-picker-search::placeholder { color: var(--text-muted); }
-.metric-picker-list {
+.channel-picker-search:focus { outline: none; }
+.channel-picker-search::placeholder { color: var(--text-muted); }
+.channel-picker-list {
     overflow-y: auto;
     flex: 1;
     min-height: 0;
 }
-.metric-picker-section {
+.channel-picker-section {
     font-size: 0.6rem;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -993,7 +993,7 @@ body {
     top: 0;
     text-transform: uppercase;
 }
-.metric-picker-item {
+.channel-picker-item {
     display: flex;
     align-items: center;
     padding: 4px 10px;
@@ -1002,13 +1002,13 @@ body {
     cursor: pointer;
     border-bottom: 1px solid var(--border-color);
 }
-.metric-picker-item .metric-picker-path { flex: 1; }
-.metric-picker-item .metric-picker-value { margin-left: auto; white-space: nowrap; }
-.metric-picker-item:hover { background: rgba(255,255,255,0.06); }
-.metric-picker-path { color: var(--accent); }
-.metric-picker-value { color: var(--text-secondary); font-size: 0.65rem; }
-.metric-picker-unit { color: var(--text-muted); font-size: 0.6rem; }
-.metric-picker-add-all {
+.channel-picker-item .channel-picker-path { flex: 1; }
+.channel-picker-item .channel-picker-value { margin-left: auto; white-space: nowrap; }
+.channel-picker-item:hover { background: rgba(255,255,255,0.06); }
+.channel-picker-path { color: var(--accent); }
+.channel-picker-value { color: var(--text-secondary); font-size: 0.65rem; }
+.channel-picker-unit { color: var(--text-muted); font-size: 0.6rem; }
+.channel-picker-add-all {
     padding: 6px 10px;
     font-size: 0.7rem;
     font-weight: 700;
@@ -1017,7 +1017,7 @@ body {
     border-bottom: 1px solid var(--border-color);
     background: rgba(0, 214, 143, 0.08);
 }
-.metric-picker-add-all:hover { background: rgba(0, 214, 143, 0.15); }
+.channel-picker-add-all:hover { background: rgba(0, 214, 143, 0.15); }
 
 .graph-canvas-wrap {
     flex: 1;
@@ -1209,15 +1209,15 @@ body {
     margin-bottom: 4px;
 }
 
-/* ==================== All Metrics Widget (metric list) ==================== */
-.metrics-toolbar {
+/* ==================== All Channels Widget (channel list) ==================== */
+.channels-toolbar {
     display: flex;
     gap: 4px;
     align-items: center;
     margin-bottom: 6px;
     flex-shrink: 0;
 }
-.metrics-filter {
+.channels-filter {
     background: var(--bg-inset);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
@@ -1227,10 +1227,10 @@ body {
     flex: 1;
     min-width: 0;
 }
-.metrics-filter:focus { outline: none; border-color: var(--accent); }
-.metrics-filter::placeholder { color: var(--text-muted); }
+.channels-filter:focus { outline: none; border-color: var(--accent); }
+.channels-filter::placeholder { color: var(--text-muted); }
 
-.metrics-toggle-btn {
+.channels-toggle-btn {
     background: transparent;
     border: 1px solid var(--border-color);
     color: var(--text-muted);
@@ -1244,15 +1244,15 @@ body {
     white-space: nowrap;
     transition: all 0.12s ease;
 }
-.metrics-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
-.metrics-toggle-btn.active {
+.channels-toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
+.channels-toggle-btn.active {
     border-color: var(--accent);
     color: var(--accent);
     background: rgba(0, 214, 143, 0.1);
 }
 
-.metrics-rate-wrap { position: relative; }
-.metrics-rate-menu {
+.channels-rate-wrap { position: relative; }
+.channels-rate-menu {
     display: none;
     position: absolute;
     top: 100%;
@@ -1265,24 +1265,24 @@ body {
     z-index: 100;
     min-width: 80px;
 }
-.metrics-rate-menu.open { display: block; }
-.metrics-rate-opt {
+.channels-rate-menu.open { display: block; }
+.channels-rate-opt {
     padding: 4px 10px;
     font-size: 0.6rem;
     color: var(--text-secondary);
     cursor: pointer;
     white-space: nowrap;
 }
-.metrics-rate-opt:hover { background: var(--bg-hover); color: var(--text-primary); }
-.metrics-rate-opt.active { color: var(--accent); }
+.channels-rate-opt:hover { background: var(--bg-hover); color: var(--text-primary); }
+.channels-rate-opt.active { color: var(--accent); }
 
-.metrics-list {
+.channels-list {
     flex: 1;
     overflow-y: auto;
     min-height: 0;
 }
 
-.metric-section-header {
+.channel-section-header {
     font-size: 0.6rem;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -1295,7 +1295,7 @@ body {
     z-index: 1;
 }
 
-.metric-item {
+.channel-item {
     display: flex;
     justify-content: space-between;
     padding: 3px 8px;
@@ -1303,17 +1303,17 @@ body {
     font-size: 0.7rem;
     font-family: var(--font-mono);
 }
-.metric-item:last-child { border-bottom: none; }
-.metric-name { color: var(--accent); }
+.channel-item:last-child { border-bottom: none; }
+.channel-name { color: var(--accent); }
 .field-value { color: var(--text-secondary); white-space: nowrap; }
 .field-unit { color: var(--text-muted); margin-left: 3px; font-size: 0.65rem; }
-.metric-range {
+.channel-range {
     color: var(--text-muted);
     font-size: 0.6rem;
     margin-right: 8px;
 }
 
-.metrics-create-graph {
+.channels-create-graph {
     padding: 6px 10px;
     font-size: 0.7rem;
     font-weight: 700;
@@ -1325,7 +1325,7 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
-.metrics-create-graph:hover { background: rgba(0, 214, 143, 0.15); }
+.channels-create-graph:hover { background: rgba(0, 214, 143, 0.15); }
 
 /* ==================== Output Sinks Widget ==================== */
 .sink-list {
@@ -1704,7 +1704,7 @@ body {
 }
 .replay-exit-btn:hover { border-color: #dc2626; color: #dc2626; }
 
-/* ==================== Computed Metrics Modal ==================== */
+/* ==================== Computed Channels Modal ==================== */
 .cm-overlay {
     position: fixed;
     inset: 0;
@@ -1825,7 +1825,7 @@ body {
 .cm-btn-del { background: transparent; border: 1px solid #ff4757; color: #ff4757; padding: 3px 8px; font-size: 0.6rem; }
 .cm-btn-del:hover { background: #ff4757; color: white; }
 
-/* Computed metrics list */
+/* Computed channels list */
 .cm-list {
     margin-bottom: 12px;
 }

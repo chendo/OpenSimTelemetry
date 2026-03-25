@@ -1,6 +1,6 @@
 /* ==================== Initialization ==================== */
 const store = new TelemetryStore();
-const computedMetrics = new ComputedMetricsManager();
+const computedChannels = new ComputedChannelsManager();
 const replayBuf = new ReplayBuffer();
 const historyBuf = new ReplayBuffer();
 let historyMode = false;
@@ -120,6 +120,9 @@ function _normalizeUrl(val) {
     return val;
 }
 
+const remoteKeyInput = document.getElementById('remote-api-key');
+remoteKeyInput.value = localStorage.getItem('ost-remote-api-key') || '';
+
 function _connectToEndpoint(val) {
     val = _normalizeUrl(val);
     // Treat default endpoint as local (empty remoteBase)
@@ -127,19 +130,25 @@ function _connectToEndpoint(val) {
     remoteBase = isLocal ? '' : val;
     if (isLocal) {
         localStorage.removeItem('ost-remote-base');
+        localStorage.removeItem('ost-remote-api-key');
     } else {
         localStorage.setItem('ost-remote-base', val);
+        const rk = remoteKeyInput.value.trim();
+        if (rk) localStorage.setItem('ost-remote-api-key', rk);
+        else localStorage.removeItem('ost-remote-api-key');
     }
     remoteConnectBtn.style.display = 'none';
     sseEverConnected = false;
     connectSSE();
 }
 
-// Show Connect button when input differs from current connection
+// Show Connect button and API key field when input differs from current connection
 remoteInput.addEventListener('input', () => {
     const inputVal = _normalizeUrl(remoteInput.value);
     const currentVal = remoteBase || DEFAULT_ENDPOINT;
+    const isRemote = inputVal !== DEFAULT_ENDPOINT && inputVal !== '';
     remoteConnectBtn.style.display = inputVal !== currentVal ? '' : 'none';
+    remoteKeyInput.style.display = isRemote ? '' : 'none';
 });
 
 remoteInput.addEventListener('keydown', (e) => {
@@ -232,7 +241,7 @@ const staticWidgets = [
     new TrackMapWidget(),
     new GForceWidget(),
     new WheelsWidget(),
-    new AllMetricsWidget(),
+    new AllChannelsWidget(),
 ];
 staticWidgets.forEach(w => { w.init(); grid.addWidget(w); });
 
@@ -240,7 +249,7 @@ staticWidgets.forEach(w => { w.init(); grid.addWidget(w); });
 const savedGraphs = grid.restoreGraphConfigs();
 if (savedGraphs && savedGraphs.length > 0) {
     for (const cfg of savedGraphs) {
-        const gw = new GraphWidget(cfg.id, null, cfg.enabledMetrics);
+        const gw = new GraphWidget(cfg.id, null, cfg.enabledChannels);
         gw.init();
         gw.applyConfig(cfg);
         grid.addWidget(gw);
@@ -347,8 +356,8 @@ pauseBtn.addEventListener('click', () => {
 // Reset layout button
 document.getElementById('header-reset-layout').addEventListener('click', () => grid.resetLayout());
 
-// Computed metrics button
-document.getElementById('header-computed-metrics').addEventListener('click', () => computedMetrics.openListModal());
+// Computed channels button
+document.getElementById('header-computed-channels').addEventListener('click', () => computedChannels.openListModal());
 
 // Load .ibt menu item
 const ibtFileInput = document.getElementById('ibt-file-input');
@@ -764,10 +773,10 @@ function renderLoop() {
                 // During playback, fetch immediately for smooth streaming
                 if (replayBuf.needsFetch() || now - _lastPrefetchTime > 1000) {
                     _lastPrefetchTime = now;
-                    replayBuf.ensureLoaded(buildReplayMetricMask());
+                    replayBuf.ensureLoaded(buildReplayChannelMask());
                 }
             } else if (scrollIdle && replayBuf.needsFetch()) {
-                replayBuf.ensureLoaded(buildReplayMetricMask());
+                replayBuf.ensureLoaded(buildReplayChannelMask());
             }
         }
         // Update replay controls (slider, time)
@@ -779,7 +788,7 @@ function renderLoop() {
     if (activeHistory) {
         // Skip fetch during scrubbing — seek handler manages it
         if (!_histScrubbing && historyBuf.needsFetch()) {
-            historyBuf.ensureLoaded(buildReplayMetricMask());
+            historyBuf.ensureLoaded(buildReplayChannelMask());
         }
     }
 
@@ -841,7 +850,7 @@ function enterHistoryMode() {
     badge.textContent = 'HISTORY';
     badge.className = 'mode-badge mode-history';
     badge.style.display = '';
-    historyBuf.ensureLoaded(buildReplayMetricMask());
+    historyBuf.ensureLoaded(buildReplayChannelMask());
     updateStatus();
 }
 
@@ -916,7 +925,7 @@ function graphSeekToTime(timeMs, isBuffered) {
             seekSlider.value = frame;
             updateSeekTimeDisplay();
         }
-        buf.ensureLoaded(buildReplayMetricMask());
+        buf.ensureLoaded(buildReplayChannelMask());
         requestRedraw();
         return;
     }
@@ -940,7 +949,7 @@ seekSlider.addEventListener('input', (e) => {
     if (now - _seekThrottleTime >= 250) {
         _seekThrottleTime = now;
         if (historyBuf._abortController) historyBuf._abortController.abort();
-        historyBuf.ensureLoaded(buildReplayMetricMask());
+        historyBuf.ensureLoaded(buildReplayChannelMask());
     }
     requestRedraw();
 });
@@ -951,7 +960,7 @@ seekSlider.addEventListener('change', (e) => {
     historyBuf.cursor = parseInt(e.target.value);
     historyBuf._dirty = true;
     if (historyBuf._abortController) historyBuf._abortController.abort();
-    historyBuf.ensureLoaded(buildReplayMetricMask());
+    historyBuf.ensureLoaded(buildReplayChannelMask());
     requestRedraw();
 });
 
@@ -1176,7 +1185,7 @@ function openSettingsModal() {
             <div class="sink-form-group"><div class="sink-form-label">Host</div><input type="text" id="settings-sk-host" placeholder="127.0.0.1" required></div>
             <div class="sink-form-group"><div class="sink-form-label">Port</div><input type="number" id="settings-sk-port" placeholder="9200" required></div>
             <div class="sink-form-group"><div class="sink-form-label">Update Rate</div><select id="settings-sk-rate"><option value="60">60 Hz</option><option value="30">30 Hz</option><option value="10">10 Hz</option><option value="1">1 Hz</option></select></div>
-            <div class="sink-form-group"><div class="sink-form-label">Metric Filter</div><input type="text" id="settings-sk-mask" placeholder="e.g. rpm,speed,gear"></div>
+            <div class="sink-form-group"><div class="sink-form-label">Channel Filter</div><input type="text" id="settings-sk-mask" placeholder="e.g. rpm,speed,gear"></div>
             <button type="submit" class="btn-add">Add</button>
         </form>
         <div class="settings-divider"></div>
@@ -1186,14 +1195,14 @@ function openSettingsModal() {
                 <div class="api-heading">SSE Streams</div>
                 <div class="api-endpoint"><code>GET /api/stream</code> — Unified stream (frame, status, sinks events)</div>
                 <div class="api-endpoint"><code>GET /api/telemetry/stream</code> — Telemetry frames only</div>
-                <div class="api-endpoint" style="margin-left:12px;font-size:0.55rem">Query params: <code>rate</code> (0.01–60), <code>metric_mask</code>, <code>delta</code> (true/false)</div>
+                <div class="api-endpoint" style="margin-left:12px;font-size:0.55rem">Query params: <code>rate</code> (0.01–60), <code>channel_mask</code>, <code>delta</code> (true/false)</div>
                 <div class="api-endpoint"><code>GET /api/status/stream</code> — Status updates only</div>
             </div>
             <div class="api-section">
                 <div class="api-heading">REST Endpoints</div>
                 <div class="api-endpoint"><code>GET /api/adapters</code> — List adapters and their status</div>
                 <div class="api-endpoint"><code>POST /api/adapters/:name/toggle</code> — Enable/disable an adapter</div>
-                <div class="api-endpoint"><code>GET /api/metrics</code> — Latest telemetry frame</div>
+                <div class="api-endpoint"><code>GET /api/channels</code> — Latest telemetry frame</div>
                 <div class="api-endpoint"><code>GET /api/sinks</code> — List output sinks</div>
                 <div class="api-endpoint"><code>POST /api/sinks</code> — Create UDP sink</div>
                 <div class="api-endpoint"><code>DELETE /api/sinks/:id</code> — Remove a sink</div>
@@ -1206,12 +1215,12 @@ function openSettingsModal() {
                 <div class="api-endpoint"><code>POST /api/replay/control</code> — Play/pause/seek/speed</div>
             </div>
             <div class="api-section">
-                <div class="api-heading">Custom Metrics</div>
-                <div class="api-endpoint"><code>POST /api/metrics</code> — Submit custom metrics</div>
-                <div class="api-endpoint" style="margin-left:12px;font-size:0.6rem">Body: <code>{ "namespace": "...", "metrics": {...}, "tick": optional }</code></div>
-                <div class="api-endpoint"><code>GET /api/metrics/custom</code> — List all custom metrics</div>
-                <div class="api-endpoint"><code>DELETE /api/metrics/custom</code> — Clear all custom metrics</div>
-                <div class="api-endpoint"><code>DELETE /api/metrics/custom/:ns</code> — Clear by namespace</div>
+                <div class="api-heading">Custom Channels</div>
+                <div class="api-endpoint"><code>POST /api/channels</code> — Submit custom channels</div>
+                <div class="api-endpoint" style="margin-left:12px;font-size:0.6rem">Body: <code>{ "namespace": "...", "channels": {...}, "tick": optional }</code></div>
+                <div class="api-endpoint"><code>GET /api/channels/custom</code> — List all custom channels</div>
+                <div class="api-endpoint"><code>DELETE /api/channels/custom</code> — Clear all custom channels</div>
+                <div class="api-endpoint"><code>DELETE /api/channels/custom/:ns</code> — Clear by namespace</div>
             </div>
             <div class="api-section">
                 <div class="api-heading">Annotations</div>
@@ -1311,7 +1320,7 @@ function openSettingsModal() {
         } else {
             sinksListEl.innerHTML = store.sinks.map(s => {
                 const rate = s.update_rate_hz || 60;
-                return `<div class="sink-item"><div><strong>UDP</strong> ${s.host}:${s.port} <span style="color:var(--text-muted);font-size:0.6rem">@ ${rate} Hz</span>${s.metric_mask ? `<br><span style="color:var(--text-muted);font-size:0.6rem">Metrics: ${s.metric_mask}</span>` : ''}</div><button class="btn-delete" data-id="${s.id}">Delete</button></div>`;
+                return `<div class="sink-item"><div><strong>UDP</strong> ${s.host}:${s.port} <span style="color:var(--text-muted);font-size:0.6rem">@ ${rate} Hz</span>${s.channel_mask ? `<br><span style="color:var(--text-muted);font-size:0.6rem">Channels: ${s.channel_mask}</span>` : ''}</div><button class="btn-delete" data-id="${s.id}">Delete</button></div>`;
             }).join('');
             sinksListEl.querySelectorAll('.btn-delete').forEach(btn => {
                 btn.addEventListener('click', async () => {
@@ -1333,7 +1342,7 @@ function openSettingsModal() {
             host: modal.querySelector('#settings-sk-host').value,
             port: parseInt(modal.querySelector('#settings-sk-port').value),
             update_rate_hz: parseFloat(modal.querySelector('#settings-sk-rate').value),
-            metric_mask: modal.querySelector('#settings-sk-mask').value.trim() || null,
+            channel_mask: modal.querySelector('#settings-sk-mask').value.trim() || null,
         };
         try {
             await fetch(apiBase() + '/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
@@ -1372,7 +1381,7 @@ function openSettingsModal() {
             item.innerHTML = `
                 <div style="flex:1;min-width:0">
                     <div class="preset-name">${preset.name} <span class="preset-builtin">${badge}</span></div>
-                    <div class="preset-metrics">${preset.metrics.join(', ')}</div>
+                    <div class="preset-channels">${preset.channels.join(', ')}</div>
                 </div>
                 <button class="cm-btn-edit preset-edit-btn">Edit</button>
                 ${isOverridden ? '<button class="cm-btn-del preset-reset-btn">Reset</button>' : ''}`;
@@ -1398,7 +1407,7 @@ function openSettingsModal() {
             item.innerHTML = `
                 <div style="flex:1;min-width:0">
                     <div class="preset-name">${preset.name}</div>
-                    <div class="preset-metrics">${preset.metrics.join(', ')}</div>
+                    <div class="preset-channels">${preset.channels.join(', ')}</div>
                 </div>
                 <button class="cm-btn-edit preset-edit-btn">Edit</button>
                 <button class="cm-btn-del preset-del-btn">Del</button>`;
@@ -1419,9 +1428,9 @@ function openSettingsModal() {
                 <input type="text" class="cm-form-input" id="preset-name" value="${originalName}" disabled>
             </div>
             <div style="margin-bottom:4px">
-                <span class="cm-form-label">Metrics</span>
+                <span class="cm-form-label">Channels</span>
             </div>
-            <textarea class="cm-code-input" id="preset-metrics" rows="4">${preset.metrics.join('\n')}</textarea>
+            <textarea class="cm-code-input" id="preset-channels" rows="4">${preset.channels.join('\n')}</textarea>
             <div class="cm-btn-row">
                 <button class="cm-btn cm-btn-cancel" id="preset-cancel">Cancel</button>
                 <button class="cm-btn cm-btn-save" id="preset-save">Save</button>
@@ -1429,11 +1438,11 @@ function openSettingsModal() {
 
         presetsListEl.querySelector('#preset-cancel').addEventListener('click', renderPresetsList);
         presetsListEl.querySelector('#preset-save').addEventListener('click', () => {
-            const metricsText = presetsListEl.querySelector('#preset-metrics').value.trim();
-            if (!metricsText) return;
-            const metrics = metricsText.split('\n').map(l => l.trim()).filter(Boolean);
+            const channelsText = presetsListEl.querySelector('#preset-channels').value.trim();
+            if (!channelsText) return;
+            const channels = channelsText.split('\n').map(l => l.trim()).filter(Boolean);
             const ov = getPresetOverrides();
-            ov[originalName] = { name: originalName, metrics };
+            ov[originalName] = { name: originalName, channels };
             savePresetOverrides(ov);
             renderPresetsList();
         });
@@ -1448,9 +1457,9 @@ function openSettingsModal() {
                 <input type="text" class="cm-form-input" id="preset-name" value="${existing ? existing.name : ''}" placeholder="e.g. Suspension FL">
             </div>
             <div style="margin-bottom:4px">
-                <span class="cm-form-label">Metrics</span>
+                <span class="cm-form-label">Channels</span>
             </div>
-            <textarea class="cm-code-input" id="preset-metrics" rows="4" placeholder="One per line. Supports wildcards (*) and /regex/.&#10;e.g. wheels.front_left.suspension_travel&#10;     wheels.*.brake_temp">${existing ? existing.metrics.join('\n') : ''}</textarea>
+            <textarea class="cm-code-input" id="preset-channels" rows="4" placeholder="One per line. Supports wildcards (*) and /regex/.&#10;e.g. wheels.front_left.suspension_travel&#10;     wheels.*.brake_temp">${existing ? existing.channels.join('\n') : ''}</textarea>
             <div class="cm-btn-row">
                 <button class="cm-btn cm-btn-cancel" id="preset-cancel">Cancel</button>
                 <button class="cm-btn cm-btn-save" id="preset-save">${existing ? 'Update' : 'Add'}</button>
@@ -1459,14 +1468,14 @@ function openSettingsModal() {
         presetsListEl.querySelector('#preset-cancel').addEventListener('click', renderPresetsList);
         presetsListEl.querySelector('#preset-save').addEventListener('click', () => {
             const name = presetsListEl.querySelector('#preset-name').value.trim();
-            const metricsText = presetsListEl.querySelector('#preset-metrics').value.trim();
-            if (!name || !metricsText) return;
-            const metrics = metricsText.split('\n').map(l => l.trim()).filter(Boolean);
+            const channelsText = presetsListEl.querySelector('#preset-channels').value.trim();
+            if (!name || !channelsText) return;
+            const channels = channelsText.split('\n').map(l => l.trim()).filter(Boolean);
             const fresh = getUserPresets();
             if (editIndex !== undefined) {
-                fresh[editIndex] = { name, metrics };
+                fresh[editIndex] = { name, channels };
             } else {
-                fresh.push({ name, metrics });
+                fresh.push({ name, channels });
             }
             saveUserPresets(fresh);
             renderPresetsList();
@@ -1497,7 +1506,7 @@ function openSettingsModal() {
             item.innerHTML = `
                 <div style="flex:1;min-width:0">
                     <div class="preset-name">${p.name}</div>
-                    <div class="preset-metrics">${(p.graphs || []).length} graph(s)</div>
+                    <div class="preset-channels">${(p.graphs || []).length} graph(s)</div>
                 </div>`;
 
             const btnWrap = document.createElement('div');

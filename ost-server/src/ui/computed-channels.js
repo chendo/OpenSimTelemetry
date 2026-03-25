@@ -1,24 +1,24 @@
-/* ==================== Computed Metrics ==================== */
-const COMPUTED_METRICS_KEY = 'ost-computed-metrics';
+/* ==================== Computed Channels ==================== */
+const COMPUTED_CHANNELS_KEY = 'ost-computed-channels';
 
-class ComputedMetricsManager {
+class ComputedChannelsManager {
     constructor() {
-        this._metrics = []; // { id, name, code, unit, norm, color }
+        this._channels = []; // { id, name, code, unit, norm, color }
         this._compiled = {}; // id → Function
         this._load();
     }
 
     _load() {
         try {
-            const raw = localStorage.getItem(COMPUTED_METRICS_KEY);
-            if (raw) this._metrics = JSON.parse(raw);
-        } catch (e) { this._metrics = []; }
-        // Register all saved metrics
-        for (const m of this._metrics) this._register(m);
+            const raw = localStorage.getItem(COMPUTED_CHANNELS_KEY);
+            if (raw) this._channels = JSON.parse(raw);
+        } catch (e) { this._channels = []; }
+        // Register all saved channels
+        for (const m of this._channels) this._register(m);
     }
 
     _save() {
-        localStorage.setItem(COMPUTED_METRICS_KEY, JSON.stringify(this._metrics));
+        localStorage.setItem(COMPUTED_CHANNELS_KEY, JSON.stringify(this._channels));
     }
 
     _register(m) {
@@ -26,53 +26,53 @@ class ComputedMetricsManager {
         if (!fn) return;
         this._compiled[m.id] = fn;
         const key = 'computed:' + m.id;
-        GRAPH_METRICS[key] = {
+        GRAPH_CHANNELS[key] = {
             label: m.name,
             color: m.color,
             unit: m.unit || '',
             norm: m.norm || 'autoscale',
             extract: fn,
         };
-        if (!GRAPH_METRIC_KEYS.includes(key)) GRAPH_METRIC_KEYS.push(key);
+        if (!GRAPH_CHANNEL_KEYS.includes(key)) GRAPH_CHANNEL_KEYS.push(key);
     }
 
     _unregister(id) {
         const key = 'computed:' + id;
-        delete GRAPH_METRICS[key];
+        delete GRAPH_CHANNELS[key];
         delete this._compiled[id];
-        const idx = GRAPH_METRIC_KEYS.indexOf(key);
-        if (idx !== -1) GRAPH_METRIC_KEYS.splice(idx, 1);
+        const idx = GRAPH_CHANNEL_KEYS.indexOf(key);
+        if (idx !== -1) GRAPH_CHANNEL_KEYS.splice(idx, 1);
     }
 
     _compile(code) {
         try {
             return new Function('f', code);
         } catch (e) {
-            console.error('Computed metric compile error:', e);
+            console.error('Computed channel compile error:', e);
             return null;
         }
     }
 
-    get metrics() { return this._metrics; }
+    get channels() { return this._channels; }
 
     add(def) {
-        this._metrics.push(def);
+        this._channels.push(def);
         this._register(def);
         this._save();
     }
 
     update(id, def) {
-        const idx = this._metrics.findIndex(m => m.id === id);
+        const idx = this._channels.findIndex(m => m.id === id);
         if (idx === -1) return;
         this._unregister(id);
-        this._metrics[idx] = def;
+        this._channels[idx] = def;
         this._register(def);
         this._save();
     }
 
     remove(id) {
         this._unregister(id);
-        this._metrics = this._metrics.filter(m => m.id !== id);
+        this._channels = this._channels.filter(m => m.id !== id);
         this._save();
     }
 
@@ -80,10 +80,10 @@ class ComputedMetricsManager {
         return 'cm_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
     }
 
-    // Open the computed metrics modal
+    // Open the computed channels modal
     openModal(editId) {
         if (document.getElementById('computed-modal')) return;
-        const existing = editId ? this._metrics.find(m => m.id === editId) : null;
+        const existing = editId ? this._channels.find(m => m.id === editId) : null;
 
         const overlay = document.createElement('div');
         overlay.id = 'computed-modal';
@@ -94,7 +94,7 @@ class ComputedMetricsManager {
 
         const title = document.createElement('div');
         title.className = 'cm-modal-title';
-        title.textContent = existing ? 'Edit Computed Metric' : 'New Computed Metric';
+        title.textContent = existing ? 'Edit Computed Channel' : 'New Computed Channel';
         modal.appendChild(title);
 
         // Name
@@ -240,7 +240,7 @@ class ComputedMetricsManager {
         requestAnimationFrame(() => nameRow.input.focus());
     }
 
-    // Open a list modal showing all computed metrics with edit/delete
+    // Open a list modal showing all computed channels with edit/delete
     openListModal() {
         if (document.getElementById('computed-modal')) return;
 
@@ -253,7 +253,7 @@ class ComputedMetricsManager {
 
         const title = document.createElement('div');
         title.className = 'cm-modal-title';
-        title.textContent = 'Computed Metrics';
+        title.textContent = 'Computed Channels';
         modal.appendChild(title);
 
         const list = document.createElement('div');
@@ -261,13 +261,13 @@ class ComputedMetricsManager {
 
         const renderList = () => {
             list.innerHTML = '';
-            if (this._metrics.length === 0) {
+            if (this._channels.length === 0) {
                 const empty = document.createElement('div');
                 empty.className = 'no-data';
-                empty.textContent = 'No computed metrics yet';
+                empty.textContent = 'No computed channels yet';
                 list.appendChild(empty);
             }
-            for (const m of this._metrics) {
+            for (const m of this._channels) {
                 const item = document.createElement('div');
                 item.className = 'cm-list-item';
 
@@ -321,7 +321,7 @@ class ComputedMetricsManager {
 
         const addBtn = document.createElement('button');
         addBtn.className = 'cm-btn cm-btn-save';
-        addBtn.textContent = '+ New Metric';
+        addBtn.textContent = '+ New Channel';
         addBtn.addEventListener('click', () => {
             overlay.remove();
             this.openModal();

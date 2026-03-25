@@ -6,16 +6,16 @@ class VehicleWidget extends Widget {
         c.innerHTML = `
             <div class="vehicle-layout">
                 <div class="vehicle-stats-row">
-                    <div class="metric-cell">
-                        <div class="metric-label">SPEED</div>
-                        <div class="vehicle-stat-val"><span id="v-speed">---</span><span class="metric-unit" id="v-speed-unit">m/s</span></div>
+                    <div class="channel-cell">
+                        <div class="channel-label">SPEED</div>
+                        <div class="vehicle-stat-val"><span id="v-speed">---</span><span class="channel-unit" id="v-speed-unit">m/s</span></div>
                     </div>
-                    <div class="metric-cell">
-                        <div class="metric-label">GEAR</div>
+                    <div class="channel-cell">
+                        <div class="channel-label">GEAR</div>
                         <div class="vehicle-stat-val" id="v-gear">N</div>
                     </div>
-                    <div class="metric-cell">
-                        <div class="metric-label">RPM</div>
+                    <div class="channel-cell">
+                        <div class="channel-label">RPM</div>
                         <div class="vehicle-stat-val" id="v-rpm">---</div>
                     </div>
                 </div>
@@ -213,10 +213,10 @@ class GForceWidget extends Widget {
             <div class="gforce-layout">
                 <div class="gforce-canvas-wrap"><canvas id="gf-canvas"></canvas></div>
                 <div class="gforce-readouts">
-                    <div class="gforce-cell"><div class="metric-label">LAT G</div><div class="gforce-val"><span id="gf-lat-num">0.00</span><span class="gforce-val-unit">G</span><span class="gforce-max" id="gf-lat-max">--</span></div></div>
-                    <div class="gforce-cell"><div class="metric-label">LONG G</div><div class="gforce-val"><span id="gf-long-num">0.00</span><span class="gforce-val-unit">G</span><span class="gforce-max" id="gf-long-max">--</span></div></div>
-                    <div class="gforce-cell"><div class="metric-label">VERT G</div><div class="gforce-val"><span id="gf-vert-num">0.00</span><span class="gforce-val-unit">G</span></div></div>
-                    <div class="gforce-cell"><div class="metric-label">YAW RATE</div><div class="gforce-val"><span id="gf-yaw-num">0.0</span><span class="gforce-val-unit">&deg;/s</span></div></div>
+                    <div class="gforce-cell"><div class="channel-label">LAT G</div><div class="gforce-val"><span id="gf-lat-num">0.00</span><span class="gforce-val-unit">G</span><span class="gforce-max" id="gf-lat-max">--</span></div></div>
+                    <div class="gforce-cell"><div class="channel-label">LONG G</div><div class="gforce-val"><span id="gf-long-num">0.00</span><span class="gforce-val-unit">G</span><span class="gforce-max" id="gf-long-max">--</span></div></div>
+                    <div class="gforce-cell"><div class="channel-label">VERT G</div><div class="gforce-val"><span id="gf-vert-num">0.00</span><span class="gforce-val-unit">G</span></div></div>
+                    <div class="gforce-cell"><div class="channel-label">YAW RATE</div><div class="gforce-val"><span id="gf-yaw-num">0.0</span><span class="gforce-val-unit">&deg;/s</span></div></div>
                 </div>
             </div>`;
         this.canvas = c.querySelector('#gf-canvas');

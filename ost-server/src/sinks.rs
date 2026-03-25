@@ -6,11 +6,11 @@
 
 use crate::state::SinkConfig;
 use anyhow::Result;
-use ost_core::model::{MetricMask, TelemetryFrame};
+use ost_core::model::{ChannelMask, TelemetryFrame};
 
 /// Trait for output sinks
 pub trait Sink: Send {
-    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&MetricMask>) -> Result<()>;
+    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&ChannelMask>) -> Result<()>;
 }
 
 /// UDP sink
@@ -29,7 +29,7 @@ impl UdpSink {
 }
 
 impl Sink for UdpSink {
-    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&MetricMask>) -> Result<()> {
+    fn send(&mut self, frame: &TelemetryFrame, mask: Option<&ChannelMask>) -> Result<()> {
         let json = frame.to_json_filtered(mask)?;
         self.socket.send_to(json.as_bytes(), self.addr)?;
         Ok(())

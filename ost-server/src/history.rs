@@ -2,7 +2,7 @@
 //!
 //! Stores recent TelemetryFrames in a ring buffer (VecDeque) for client-side
 //! seek-back functionality. Reuses the same API shape as replay endpoints
-//! (0-based frame indexing, chunk-based fetching, metric mask filtering).
+//! (0-based frame indexing, chunk-based fetching, channel mask filtering).
 
 use ost_core::model::TelemetryFrame;
 use serde::Serialize;

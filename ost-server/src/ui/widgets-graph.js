@@ -16,7 +16,7 @@ function niceStep(range, targetSteps) {
 
 /* ==================== GraphWidget ==================== */
 class GraphWidget extends Widget {
-    static DEFAULT_METRICS = [
+    static DEFAULT_CHANNELS = [
         { path: 'vehicle.speed' },
         { path: 'vehicle.rpm' },
         { path: 'vehicle.throttle' },
@@ -29,19 +29,19 @@ class GraphWidget extends Widget {
 
     constructor(id, defaultLayout, defaultEnabled) {
         super(id || 'graph', 'Graph', defaultLayout || { col: 1, row: 7, width: 12, height: 9 });
-        this.hiddenMetrics = new Set(); // metrics that are enabled but visually hidden
-        this.customMetrics = new Map(); // path -> { path, label, color, unit, norm, parts }
+        this.hiddenChannels = new Set(); // channels that are enabled but visually hidden
+        this.customChannels = new Map(); // path -> { path, label, color, unit, norm, parts }
         if (defaultEnabled) {
-            this.enabledMetrics = new Set(defaultEnabled);
+            this.enabledChannels = new Set(defaultEnabled);
         } else {
-            this.enabledMetrics = new Set();
-            for (const d of GraphWidget.DEFAULT_METRICS) {
-                this.enabledMetrics.add(d.path);
-                const unitInfo = d.norm ? { unit: '', norm: d.norm } : getMetricUnitInfo(d.path);
-                this.customMetrics.set(d.path, {
+            this.enabledChannels = new Set();
+            for (const d of GraphWidget.DEFAULT_CHANNELS) {
+                this.enabledChannels.add(d.path);
+                const unitInfo = d.norm ? { unit: '', norm: d.norm } : getChannelUnitInfo(d.path);
+                this.customChannels.set(d.path, {
                     path: d.path,
                     label: deriveLabel(d.path),
-                    color: getMetricColor(d.path),
+                    color: getChannelColor(d.path),
                     unit: unitInfo.unit,
                     norm: unitInfo.norm,
                     parts: d.path.split('.'),
@@ -143,24 +143,24 @@ class GraphWidget extends Widget {
         this.legendEl.innerHTML = '';
         this.legendItems = {};
 
-        // Helper to create a legend item for a metric key
+        // Helper to create a legend item for a channel key
         const makeLegendItem = (key, color, label, isCustom) => {
-            const hidden = this.hiddenMetrics.has(key);
+            const hidden = this.hiddenChannels.has(key);
             const item = document.createElement('span');
             item.className = 'graph-legend-item active' + (hidden ? ' legend-hidden' : '');
-            item.dataset.metricKey = key;
+            item.dataset.channelKey = key;
             if (isCustom) item.title = key;
 
             const dot = document.createElement('span');
             dot.className = 'graph-legend-dot';
             dot.style.background = color;
             dot.title = 'Remove';
-            // Click dot (shows as × on hover) to remove the metric
+            // Click dot (shows as × on hover) to remove the channel
             dot.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (isCustom) this.customMetrics.delete(key);
-                this.enabledMetrics.delete(key);
-                this.hiddenMetrics.delete(key);
+                if (isCustom) this.customChannels.delete(key);
+                this.enabledChannels.delete(key);
+                this.hiddenChannels.delete(key);
                 this.rebuildLegend();
                 if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
                 requestRedraw();
@@ -176,11 +176,11 @@ class GraphWidget extends Widget {
             // Click label to toggle visibility
             labelSpan.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (this.hiddenMetrics.has(key)) {
-                    this.hiddenMetrics.delete(key);
+                if (this.hiddenChannels.has(key)) {
+                    this.hiddenChannels.delete(key);
                     item.classList.remove('legend-hidden');
                 } else {
-                    this.hiddenMetrics.add(key);
+                    this.hiddenChannels.add(key);
                     item.classList.add('legend-hidden');
                 }
                 if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
@@ -201,29 +201,29 @@ class GraphWidget extends Widget {
             this.legendItems[key] = item;
         };
 
-        // Preset metrics
-        for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
-            if (!this.enabledMetrics.has(key)) continue;
-            makeLegendItem(key, metric.color, metric.label, false);
+        // Preset channels
+        for (const [key, channel] of Object.entries(GRAPH_CHANNELS)) {
+            if (!this.enabledChannels.has(key)) continue;
+            makeLegendItem(key, channel.color, channel.label, false);
         }
 
-        // Custom metrics
-        for (const [path, meta] of this.customMetrics) {
-            if (!this.enabledMetrics.has(path)) continue;
+        // Custom channels
+        for (const [path, meta] of this.customChannels) {
+            if (!this.enabledChannels.has(path)) continue;
             makeLegendItem(path, meta.color, meta.label, true);
         }
 
-        // "+ Metric" button
+        // "+ Channel" button
         const addBtn = document.createElement('span');
-        addBtn.className = 'graph-legend-item graph-add-metric-btn';
-        addBtn.textContent = '+ Metric';
+        addBtn.className = 'graph-legend-item graph-add-channel-btn';
+        addBtn.textContent = '+ Channel';
         addBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.openMetricPicker(addBtn);
+            this.openChannelPicker(addBtn);
         });
         this.legendEl.appendChild(addBtn);
 
-        // Presets dropdown (after + Metric)
+        // Presets dropdown (after + Channel)
         const presetsWrap = document.createElement('span');
         presetsWrap.className = 'graph-legend-item graph-preset-btn';
         presetsWrap.textContent = 'Presets \u25BE';
@@ -265,10 +265,10 @@ class GraphWidget extends Widget {
     }
 
     _applyPreset(preset) {
-        // Clear existing metrics
-        this.enabledMetrics.clear();
-        this.hiddenMetrics.clear();
-        this.customMetrics.clear();
+        // Clear existing channels
+        this.enabledChannels.clear();
+        this.hiddenChannels.clear();
+        this.customChannels.clear();
         this.maxSeen = {};
         this._centeredMax = {};
         // Set graph name
@@ -276,15 +276,15 @@ class GraphWidget extends Widget {
         // Resolve each pattern
         const frame = store.currentFrame;
         const allPaths = frame ? this._collectAllPaths(frame) : [];
-        for (const pattern of preset.metrics) {
-            if (pattern.startsWith('computed:') && GRAPH_METRICS[pattern]) {
-                this.enabledMetrics.add(pattern);
+        for (const pattern of preset.channels) {
+            if (pattern.startsWith('computed:') && GRAPH_CHANNELS[pattern]) {
+                this.enabledChannels.add(pattern);
             } else if (pattern.includes('*')) {
                 for (const p of allPaths) {
-                    if (matchMetricFilter(p, pattern)) this.addCustomMetric(p);
+                    if (matchChannelFilter(p, pattern)) this.addCustomChannel(p);
                 }
             } else {
-                this.addCustomMetric(pattern);
+                this.addCustomChannel(pattern);
             }
         }
         this.rebuildLegend();
@@ -315,8 +315,8 @@ class GraphWidget extends Widget {
         return cur;
     }
 
-    openMetricPicker(anchorEl) {
-        if (this._picker) { this.closeMetricPicker(); return; }
+    openChannelPicker(anchorEl) {
+        if (this._picker) { this.closeChannelPicker(); return; }
         const frame = store.currentFrame;
 
         // Collect all numeric, boolean, and string fields grouped by top-level section
@@ -340,16 +340,16 @@ class GraphWidget extends Widget {
 
         // Build popover
         const popover = document.createElement('div');
-        popover.className = 'metric-picker-popover';
+        popover.className = 'channel-picker-popover';
 
         const search = document.createElement('input');
-        search.className = 'metric-picker-search';
+        search.className = 'channel-picker-search';
         search.placeholder = 'Search... (* wildcard, /regex/)';
         search.type = 'text';
         popover.appendChild(search);
 
         const list = document.createElement('div');
-        list.className = 'metric-picker-list';
+        list.className = 'channel-picker-list';
         popover.appendChild(list);
 
         // Append popover to DOM before rendering list
@@ -362,53 +362,53 @@ class GraphWidget extends Widget {
 
         // Close on outside click
         this._pickerClickOutside = (e) => {
-            if (!popover.contains(e.target) && !e.target.closest('.graph-add-metric-btn')) {
-                this.closeMetricPicker();
+            if (!popover.contains(e.target) && !e.target.closest('.graph-add-channel-btn')) {
+                this.closeChannelPicker();
             }
         };
         setTimeout(() => document.addEventListener('click', this._pickerClickOutside), 0);
 
         const isPatternFilter = (f) => f.includes('*') || f.startsWith('/');
 
-        // Helper: get metric display value HTML
+        // Helper: get channel display value HTML
         const getValHtml = (key) => {
             if (!frame) return '';
             try {
-                const metric = GRAPH_METRICS[key];
-                if (metric) {
-                    const extract = metric.extract(frame);
+                const channel = GRAPH_CHANNELS[key];
+                if (channel) {
+                    const extract = channel.extract(frame);
                     if (extract != null && typeof extract === 'number') {
                         const val = Math.abs(extract) >= 100 ? extract.toFixed(0) : Math.abs(extract) >= 1 ? extract.toFixed(1) : extract.toFixed(2);
-                        return `<span class="metric-picker-value">${val} <span class="metric-picker-unit">${metric.unit}</span></span>`;
+                        return `<span class="channel-picker-value">${val} <span class="channel-picker-unit">${channel.unit}</span></span>`;
                     }
                 } else {
                     const parts = key.split('.');
-                    const rawVal = resolveMetricPathRaw(frame, parts);
+                    const rawVal = resolveChannelPathRaw(frame, parts);
                     if (typeof rawVal === 'string') {
-                        return `<span class="metric-picker-value">${rawVal} <span class="metric-picker-unit">text</span></span>`;
+                        return `<span class="channel-picker-value">${rawVal} <span class="channel-picker-unit">text</span></span>`;
                     } else if (typeof rawVal === 'boolean') {
-                        return `<span class="metric-picker-value">${rawVal ? 'true' : 'false'} <span class="metric-picker-unit">bool</span></span>`;
+                        return `<span class="channel-picker-value">${rawVal ? 'true' : 'false'} <span class="channel-picker-unit">bool</span></span>`;
                     } else if (typeof rawVal === 'number') {
-                        const fmt = formatMetricValue(key, rawVal);
-                        return `<span class="metric-picker-value">${fmt.text}${fmt.unit ? ' <span class="metric-picker-unit">' + fmt.unit + '</span>' : ''}</span>`;
+                        const fmt = formatChannelValue(key, rawVal);
+                        return `<span class="channel-picker-value">${fmt.text}${fmt.unit ? ' <span class="channel-picker-unit">' + fmt.unit + '</span>' : ''}</span>`;
                     }
                 }
             } catch (e) { /* ignore */ }
             return '';
         };
 
-        // Create a metric item with checkbox
+        // Create a channel item with checkbox
         const createItem = (key, label, checked) => {
             const item = document.createElement('div');
-            item.className = 'metric-picker-item';
+            item.className = 'channel-picker-item';
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
-            checkbox.className = 'metric-picker-checkbox';
+            checkbox.className = 'channel-picker-checkbox';
             checkbox.checked = checked;
 
             const labelSpan = document.createElement('span');
-            labelSpan.className = 'metric-picker-path';
+            labelSpan.className = 'channel-picker-path';
             labelSpan.textContent = label;
 
             item.appendChild(checkbox);
@@ -423,10 +423,10 @@ class GraphWidget extends Widget {
 
             const handleToggle = () => {
                 if (checkbox.checked) {
-                    this.addCustomMetric(key);
+                    this.addCustomChannel(key);
                 } else {
-                    this.enabledMetrics.delete(key);
-                    if (!GRAPH_METRICS[key]) this.customMetrics.delete(key);
+                    this.enabledChannels.delete(key);
+                    if (!GRAPH_CHANNELS[key]) this.customChannels.delete(key);
                     this.rebuildLegend();
                     if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
                     requestRedraw();
@@ -448,40 +448,40 @@ class GraphWidget extends Widget {
             list.innerHTML = '';
             const hasPattern = filter && isPatternFilter(filter);
             const filterFn = filter
-                ? (key, label) => matchMetricFilter(key, filter) || matchMetricFilter(label, filter)
+                ? (key, label) => matchChannelFilter(key, filter) || matchChannelFilter(label, filter)
                 : () => true;
 
-            // Enabled metrics at top
+            // Enabled channels at top
             const enabledItems = [];
-            for (const key of this.enabledMetrics) {
-                const metric = GRAPH_METRICS[key];
-                const custom = this.customMetrics.get(key);
-                const label = metric ? metric.label : (custom ? custom.label : key);
+            for (const key of this.enabledChannels) {
+                const channel = GRAPH_CHANNELS[key];
+                const custom = this.customChannels.get(key);
+                const label = channel ? channel.label : (custom ? custom.label : key);
                 if (filterFn(key, label)) enabledItems.push({ key, label: key.startsWith('computed:') ? label : key });
             }
             if (enabledItems.length > 0) {
                 const hdr = document.createElement('div');
-                hdr.className = 'metric-picker-section';
+                hdr.className = 'channel-picker-section';
                 hdr.textContent = 'Enabled';
                 list.appendChild(hdr);
                 for (const m of enabledItems) list.appendChild(createItem(m.key, m.label, true));
             }
 
-            // Available computed metrics (not enabled)
+            // Available computed channels (not enabled)
             const computedItems = [];
-            for (const [key, metric] of Object.entries(GRAPH_METRICS)) {
-                if (!key.startsWith('computed:') || this.enabledMetrics.has(key)) continue;
-                if (filterFn(key, metric.label)) computedItems.push({ key, label: metric.label });
+            for (const [key, channel] of Object.entries(GRAPH_CHANNELS)) {
+                if (!key.startsWith('computed:') || this.enabledChannels.has(key)) continue;
+                if (filterFn(key, channel.label)) computedItems.push({ key, label: channel.label });
             }
             if (computedItems.length > 0) {
                 const hdr = document.createElement('div');
-                hdr.className = 'metric-picker-section';
+                hdr.className = 'channel-picker-section';
                 hdr.textContent = 'Computed';
                 list.appendChild(hdr);
                 for (const m of computedItems) list.appendChild(createItem(m.key, m.label, false));
             }
 
-            // Raw metrics from frame (not already listed)
+            // Raw channels from frame (not already listed)
             if (frame) {
                 const listedKeys = new Set([...enabledItems.map(m => m.key), ...computedItems.map(m => m.key)]);
                 const uncheckedRaw = [];
@@ -489,7 +489,7 @@ class GraphWidget extends Widget {
                     const filtered = paths.filter(p => !listedKeys.has(p) && filterFn(p, p));
                     if (filtered.length === 0) continue;
                     const hdr = document.createElement('div');
-                    hdr.className = 'metric-picker-section';
+                    hdr.className = 'channel-picker-section';
                     hdr.textContent = section.charAt(0).toUpperCase() + section.slice(1);
                     list.appendChild(hdr);
                     for (const path of filtered) {
@@ -501,10 +501,10 @@ class GraphWidget extends Widget {
                 // "Add all" button for wildcard/regex
                 if (hasPattern && uncheckedRaw.length > 1) {
                     const btn = document.createElement('div');
-                    btn.className = 'metric-picker-add-all';
+                    btn.className = 'channel-picker-add-all';
                     btn.textContent = `+ Add all ${uncheckedRaw.length} matches`;
                     btn.addEventListener('click', () => {
-                        for (const p of uncheckedRaw) this.addCustomMetric(p);
+                        for (const p of uncheckedRaw) this.addCustomChannel(p);
                         renderList(search.value);
                     });
                     list.insertBefore(btn, list.firstChild);
@@ -517,7 +517,7 @@ class GraphWidget extends Widget {
         requestAnimationFrame(() => search.focus());
     }
 
-    closeMetricPicker() {
+    closeChannelPicker() {
         if (this._picker) {
             this._picker.remove();
             this._picker = null;
@@ -528,29 +528,29 @@ class GraphWidget extends Widget {
         }
     }
 
-    addCustomMetric(path) {
-        if (this.enabledMetrics.has(path)) return;
-        // If it's a preset metric, just enable it
-        if (GRAPH_METRICS[path]) {
-            this.enabledMetrics.add(path);
+    addCustomChannel(path) {
+        if (this.enabledChannels.has(path)) return;
+        // If it's a preset channel, just enable it
+        if (GRAPH_CHANNELS[path]) {
+            this.enabledChannels.add(path);
         } else {
-            if (this.customMetrics.has(path)) return;
+            if (this.customChannels.has(path)) return;
             const parts = path.split('.');
-            // Check if this metric is boolean in the current frame
+            // Check if this channel is boolean in the current frame
             const frame = store.currentFrame;
-            const rawVal = frame ? resolveMetricPathRaw(frame, parts) : undefined;
+            const rawVal = frame ? resolveChannelPathRaw(frame, parts) : undefined;
             const isBool = typeof rawVal === 'boolean';
             const isText = typeof rawVal === 'string';
-            const unitInfo = isBool ? { unit: '', norm: 'boolean' } : isText ? { unit: '', norm: 'text' } : getMetricUnitInfo(path);
-            this.customMetrics.set(path, {
+            const unitInfo = isBool ? { unit: '', norm: 'boolean' } : isText ? { unit: '', norm: 'text' } : getChannelUnitInfo(path);
+            this.customChannels.set(path, {
                 path,
                 label: deriveLabel(path),
-                color: getMetricColor(path),
+                color: getChannelColor(path),
                 unit: unitInfo.unit,
                 norm: unitInfo.norm,
                 parts,
             });
-            this.enabledMetrics.add(path);
+            this.enabledChannels.add(path);
         }
         this.rebuildLegend();
         if (typeof dashboardSaveGraphs === 'function') dashboardSaveGraphs();
@@ -587,13 +587,13 @@ class GraphWidget extends Widget {
         }
         if (dataCount < 2) { ctx.clearRect(0, 0, w, h); return; }
 
-        // Build unified traces array from enabled (non-hidden) metrics, with display conversion
+        // Build unified traces array from enabled (non-hidden) channels, with display conversion
         const traces = [];
         const boolTraces = [];
         const textTraces = [];
-        for (const key of this.enabledMetrics) {
-            if (this.hiddenMetrics.has(key)) continue;
-            const preset = GRAPH_METRICS[key];
+        for (const key of this.enabledChannels) {
+            if (this.hiddenChannels.has(key)) continue;
+            const preset = GRAPH_CHANNELS[key];
             if (preset) {
                 if (preset.norm === 'boolean') {
                     boolTraces.push({ key, color: preset.color, norm: 'boolean', unit: '', dU: '', dM: 1, label: preset.label,
@@ -610,14 +610,14 @@ class GraphWidget extends Widget {
                     traces.push({ key, color: preset.color, norm: preset.norm, unit: preset.unit || '', dU, dM, getValue: (entry) => entry[key] });
                 }
             } else {
-                const custom = this.customMetrics.get(key);
+                const custom = this.customChannels.get(key);
                 if (custom) {
                     const parts = custom.parts;
                     if (custom.norm === 'boolean') {
                         boolTraces.push({ key, color: custom.color, norm: 'boolean', unit: '', dU: '', dM: 1, label: custom.label,
                             getValue: (entry) => {
                                 if (!entry._frame) return null;
-                                const v = resolveMetricPathRaw(entry._frame, parts);
+                                const v = resolveChannelPathRaw(entry._frame, parts);
                                 return typeof v === 'boolean' ? v : null;
                             }
                         });
@@ -625,12 +625,12 @@ class GraphWidget extends Widget {
                         textTraces.push({ key, color: custom.color, label: custom.label,
                             getValue: (entry) => {
                                 if (!entry._frame) return null;
-                                const v = resolveMetricPathRaw(entry._frame, parts);
+                                const v = resolveChannelPathRaw(entry._frame, parts);
                                 return typeof v === 'string' ? v : null;
                             }
                         });
                     } else {
-                        const unitInfo = getMetricUnitInfo(key);
+                        const unitInfo = getChannelUnitInfo(key);
                         let dU = custom.unit, dM = unitInfo.multiplier || 1;
                         if (custom.norm === 'pct') { dU = '%'; dM = 100; }
                         else {
@@ -638,7 +638,7 @@ class GraphWidget extends Widget {
                             dU = conv.unit;
                             dM = conv.value * (unitInfo.multiplier || 1);
                         }
-                        traces.push({ key, color: custom.color, norm: custom.norm, unit: custom.unit, dU, dM, getValue: (entry) => entry._frame ? resolveMetricPathParts(entry._frame, parts) : null });
+                        traces.push({ key, color: custom.color, norm: custom.norm, unit: custom.unit, dU, dM, getValue: (entry) => entry._frame ? resolveChannelPathParts(entry._frame, parts) : null });
                     }
                 }
             }
@@ -1011,7 +1011,7 @@ class GraphWidget extends Widget {
                         const ny = pad.top + ph * (1 - normalizeVal(trace, raw));
                         ctx.fillStyle = trace.color;
                         ctx.beginPath(); ctx.arc(cx, ny, 3.5, 0, Math.PI * 2); ctx.fill();
-                        const label = GRAPH_METRICS[trace.key]?.label || this.customMetrics.get(trace.key)?.label || trace.key;
+                        const label = GRAPH_CHANNELS[trace.key]?.label || this.customChannels.get(trace.key)?.label || trace.key;
                         const displayVal = raw * trace.dM;
                         tipItems.push({ color: trace.color, label, displayVal, dU: trace.dU });
                     }
@@ -1081,31 +1081,31 @@ class GraphWidget extends Widget {
     }
 
     getConfig() {
-        const cfg = { id: this.id, enabledMetrics: [...this.enabledMetrics], timeWindowMs: this.timeWindowMs };
+        const cfg = { id: this.id, enabledChannels: [...this.enabledChannels], timeWindowMs: this.timeWindowMs };
         if (this.title !== 'Graph') cfg.graphName = this.title;
-        if (this.hiddenMetrics.size > 0) cfg.hiddenMetrics = [...this.hiddenMetrics];
-        if (this.customMetrics.size > 0) {
-            cfg.customMetrics = [];
-            for (const [path, meta] of this.customMetrics) {
-                cfg.customMetrics.push({ path, label: meta.label, color: meta.color, unit: meta.unit, norm: meta.norm });
+        if (this.hiddenChannels.size > 0) cfg.hiddenChannels = [...this.hiddenChannels];
+        if (this.customChannels.size > 0) {
+            cfg.customChannels = [];
+            for (const [path, meta] of this.customChannels) {
+                cfg.customChannels.push({ path, label: meta.label, color: meta.color, unit: meta.unit, norm: meta.norm });
             }
         }
         return cfg;
     }
 
     applyConfig(cfg) {
-        if (cfg.enabledMetrics) {
+        if (cfg.enabledChannels) {
             // Migrate legacy preset keys (e.g. 'speed') to raw paths (e.g. 'vehicle.speed')
-            this.enabledMetrics = new Set();
-            for (const key of cfg.enabledMetrics) {
-                if (GRAPH_METRICS[key] && !key.startsWith('computed:') && GRAPH_METRIC_PATHS[key]) {
-                    const rawPath = GRAPH_METRIC_PATHS[key];
-                    this.enabledMetrics.add(rawPath);
-                    // Create customMetric entry if not already in config
-                    if (!cfg.customMetrics?.find(cm => cm.path === rawPath)) {
-                        const preset = GRAPH_METRICS[key];
-                        const unitInfo = getMetricUnitInfo(rawPath);
-                        this.customMetrics.set(rawPath, {
+            this.enabledChannels = new Set();
+            for (const key of cfg.enabledChannels) {
+                if (GRAPH_CHANNELS[key] && !key.startsWith('computed:') && GRAPH_CHANNEL_PATHS[key]) {
+                    const rawPath = GRAPH_CHANNEL_PATHS[key];
+                    this.enabledChannels.add(rawPath);
+                    // Create customChannel entry if not already in config
+                    if (!cfg.customChannels?.find(cm => cm.path === rawPath)) {
+                        const preset = GRAPH_CHANNELS[key];
+                        const unitInfo = getChannelUnitInfo(rawPath);
+                        this.customChannels.set(rawPath, {
                             path: rawPath,
                             label: deriveLabel(rawPath),
                             color: preset.color,
@@ -1115,18 +1115,18 @@ class GraphWidget extends Widget {
                         });
                     }
                 } else {
-                    this.enabledMetrics.add(key);
+                    this.enabledChannels.add(key);
                 }
             }
         }
-        if (cfg.hiddenMetrics) this.hiddenMetrics = new Set(cfg.hiddenMetrics);
+        if (cfg.hiddenChannels) this.hiddenChannels = new Set(cfg.hiddenChannels);
         if (cfg.timeWindowMs) this.timeWindowMs = cfg.timeWindowMs;
         if (cfg.graphName) this.setTitle(cfg.graphName);
-        // Restore custom metrics
-        if (cfg.customMetrics) {
-            this.customMetrics.clear();
-            for (const cm of cfg.customMetrics) {
-                this.customMetrics.set(cm.path, {
+        // Restore custom channels
+        if (cfg.customChannels) {
+            this.customChannels.clear();
+            for (const cm of cfg.customChannels) {
+                this.customChannels.set(cm.path, {
                     path: cm.path,
                     label: cm.label,
                     color: cm.color,

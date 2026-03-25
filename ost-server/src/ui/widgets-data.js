@@ -1,26 +1,26 @@
-/* ==================== AllMetricsWidget ==================== */
-class AllMetricsWidget extends Widget {
-    constructor() { super('allfields', 'Metrics', { col: 9, row: 23, width: 4, height: 9 }); }
+/* ==================== AllChannelsWidget ==================== */
+class AllChannelsWidget extends Widget {
+    constructor() { super('allfields', 'Channels', { col: 9, row: 23, width: 4, height: 9 }); }
 
     buildContent(c) {
         c.innerHTML = `
-            <div class="metrics-toolbar">
-                <input type="text" class="metrics-filter" id="af-filter" placeholder="Filter... (* wildcard, /regex/)">
-                <button class="metrics-toggle-btn active" id="af-hide-nulls" title="Hide null values">Hide Nulls</button>
-                <button class="metrics-toggle-btn" id="af-show-range" title="Show min/max range">Range</button>
-                <div class="metrics-rate-wrap">
-                    <button class="metrics-toggle-btn" id="af-rate-btn" title="Update frequency">1 Hz</button>
-                    <div class="metrics-rate-menu" id="af-rate-menu">
-                        <div class="metrics-rate-opt" data-hz="0">Off</div>
-                        <div class="metrics-rate-opt" data-hz="0.1">0.1 Hz</div>
-                        <div class="metrics-rate-opt active" data-hz="1">1 Hz</div>
-                        <div class="metrics-rate-opt" data-hz="10">10 Hz</div>
-                        <div class="metrics-rate-opt" data-hz="30">30 Hz</div>
-                        <div class="metrics-rate-opt" data-hz="60">60 Hz</div>
+            <div class="channels-toolbar">
+                <input type="text" class="channels-filter" id="af-filter" placeholder="Filter... (* wildcard, /regex/)">
+                <button class="channels-toggle-btn active" id="af-hide-nulls" title="Hide null values">Hide Nulls</button>
+                <button class="channels-toggle-btn" id="af-show-range" title="Show min/max range">Range</button>
+                <div class="channels-rate-wrap">
+                    <button class="channels-toggle-btn" id="af-rate-btn" title="Update frequency">1 Hz</button>
+                    <div class="channels-rate-menu" id="af-rate-menu">
+                        <div class="channels-rate-opt" data-hz="0">Off</div>
+                        <div class="channels-rate-opt" data-hz="0.1">0.1 Hz</div>
+                        <div class="channels-rate-opt active" data-hz="1">1 Hz</div>
+                        <div class="channels-rate-opt" data-hz="10">10 Hz</div>
+                        <div class="channels-rate-opt" data-hz="30">30 Hz</div>
+                        <div class="channels-rate-opt" data-hz="60">60 Hz</div>
                     </div>
                 </div>
             </div>
-            <div class="metrics-list" id="af-list"></div>`;
+            <div class="channels-list" id="af-list"></div>`;
         this.filterInput = c.querySelector('#af-filter');
         this.listEl = c.querySelector('#af-list');
         this._hideNulls = true;
@@ -29,7 +29,7 @@ class AllMetricsWidget extends Widget {
         this._updateIntervalMs = 1000; // 1 Hz default
 
         this._createGraphPaths = [];
-        this.filterInput.addEventListener('input', () => this.renderMetrics());
+        this.filterInput.addEventListener('input', () => this.renderChannels());
 
         // Event delegation for create-graph button (survives innerHTML replacement)
         this.listEl.addEventListener('click', (e) => {
@@ -37,7 +37,7 @@ class AllMetricsWidget extends Widget {
                 const id = 'graph-' + Date.now();
                 const gw = new GraphWidget(id, { col: 1, row: 100, width: 12, height: 6 }, []);
                 gw.init();
-                for (const path of this._createGraphPaths) gw.addCustomMetric(path);
+                for (const path of this._createGraphPaths) gw.addCustomChannel(path);
                 gw.setTitle(this.filterInput.value);
                 grid.addWidget(gw);
                 grid.saveLayout();
@@ -49,14 +49,14 @@ class AllMetricsWidget extends Widget {
         nullsBtn.addEventListener('click', () => {
             this._hideNulls = !this._hideNulls;
             nullsBtn.classList.toggle('active', this._hideNulls);
-            this.renderMetrics();
+            this.renderChannels();
         });
 
         const rangeBtn = c.querySelector('#af-show-range');
         rangeBtn.addEventListener('click', () => {
             this._showRange = !this._showRange;
             rangeBtn.classList.toggle('active', this._showRange);
-            this.renderMetrics();
+            this.renderChannels();
         });
 
         // Update frequency dropdown
@@ -67,12 +67,12 @@ class AllMetricsWidget extends Widget {
             rateMenu.classList.toggle('open');
         });
         rateMenu.addEventListener('click', (e) => {
-            const opt = e.target.closest('.metrics-rate-opt');
+            const opt = e.target.closest('.channels-rate-opt');
             if (!opt) return;
             const hz = parseFloat(opt.dataset.hz);
             this._updateIntervalMs = hz > 0 ? 1000 / hz : Infinity;
             rateBtn.textContent = hz > 0 ? `${hz} Hz` : 'Off';
-            rateMenu.querySelectorAll('.metrics-rate-opt').forEach(o => o.classList.remove('active'));
+            rateMenu.querySelectorAll('.channels-rate-opt').forEach(o => o.classList.remove('active'));
             opt.classList.add('active');
             rateMenu.classList.remove('open');
         });
@@ -84,7 +84,7 @@ class AllMetricsWidget extends Widget {
         if (!this._lastRender || now - this._lastRender > this._updateIntervalMs) {
             this._lastRender = now;
             this._updateMinMax();
-            this.renderMetrics();
+            this.renderChannels();
         }
     }
 
@@ -109,7 +109,7 @@ class AllMetricsWidget extends Widget {
         walk(this.lastFrame, '');
     }
 
-    renderMetrics() {
+    renderChannels() {
         if (!this.lastFrame) return;
         const filter = this.filterInput.value;
 
@@ -124,12 +124,12 @@ class AllMetricsWidget extends Widget {
                     extract(value, fk);
                 } else {
                     if (this._hideNulls && (value === null || value === undefined)) continue;
-                    if (filter && !matchMetricFilter(fk, filter)) continue;
+                    if (filter && !matchChannelFilter(fk, filter)) continue;
                     const section = fk.split('.')[0];
                     // For game namespaces (e.g. iracing.RFtempCM), show just the variable name
                     const displayKey = TOP_LEVEL_SECTIONS.has(section) && fk.includes('.') ? fk.slice(section.length + 1) : fk;
                     if (!sections[section]) sections[section] = [];
-                    const fmt = formatMetricValue(fk, value);
+                    const fmt = formatChannelValue(fk, value);
                     sections[section].push({ key: displayKey, value, text: fmt.text, unit: fmt.unit, path: fk });
                     if (typeof value === 'number') allMatchedPaths.push(fk); // full path for graph creation
                     totalMatches++;
@@ -144,25 +144,25 @@ class AllMetricsWidget extends Widget {
 
         // Show "Create Graph" button when filter is active and <15 numeric matches
         if (filter && allMatchedPaths.length > 0 && allMatchedPaths.length <= 15) {
-            html += `<div class="metrics-create-graph" id="af-create-graph">Create Graph from ${allMatchedPaths.length} metric${allMatchedPaths.length > 1 ? 's' : ''}</div>`;
+            html += `<div class="channels-create-graph" id="af-create-graph">Create Graph from ${allMatchedPaths.length} channel${allMatchedPaths.length > 1 ? 's' : ''}</div>`;
         }
 
         for (const [section, fields] of sortedSections) {
             fields.sort((a, b) => a.key.localeCompare(b.key));
-            html += `<div class="metric-section-header">${section.charAt(0).toUpperCase() + section.slice(1)}</div>`;
+            html += `<div class="channel-section-header">${section.charAt(0).toUpperCase() + section.slice(1)}</div>`;
             for (const f of fields) {
                 const lookupKey = f.path || f.key;
                 let rangeHtml = '';
                 if (this._showRange) {
                     const mm = this._minMax[lookupKey];
                     if (mm) {
-                        const fmtMin = formatMetricValue(lookupKey, mm.min);
-                        const fmtMax = formatMetricValue(lookupKey, mm.max);
-                        rangeHtml = `<span class="metric-range">${fmtMin.text}\u2013${fmtMax.text}</span>`;
+                        const fmtMin = formatChannelValue(lookupKey, mm.min);
+                        const fmtMax = formatChannelValue(lookupKey, mm.max);
+                        rangeHtml = `<span class="channel-range">${fmtMin.text}\u2013${fmtMax.text}</span>`;
                     }
                 }
                 const unitHtml = f.unit ? ` <span class="field-unit">${f.unit}</span>` : '';
-                html += `<div class="metric-item"><span class="metric-name">${f.key}</span><span class="field-value">${rangeHtml}${f.text}${unitHtml}</span></div>`;
+                html += `<div class="channel-item"><span class="channel-name">${f.key}</span><span class="field-value">${rangeHtml}${f.text}${unitHtml}</span></div>`;
             }
         }
         this.listEl.innerHTML = html;
@@ -184,7 +184,7 @@ class OutputSinksWidget extends Widget {
                 <div class="sink-form-group"><div class="sink-form-label">Host</div><input type="text" id="sk-host" placeholder="127.0.0.1" required></div>
                 <div class="sink-form-group"><div class="sink-form-label">Port</div><input type="number" id="sk-port" placeholder="9200" required></div>
                 <div class="sink-form-group"><div class="sink-form-label">Update Rate</div><select id="sk-rate"><option value="60">60 Hz</option><option value="30">30 Hz</option><option value="10">10 Hz</option><option value="1">1 Hz</option></select></div>
-                <div class="sink-form-group"><div class="sink-form-label">Metric Filter</div><input type="text" id="sk-mask" placeholder="e.g. rpm,speed,gear"></div>
+                <div class="sink-form-group"><div class="sink-form-label">Channel Filter</div><input type="text" id="sk-mask" placeholder="e.g. rpm,speed,gear"></div>
                 <button type="submit" class="btn-add">Add</button>
             </form>`;
 
@@ -197,7 +197,7 @@ class OutputSinksWidget extends Widget {
                 host: c.querySelector('#sk-host').value,
                 port: parseInt(c.querySelector('#sk-port').value),
                 update_rate_hz: parseFloat(c.querySelector('#sk-rate').value),
-                metric_mask: c.querySelector('#sk-mask').value.trim() || null,
+                channel_mask: c.querySelector('#sk-mask').value.trim() || null,
             };
             try { await fetch(apiBase() + '/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); } catch(e) { console.error(e); }
         });
@@ -212,7 +212,7 @@ class OutputSinksWidget extends Widget {
             } else {
                 this.listEl.innerHTML = store.sinks.map(s => {
                     const rate = s.update_rate_hz || 60;
-                    return `<div class="sink-item"><div><strong>UDP</strong> ${s.host}:${s.port} <span style="color:var(--text-muted);font-size:0.6rem">@ ${rate} Hz</span>${s.metric_mask ? `<br><span style="color:var(--text-muted);font-size:0.6rem">Metrics: ${s.metric_mask}</span>` : ''}</div><button class="btn-delete" data-id="${s.id}">Delete</button></div>`;
+                    return `<div class="sink-item"><div><strong>UDP</strong> ${s.host}:${s.port} <span style="color:var(--text-muted);font-size:0.6rem">@ ${rate} Hz</span>${s.channel_mask ? `<br><span style="color:var(--text-muted);font-size:0.6rem">Channels: ${s.channel_mask}</span>` : ''}</div><button class="btn-delete" data-id="${s.id}">Delete</button></div>`;
                 }).join('');
                 this.listEl.querySelectorAll('.btn-delete').forEach(btn => {
                     btn.addEventListener('click', async () => {
@@ -236,7 +236,7 @@ class ApiWidget extends Widget {
                     <div class="api-heading">SSE Streams</div>
                     <div class="api-endpoint"><code>GET /api/stream</code> — Unified stream (frame, status, sinks events)</div>
                     <div class="api-endpoint"><code>GET /api/telemetry/stream</code> — Telemetry frames only</div>
-                    <div class="api-endpoint" style="margin-left:12px;font-size:0.6rem">Query params: <code>rate</code> (0.01–60, default 60), <code>metric_mask</code></div>
+                    <div class="api-endpoint" style="margin-left:12px;font-size:0.6rem">Query params: <code>rate</code> (0.01–60, default 60), <code>channel_mask</code></div>
                     <div class="api-example"><code>curl -N "${base}/api/telemetry/stream?rate=1"</code></div>
                     <div class="api-endpoint"><code>GET /api/status/stream</code> — Status updates only</div>
                 </div>
@@ -244,7 +244,7 @@ class ApiWidget extends Widget {
                     <div class="api-heading">REST Endpoints</div>
                     <div class="api-endpoint"><code>GET /api/adapters</code> — List adapters and their status</div>
                     <div class="api-endpoint"><code>POST /api/adapters/:name/toggle</code> — Enable/disable an adapter</div>
-                    <div class="api-endpoint"><code>GET /api/metrics</code> — Latest telemetry frame (supports <code>metric_mask</code>)</div>
+                    <div class="api-endpoint"><code>GET /api/channels</code> — Latest telemetry frame (supports <code>channel_mask</code>)</div>
                     <div class="api-endpoint"><code>GET /api/sinks</code> — List output sinks</div>
                     <div class="api-endpoint"><code>POST /api/sinks</code> — Create UDP sink</div>
                     <div class="api-endpoint"><code>DELETE /api/sinks/:id</code> — Remove a sink</div>

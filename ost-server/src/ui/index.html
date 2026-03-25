@@ -37,6 +37,7 @@
         <div class="remote-source">
             <span class="remote-label" id="remote-label">Connected to</span>
             <input type="text" class="remote-input" id="remote-url" value="http://localhost:9100" title="OST server endpoint">
+            <input type="text" class="remote-input" id="remote-api-key" placeholder="API key" style="display:none;width:120px;font-size:0.6rem" title="Remote server API key">
             <button class="remote-connect-btn" id="remote-connect" style="display:none">Connect</button>
         </div>
         <div class="header-right">
@@ -59,7 +60,7 @@
             </div>
             <input type="file" id="ibt-file-input" accept=".ibt" style="display:none">
             <button class="header-reset-btn" id="menu-add-graph">+ Graph</button>
-            <button class="header-reset-btn" id="header-computed-metrics">f(x)</button>
+            <button class="header-reset-btn" id="header-computed-channels">f(x)</button>
             <button class="header-reset-btn" id="header-reset-layout">Reset Layout</button>
             <button class="header-reset-btn" id="settings-btn">Settings</button>
         </div>

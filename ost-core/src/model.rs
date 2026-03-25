@@ -1174,74 +1174,75 @@ pub struct CurrentDriver {
 }
 
 // =============================================================================
-// Metric Masking for Selective Output
+// Channel Masking for Selective Output
 // =============================================================================
 
-/// Specifies which metrics to include in serialized output.
+/// Specifies which channels to include in serialized output.
 ///
 /// Supports both section-level filtering (`vehicle`, `timing`) and
 /// dotted sub-field filtering (`vehicle.speed`, `timing.best_lap_time`).
 #[derive(Debug, Clone, Default)]
-pub struct MetricMask {
-    metrics: HashSet<String>,
+pub struct ChannelMask {
+    channels: HashSet<String>,
     include_all: bool,
 }
 
-impl MetricMask {
-    /// Create a mask that includes all metrics
+impl ChannelMask {
+    /// Create a mask that includes all channels
     pub fn all() -> Self {
         Self {
-            metrics: HashSet::new(),
+            channels: HashSet::new(),
             include_all: true,
         }
     }
 
-    /// Create a mask from a comma-separated list of metric names
-    pub fn parse(metrics: &str) -> Self {
-        let metrics: HashSet<String> = metrics
+    /// Create a mask from a comma-separated list of channel names
+    pub fn parse(channels: &str) -> Self {
+        let channels: HashSet<String> = channels
             .split(',')
             .map(|s| s.trim().to_lowercase())
             .filter(|s| !s.is_empty())
             .collect();
 
         Self {
-            metrics,
+            channels,
             include_all: false,
         }
     }
 
-    /// Check if a metric should be included.
+    /// Check if a channel should be included.
     ///
     /// Returns true if:
-    /// - All metrics are included (no mask)
-    /// - The exact metric name matches (e.g. "vehicle")
+    /// - All channels are included (no mask)
+    /// - The exact channel name matches (e.g. "vehicle")
     /// - A parent section matches (e.g. "vehicle" includes "vehicle.speed")
     /// - The specific dotted path matches (e.g. "vehicle.speed")
-    pub fn includes(&self, metric: &str) -> bool {
+    pub fn includes(&self, channel: &str) -> bool {
         if self.include_all {
             return true;
         }
 
-        let metric_lower = metric.to_lowercase();
+        let channel_lower = channel.to_lowercase();
 
         // Exact match
-        if self.metrics.contains(&metric_lower) {
+        if self.channels.contains(&channel_lower) {
             return true;
         }
 
-        // Check if any requested metric is a parent section of this metric
-        // e.g. if mask has "vehicle" and metric is "vehicle.speed"
-        if let Some(dot_pos) = metric_lower.find('.') {
-            let section = &metric_lower[..dot_pos];
-            if self.metrics.contains(section) {
+        // Check if any requested channel is a parent section of this channel
+        // e.g. if mask has "vehicle" and channel is "vehicle.speed"
+        if let Some(dot_pos) = channel_lower.find('.') {
+            let section = &channel_lower[..dot_pos];
+            if self.channels.contains(section) {
                 return true;
             }
         }
 
-        // Check if any requested metric is a child of this section
-        // e.g. if mask has "vehicle.speed" and metric is "vehicle" (the section)
-        for f in &self.metrics {
-            if f.starts_with(&metric_lower) && f.as_bytes().get(metric_lower.len()) == Some(&b'.') {
+        // Check if any requested channel is a child of this section
+        // e.g. if mask has "vehicle.speed" and channel is "vehicle" (the section)
+        for f in &self.channels {
+            if f.starts_with(&channel_lower) && f.as_bytes().get(channel_lower.len()) == Some(&b'.')
+            {
                 return true;
             }
         }
@@ -1260,12 +1261,12 @@ impl MetricMask {
         }
         let section_lower = section.to_lowercase();
         // If the bare section is requested, include everything
-        if self.metrics.contains(&section_lower) {
+        if self.channels.contains(&section_lower) {
             return None;
         }
         let prefix = format!("{}.", section_lower);
         let keys: Vec<&str> = self
-            .metrics
+            .channels
             .iter()
             .filter_map(|f| f.strip_prefix(&prefix))
             .collect();
@@ -1276,13 +1277,13 @@ impl MetricMask {
         }
     }
 
-    /// Check if all metrics should be included
+    /// Check if all channels should be included
     pub fn is_all(&self) -> bool {
         self.include_all
     }
 }
 
-impl FromStr for MetricMask {
+impl FromStr for ChannelMask {
     type Err = std::convert::Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -1290,61 +1291,61 @@ impl FromStr for MetricMask {
     }
 }
 
-/// Builder for MetricMask
+/// Builder for ChannelMask
 #[derive(Debug, Default)]
-pub struct MetricMaskBuilder {
-    metrics: HashSet<String>,
+pub struct ChannelMaskBuilder {
+    channels: HashSet<String>,
 }
 
-impl MetricMaskBuilder {
-    pub fn with_metric(mut self, metric: &str) -> Self {
-        self.metrics.insert(metric.to_lowercase());
+impl ChannelMaskBuilder {
+    pub fn with_channel(mut self, channel: &str) -> Self {
+        self.channels.insert(channel.to_lowercase());
         self
     }
 
     pub fn motion(self) -> Self {
-        self.with_metric("motion")
+        self.with_channel("motion")
     }
 
     pub fn vehicle(self) -> Self {
-        self.with_metric("vehicle")
+        self.with_channel("vehicle")
     }
 
     pub fn engine(self) -> Self {
-        self.with_metric("engine")
+        self.with_channel("engine")
     }
 
     pub fn wheels(self) -> Self {
-        self.with_metric("wheels")
+        self.with_channel("wheels")
     }
 
     pub fn timing(self) -> Self {
-        self.with_metric("timing")
+        self.with_channel("timing")
     }
 
     pub fn session(self) -> Self {
-        self.with_metric("session")
+        self.with_channel("session")
     }
 
     pub fn weather(self) -> Self {
-        self.with_metric("weather")
+        self.with_channel("weather")
     }
 
     pub fn pit(self) -> Self {
-        self.with_metric("pit")
+        self.with_channel("pit")
     }
 
     pub fn damage(self) -> Self {
-        self.with_metric("damage")
+        self.with_channel("damage")
     }
 
     pub fn drivers(self) -> Self {
-        self.with_metric("drivers")
+        self.with_channel("drivers")
     }
 
-    pub fn build(self) -> MetricMask {
-        MetricMask {
-            metrics: self.metrics,
+    pub fn build(self) -> ChannelMask {
+        ChannelMask {
+            channels: self.channels,
             include_all: false,
         }
     }
@@ -1355,11 +1356,11 @@ impl MetricMaskBuilder {
 // =============================================================================
 
 impl TelemetryFrame {
-    /// Serialize this frame respecting the given metric mask.
+    /// Serialize this frame respecting the given channel mask.
     ///
-    /// If mask is None or includes all metrics, serialize everything.
-    /// Otherwise, only include specified sections/metrics.
-    pub fn to_json_filtered(&self, mask: Option<&MetricMask>) -> serde_json::Result<String> {
+    /// If mask is None or includes all channels, serialize everything.
+    /// Otherwise, only include specified sections/channels.
+    pub fn to_json_filtered(&self, mask: Option<&ChannelMask>) -> serde_json::Result<String> {
         if mask.is_none() || mask.map(|m| m.is_all()).unwrap_or(true) {
             return serde_json::to_string(self);
         }
@@ -1367,11 +1368,11 @@ impl TelemetryFrame {
         serde_json::to_string(&value)
     }
 
-    /// Serialize this frame to a JSON Value respecting the given metric mask.
+    /// Serialize this frame to a JSON Value respecting the given channel mask.
     /// Like `to_json_filtered` but returns a Value for programmatic use (e.g. delta computation).
     pub fn to_json_value_filtered(
         &self,
-        mask: Option<&MetricMask>,
+        mask: Option<&ChannelMask>,
     ) -> serde_json::Result<serde_json::Value> {
         if mask.is_none() || mask.map(|m| m.is_all()).unwrap_or(true) {
             return serde_json::to_value(self);
@@ -1628,8 +1629,8 @@ mod tests {
     }
 
     #[test]
-    fn test_metric_mask_parse_comma_separated() {
-        let mask = MetricMask::parse("vehicle,timing,motion");
+    fn test_channel_mask_parse_comma_separated() {
+        let mask = ChannelMask::parse("vehicle,timing,motion");
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("timing"));
         assert!(mask.includes("motion"));
@@ -1638,47 +1639,47 @@ mod tests {
     }
 
     #[test]
-    fn test_metric_mask_parse_with_whitespace() {
-        let mask = MetricMask::parse(" vehicle , timing , motion ");
+    fn test_channel_mask_parse_with_whitespace() {
+        let mask = ChannelMask::parse(" vehicle , timing , motion ");
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("timing"));
         assert!(mask.includes("motion"));
     }
 
     #[test]
-    fn test_metric_mask_parse_case_insensitive() {
-        let mask = MetricMask::parse("Vehicle,TIMING,Motion");
+    fn test_channel_mask_parse_case_insensitive() {
+        let mask = ChannelMask::parse("Vehicle,TIMING,Motion");
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("timing"));
         assert!(mask.includes("motion"));
     }
 
     #[test]
-    fn test_metric_mask_parse_empty_string() {
-        let mask = MetricMask::parse("");
+    fn test_channel_mask_parse_empty_string() {
+        let mask = ChannelMask::parse("");
         assert!(!mask.is_all());
         assert!(!mask.includes("vehicle"));
     }
 
     #[test]
-    fn test_metric_mask_all() {
-        let mask = MetricMask::all();
+    fn test_channel_mask_all() {
+        let mask = ChannelMask::all();
         assert!(mask.is_all());
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("anything"));
     }
 
     #[test]
-    fn test_metric_mask_from_str() {
-        let mask: MetricMask = "vehicle,timing".parse().unwrap();
+    fn test_channel_mask_from_str() {
+        let mask: ChannelMask = "vehicle,timing".parse().unwrap();
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("timing"));
         assert!(!mask.includes("engine"));
     }
 
     #[test]
-    fn test_metric_mask_builder() {
-        let mask = MetricMaskBuilder::default()
+    fn test_channel_mask_builder() {
+        let mask = ChannelMaskBuilder::default()
             .vehicle()
             .timing()
             .engine()
@@ -1690,8 +1691,8 @@ mod tests {
     }
 
     #[test]
-    fn test_metric_mask_section_includes_subfields() {
-        let mask = MetricMask::parse("vehicle");
+    fn test_channel_mask_section_includes_subfields() {
+        let mask = ChannelMask::parse("vehicle");
         assert!(mask.includes("vehicle"));
         assert!(mask.includes("vehicle.speed"));
         assert!(!mask.includes("timing"));
@@ -1712,7 +1713,7 @@ mod tests {
     #[test]
     fn test_to_json_filtered_with_all_mask_returns_full_frame() {
         let frame = make_test_frame();
-        let mask = MetricMask::all();
+        let mask = ChannelMask::all();
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
@@ -1724,7 +1725,7 @@ mod tests {
     #[test]
     fn test_to_json_filtered_with_mask_returns_only_requested_sections() {
         let frame = make_test_frame();
-        let mask = MetricMask::parse("vehicle,timing");
+        let mask = ChannelMask::parse("vehicle,timing");
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
@@ -1745,7 +1746,7 @@ mod tests {
     fn test_to_json_filtered_with_mask_for_none_section() {
         let frame = make_test_frame();
         // weather is None in our test frame
-        let mask = MetricMask::parse("weather,vehicle");
+        let mask = ChannelMask::parse("weather,vehicle");
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
@@ -1805,9 +1806,9 @@ mod tests {
     }
 
     #[test]
-    fn test_game_namespace_metric_mask() {
+    fn test_game_namespace_channel_mask() {
         // Game-specific namespaces are flattened to top level.
-        // metric_mask=iracing includes the whole iracing namespace.
+        // channel_mask=iracing includes the whole iracing namespace.
         let mut frame = make_test_frame();
         let mut iracing_data = serde_json::Map::new();
         iracing_data.insert("brakeABSactive".to_string(), serde_json::Value::Bool(true));
@@ -1817,7 +1818,7 @@ mod tests {
             serde_json::Value::Object(iracing_data),
         );
 
-        let mask = MetricMask::parse("iracing");
+        let mask = ChannelMask::parse("iracing");
         let json = frame.to_json_filtered(Some(&mask)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
@@ -1834,7 +1835,7 @@ mod tests {
     #[test]
     fn test_to_json_value_filtered_matches_string() {
         let frame = make_test_frame();
-        let mask = MetricMask::parse("vehicle,timing");
+        let mask = ChannelMask::parse("vehicle,timing");
         let value = frame.to_json_value_filtered(Some(&mask)).unwrap();
         let from_value: String = serde_json::to_string(&value).unwrap();
         let from_string = frame.to_json_filtered(Some(&mask)).unwrap();

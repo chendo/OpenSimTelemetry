@@ -1522,11 +1522,11 @@ SessionInfo:
         out
     }
 
-    /// Print flattened metrics to stderr.
-    fn print_metrics(label: &str, metrics: &[(String, String)]) {
-        let max_key = metrics.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+    /// Print flattened channels to stderr.
+    fn print_channels(label: &str, channels: &[(String, String)]) {
+        let max_key = channels.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
         eprintln!("\n=== {label} ===");
-        for (key, val) in metrics {
+        for (key, val) in channels {
             eprintln!("{key:<max_key$}\t\t{val}");
         }
     }
@@ -1579,10 +1579,10 @@ SessionInfo:
         assert!(wheels.front_left.suspension_travel.is_some());
         assert!(wheels.front_right.tyre_pressure.is_some());
 
-        // Dump all metrics for frame 1800
+        // Dump all channels for frame 1800
         let json = serde_json::to_value(&frame).expect("serialize");
-        let metrics = flatten_json(&json);
-        print_metrics(&format!("ALL METRICS (frame {idx})"), &metrics);
+        let channels = flatten_json(&json);
+        print_channels(&format!("ALL CHANNELS (frame {idx})"), &channels);
 
         // =====================================================================
         // Sample at 10s intervals and print + assert exact parsed values
@@ -1590,15 +1590,15 @@ SessionInfo:
         let tick_rate = ibt.header.tick_rate as usize;
         let step = tick_rate * 10; // 600 frames = 10s
 
-        // Helper to get a metric value from flattened list
-        let get = |metrics: &[(String, String)], key: &str| -> Option<String> {
-            metrics
+        // Helper to get a channel value from flattened list
+        let get = |channels: &[(String, String)], key: &str| -> Option<String> {
+            channels
                 .iter()
                 .find(|(k, _)| k == key)
                 .map(|(_, v)| v.clone())
         };
 
-        eprintln!("\n=== METRICS AT 10s INTERVALS ===");
+        eprintln!("\n=== CHANNELS AT 10s INTERVALS ===");
         eprintln!(
             "{:>6} {:>8} {:>7} {:>4} {:>6} {:>6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>4} {:>8} {:>8}",
             "frame",
@@ -1651,56 +1651,56 @@ SessionInfo:
         // Assert exact values at specific 10s interval frames to detect parsing regressions.
         // These are hardcoded from a known-good parse of fixtures/race.ibt.
         // If any assertion fails, the parsing logic has changed.
-        let assert_metric = |snapshots: &[(usize, Vec<(String, String)>)],
-                             frame_idx: usize,
-                             key: &str,
-                             expected: &str| {
-            let (_, metrics) = snapshots
+        let assert_channel = |snapshots: &[(usize, Vec<(String, String)>)],
+                              frame_idx: usize,
+                              key: &str,
+                              expected: &str| {
+            let (_, channels) = snapshots
                 .iter()
                 .find(|(idx, _)| *idx == frame_idx)
                 .unwrap_or_else(|| panic!("No snapshot for frame {frame_idx}"));
-            let actual = get(metrics, key);
+            let actual = get(channels, key);
             assert_eq!(
                 actual.as_deref(),
                 Some(expected),
-                "frame {frame_idx} metric {key}"
+                "frame {frame_idx} channel {key}"
             );
         };
 
         // Frame 0: stationary in pit
-        assert_metric(&interval_snapshots, 0, "vehicle.speed", "0.0");
-        assert_metric(&interval_snapshots, 0, "vehicle.gear", "0");
-        assert_metric(&interval_snapshots, 0, "vehicle.brake", "1.0");
-        assert_metric(&interval_snapshots, 0, "timing.lap_number", "0");
+        assert_channel(&interval_snapshots, 0, "vehicle.speed", "0.0");
+        assert_channel(&interval_snapshots, 0, "vehicle.gear", "0");
+        assert_channel(&interval_snapshots, 0, "vehicle.brake", "1.0");
+        assert_channel(&interval_snapshots, 0, "timing.lap_number", "0");
 
         // Frame 600 (~10s): leaving pit
-        assert_metric(&interval_snapshots, 600, "vehicle.gear", "2");
-        assert_metric(
+        assert_channel(&interval_snapshots, 600, "vehicle.gear", "2");
+        assert_channel(
             &interval_snapshots,
             600,
             "vehicle.speed",
             "24.08989906311035",
         );
-        assert_metric(
+        assert_channel(
             &interval_snapshots,
             600,
             "motion.heading",
             "30.579999923706055",
         );
-        assert_metric(&interval_snapshots, 600, "motion.yaw", "5.3719000816345215");
-        assert_metric(&interval_snapshots, 600, "timing.lap_number", "0");
+        assert_channel(&interval_snapshots, 600, "motion.yaw", "5.3719000816345215");
+        assert_channel(&interval_snapshots, 600, "timing.lap_number", "0");
 
         // Frame 6000 (~100s): on-track mid-lap
-        assert_metric(&interval_snapshots, 6000, "vehicle.gear", "4");
-        assert_metric(
+        assert_channel(&interval_snapshots, 6000, "vehicle.gear", "4");
+        assert_channel(
             &interval_snapshots,
             6000,
             "vehicle.speed",
             "44.3286018371582",
         );
-        assert_metric(&interval_snapshots, 6000, "vehicle.throttle", "1.0");
-        assert_metric(&interval_snapshots, 6000, "timing.lap_number", "1");
-        assert_metric(
+        assert_channel(&interval_snapshots, 6000, "vehicle.throttle", "1.0");
+        assert_channel(&interval_snapshots, 6000, "timing.lap_number", "1");
+        assert_channel(
             &interval_snapshots,
             6000,
             "timing.current_lap_time",
@@ -1708,37 +1708,37 @@ SessionInfo:
         );
 
         // Frame 12000 (~200s): further into the session
-        assert_metric(&interval_snapshots, 12000, "vehicle.gear", "2");
-        assert_metric(
+        assert_channel(&interval_snapshots, 12000, "vehicle.gear", "2");
+        assert_channel(
             &interval_snapshots,
             12000,
             "vehicle.speed",
             "21.92620086669922",
         );
-        assert_metric(
+        assert_channel(
             &interval_snapshots,
             12000,
             "motion.heading",
             "118.48809814453125",
         );
-        assert_metric(&interval_snapshots, 12000, "timing.lap_number", "3");
+        assert_channel(&interval_snapshots, 12000, "timing.lap_number", "3");
 
         // Frame 30000 (~500s): well into session
-        assert_metric(
+        assert_channel(
             &interval_snapshots,
             30000,
             "vehicle.speed",
             "22.12459945678711",
         );
-        assert_metric(&interval_snapshots, 30000, "vehicle.gear", "2");
-        assert_metric(&interval_snapshots, 30000, "timing.lap_number", "8");
-        assert_metric(
+        assert_channel(&interval_snapshots, 30000, "vehicle.gear", "2");
+        assert_channel(&interval_snapshots, 30000, "timing.lap_number", "8");
+        assert_channel(
             &interval_snapshots,
             30000,
             "motion.latitude",
             "36.15249059429738",
         );
-        assert_metric(
+        assert_channel(
             &interval_snapshots,
             30000,
             "timing.current_lap_time",
@@ -1746,16 +1746,16 @@ SessionInfo:
         );
 
         // Frame 60000 (~1000s): near end of session, stationary
-        assert_metric(&interval_snapshots, 60000, "vehicle.gear", "0");
-        assert_metric(&interval_snapshots, 60000, "vehicle.speed", "0.0");
-        assert_metric(&interval_snapshots, 60000, "timing.lap_number", "13");
-        assert_metric(
+        assert_channel(&interval_snapshots, 60000, "vehicle.gear", "0");
+        assert_channel(&interval_snapshots, 60000, "vehicle.speed", "0.0");
+        assert_channel(&interval_snapshots, 60000, "timing.lap_number", "13");
+        assert_channel(
             &interval_snapshots,
             60000,
             "motion.heading",
             "12.827899932861328",
         );
-        assert_metric(
+        assert_channel(
             &interval_snapshots,
             60000,
             "motion.yaw",

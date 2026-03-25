@@ -15,7 +15,7 @@ use axum::{
     Json, Router,
 };
 use futures::stream::{self, Stream, StreamExt as FuturesStreamExt};
-use ost_core::model::{compute_section_delta, MetricMask, TelemetryFrame};
+use ost_core::model::{compute_section_delta, ChannelMask, TelemetryFrame};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::time::Duration;
@@ -172,21 +172,21 @@ fn round_json_floats(val: &mut serde_json::Value) {
 /// How often to send full frames during delta mode (for sync recovery).
 const DELTA_FULL_FRAME_INTERVAL: u64 = 60;
 
-/// Serialize a frame to JSON with optional delta encoding and custom metrics merge.
+/// Serialize a frame to JSON with optional delta encoding and custom channels merge.
 /// Returns the JSON string and the full Value to store as previous state.
 fn serialize_frame_json(
     frame: &TelemetryFrame,
-    mask: Option<&MetricMask>,
+    mask: Option<&ChannelMask>,
     use_delta: bool,
     last_json: &std::sync::Mutex<Option<serde_json::Value>>,
     frame_count: u64,
-    custom_metrics: Option<&crate::state::CustomMetrics>,
+    custom_channels: Option<&crate::state::CustomChannels>,
 ) -> Option<String> {
     let mut curr_value = frame.to_json_value_filtered(mask).ok()?;
     round_json_floats(&mut curr_value);
 
-    // Merge custom metrics if any
-    if let Some(cm) = custom_metrics {
+    // Merge custom channels if any
+    if let Some(cm) = custom_channels {
         if !cm.is_empty() {
             let tick = frame.meta.tick;
             cm.merge_into(&mut curr_value, tick);
@@ -228,45 +228,48 @@ fn check_basic_auth(auth_header: &str, token: &str) -> bool {
     false
 }
 
-/// Auth middleware: checks token on all routes when auth is configured.
-/// Supports Bearer token, Basic auth, and ?token= query parameter.
-/// The UI page (/) triggers a browser Basic auth prompt on 401.
+/// Auth middleware: checks API key on /api/* routes.
+/// Supports Bearer token, HTTP Basic (ost:<key>), and ?key= query parameter.
+/// Non-API routes (/, /s/*) are exempt — the UI page embeds the key server-side.
 async fn auth_middleware(
     State(state): State<AppState>,
     req: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Result<axum::response::Response, axum::response::Response> {
-    let token = match &state.auth_token {
-        Some(t) => t,
-        None => return Ok(next.run(req).await),
-    };
+    let path = req.uri().path();
+
+    // UI pages are not gated — they embed the key server-side
+    if !path.starts_with("/api/") {
+        return Ok(next.run(req).await);
+    }
+
+    let key = state.api_key.read().unwrap().clone();
 
     // Check Authorization header (Bearer or Basic)
     if let Some(auth) = req.headers().get(header::AUTHORIZATION) {
         if let Ok(val) = auth.to_str() {
-            if val.strip_prefix("Bearer ").is_some_and(|t| t == token)
-                || check_basic_auth(val, token)
+            if val.strip_prefix("Bearer ").is_some_and(|t| t == key) || check_basic_auth(val, &key)
             {
                 return Ok(next.run(req).await);
             }
         }
     }
 
-    // Check ?token= query param
+    // Check ?key= query param (needed for EventSource which can't set headers)
     if let Some(query) = req.uri().query() {
         for pair in query.split('&') {
-            if let Some(val) = pair.strip_prefix("token=") {
-                if val == token {
+            if let Some(val) = pair.strip_prefix("key=") {
+                if val == key {
                     return Ok(next.run(req).await);
                 }
             }
         }
     }
 
-    // Return 401 with WWW-Authenticate header to trigger browser Basic auth prompt
     Err((
         StatusCode::UNAUTHORIZED,
         [(header::WWW_AUTHENTICATE, "Basic realm=\"OpenSimTelemetry\"")],
+        "Invalid or missing API key",
     )
         .into_response())
 }
@@ -291,14 +294,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/stream", get(unified_stream))
         .route("/api/telemetry/stream", get(telemetry_stream))
         .route("/api/status/stream", get(status_stream))
-        .route("/api/metrics", get(get_metrics).post(submit_metrics))
+        .route("/api/channels", get(get_channels).post(submit_channels))
         .route(
-            "/api/metrics/custom",
-            get(list_custom_metrics).delete(clear_custom_metrics),
+            "/api/channels/custom",
+            get(list_custom_channels).delete(clear_custom_channels),
         )
         .route(
-            "/api/metrics/custom/:namespace",
-            delete(clear_custom_metrics_ns),
+            "/api/channels/custom/:namespace",
+            delete(clear_custom_channels_ns),
         )
         .route(
             "/api/annotations",
@@ -347,15 +350,48 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/sessions", get(list_sessions))
         .route("/api/sessions/:id", delete(delete_session))
         .route("/api/sessions/:id/load", post(load_session))
-        .route("/api/sessions/stats", get(session_stats));
+        .route("/api/sessions/stats", get(session_stats))
+        .route("/api/key/reset", post(reset_api_key));
+
+    let cors = build_cors_layer();
 
     router
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
         ))
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .with_state(state)
+}
+
+/// Build CORS layer. Allows configured origins for API endpoints when
+/// OST_CORS_ORIGINS is set, otherwise same-origin only.
+fn build_cors_layer() -> CorsLayer {
+    use tower_http::cors::AllowOrigin;
+
+    let origins = std::env::var("OST_CORS_ORIGINS")
+        .ok()
+        .filter(|s| !s.is_empty());
+
+    match origins {
+        Some(origins_str) => {
+            let origins: Vec<_> = origins_str
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect();
+            tracing::info!("CORS enabled for origins: {origins_str}");
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::list(origins))
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::DELETE,
+                ])
+                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+                .max_age(Duration::from_secs(3600))
+        }
+        None => CorsLayer::new(),
+    }
 }
 
 // === Adapter Endpoints ===
@@ -471,26 +507,26 @@ pub async fn broadcast_adapter_status(state: &AppState) {
     }
 }
 
-/// GET /api/metrics — returns the latest telemetry frame as JSON.
-/// Accepts optional `metric_mask` query param to filter top-level sections.
+/// GET /api/channels — returns the latest telemetry frame as JSON.
+/// Accepts optional `channel_mask` query param to filter top-level sections.
 #[derive(Deserialize)]
-struct MetricsQuery {
-    metric_mask: Option<String>,
+struct ChannelsQuery {
+    channel_mask: Option<String>,
 }
 
-async fn get_metrics(
+async fn get_channels(
     State(state): State<AppState>,
-    Query(query): Query<MetricsQuery>,
+    Query(query): Query<ChannelsQuery>,
 ) -> impl IntoResponse {
     let history = state.history.read().await;
     match history.latest_frame() {
         Some(frame) => {
-            let mask = query.metric_mask.as_deref().map(MetricMask::parse);
+            let mask = query.channel_mask.as_deref().map(ChannelMask::parse);
             let mut val = frame
                 .to_json_value_filtered(mask.as_ref())
                 .unwrap_or(serde_json::Value::Null);
-            // Merge custom metrics
-            let cm = state.custom_metrics.read().unwrap();
+            // Merge custom channels
+            let cm = state.custom_channels.read().unwrap();
             if !cm.is_empty() {
                 cm.merge_into(&mut val, frame.meta.tick);
             }
@@ -509,22 +545,22 @@ async fn get_metrics(
     }
 }
 
-// ===================== Custom Metrics API =====================
+// ===================== Custom Channels API =====================
 
 #[derive(Deserialize)]
-struct SubmitMetricsRequest {
-    /// Namespace for the metrics (e.g., "analysis", "custom")
+struct SubmitChannelsRequest {
+    /// Namespace for the channels (e.g., "analysis", "custom")
     namespace: String,
-    /// Key-value pairs of metric data
-    metrics: serde_json::Value,
-    /// Optional tick number — if set, metrics apply only to that frame
+    /// Key-value pairs of channel data
+    channels: serde_json::Value,
+    /// Optional tick number — if set, channels apply only to that frame
     tick: Option<u32>,
 }
 
-/// POST /api/metrics — submit custom metrics
-async fn submit_metrics(
+/// POST /api/channels — submit custom channels
+async fn submit_channels(
     State(state): State<AppState>,
-    Json(req): Json<SubmitMetricsRequest>,
+    Json(req): Json<SubmitChannelsRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if req.namespace.is_empty() {
         return Err((
@@ -532,23 +568,23 @@ async fn submit_metrics(
             "namespace must not be empty".to_string(),
         ));
     }
-    if !req.metrics.is_object() {
+    if !req.channels.is_object() {
         return Err((
             StatusCode::BAD_REQUEST,
-            "metrics must be a JSON object".to_string(),
+            "channels must be a JSON object".to_string(),
         ));
     }
 
-    let mut cm = state.custom_metrics.write().unwrap();
+    let mut cm = state.custom_channels.write().unwrap();
     match req.tick {
         Some(tick) => {
             cm.by_tick
                 .entry(tick)
                 .or_default()
-                .insert(req.namespace.clone(), req.metrics);
+                .insert(req.namespace.clone(), req.channels);
         }
         None => {
-            cm.sticky.insert(req.namespace.clone(), req.metrics);
+            cm.sticky.insert(req.namespace.clone(), req.channels);
         }
     }
 
@@ -559,29 +595,29 @@ async fn submit_metrics(
     })))
 }
 
-/// GET /api/metrics/custom — list all custom metrics
-async fn list_custom_metrics(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let cm = state.custom_metrics.read().unwrap();
+/// GET /api/channels/custom — list all custom channels
+async fn list_custom_channels(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let cm = state.custom_channels.read().unwrap();
     Json(serde_json::json!({
         "sticky": cm.sticky,
         "by_tick": cm.by_tick,
     }))
 }
 
-/// DELETE /api/metrics/custom — clear all custom metrics
-async fn clear_custom_metrics(State(state): State<AppState>) -> StatusCode {
-    let mut cm = state.custom_metrics.write().unwrap();
+/// DELETE /api/channels/custom — clear all custom channels
+async fn clear_custom_channels(State(state): State<AppState>) -> StatusCode {
+    let mut cm = state.custom_channels.write().unwrap();
     cm.sticky.clear();
     cm.by_tick.clear();
     StatusCode::NO_CONTENT
 }
 
-/// DELETE /api/metrics/custom/:namespace — clear custom metrics for a specific namespace
-async fn clear_custom_metrics_ns(
+/// DELETE /api/channels/custom/:namespace — clear custom channels for a specific namespace
+async fn clear_custom_channels_ns(
     State(state): State<AppState>,
     axum::extract::Path(namespace): axum::extract::Path<String>,
 ) -> StatusCode {
-    let mut cm = state.custom_metrics.write().unwrap();
+    let mut cm = state.custom_channels.write().unwrap();
     cm.sticky.remove(&namespace);
     cm.by_tick.retain(|_, v| {
         v.remove(&namespace);
@@ -713,8 +749,8 @@ async fn unified_stream(
             .data(initial_annotations_json)),
     ]);
 
-    // Telemetry frames (with optional metric mask filtering and rate limiting)
-    let metric_mask = query.metric_mask.map(|f| MetricMask::parse(&f));
+    // Telemetry frames (with optional channel mask filtering and rate limiting)
+    let channel_mask = query.channel_mask.map(|f| ChannelMask::parse(&f));
     let min_interval = rate_to_interval(query.rate);
     let use_msgpack = query
         .format
@@ -728,14 +764,14 @@ async fn unified_stream(
     let last_sent_json: std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
     let delta_frame_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let custom_metrics = state.custom_metrics.clone();
+    let custom_channels = state.custom_channels.clone();
     let telemetry = BroadcastStream::new(telemetry_rx).filter_map(move |result| {
-        let mask = metric_mask.clone();
+        let mask = channel_mask.clone();
         let last = last_emit.clone();
         let throttle = throttle_state.clone();
         let last_json = last_sent_json.clone();
         let frame_counter = delta_frame_count.clone();
-        let cm = custom_metrics.clone();
+        let cm = custom_channels.clone();
         async move {
             match result {
                 Ok(frame) => {
@@ -897,7 +933,7 @@ async fn status_stream(
 
 #[derive(Deserialize)]
 struct StreamQuery {
-    metric_mask: Option<String>,
+    channel_mask: Option<String>,
     /// Frames per second (0.0–60.0). Defaults to 60.
     rate: Option<f64>,
     /// Wire format: "json" (default) or "msgpack" (base64-encoded MessagePack)
@@ -912,7 +948,7 @@ async fn telemetry_stream(
     Query(query): Query<StreamQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.subscribe();
-    let metric_mask = query.metric_mask.map(|f| MetricMask::parse(&f));
+    let channel_mask = query.channel_mask.map(|f| ChannelMask::parse(&f));
     let min_interval = rate_to_interval(query.rate);
     let use_msgpack = query
         .format
@@ -926,14 +962,14 @@ async fn telemetry_stream(
     let last_sent_json: std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
     let delta_frame_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let custom_metrics = state.custom_metrics.clone();
+    let custom_channels = state.custom_channels.clone();
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
-        let mask = metric_mask.clone();
+        let mask = channel_mask.clone();
         let last = last_emit.clone();
         let throttle = throttle_state.clone();
         let last_json = last_sent_json.clone();
         let frame_counter = delta_frame_count.clone();
-        let cm = custom_metrics.clone();
+        let cm = custom_channels.clone();
         async move {
             match result {
                 Ok(frame) => {
@@ -987,9 +1023,9 @@ async fn telemetry_stream(
 /// Serialize a frame to base64-encoded MessagePack for SSE transport.
 fn serialize_frame_msgpack(
     frame: &TelemetryFrame,
-    mask: Option<&MetricMask>,
+    mask: Option<&ChannelMask>,
 ) -> Option<Result<Event, Infallible>> {
-    // If there's a metric mask, filter through JSON first then serialize the filtered value
+    // If there's a channel mask, filter through JSON first then serialize the filtered value
     let bytes = if let Some(mask) = mask {
         let json_str = frame.to_json_filtered(Some(mask)).ok()?;
         let val: serde_json::Value = serde_json::from_str(&json_str).ok()?;
@@ -1196,7 +1232,7 @@ async fn replay_trackmap(
 struct ReplayFramesQuery {
     start: usize,
     count: usize,
-    metric_mask: Option<String>,
+    channel_mask: Option<String>,
     /// Replay ID for cache-busting; when present, response is immutable-cached
     rid: Option<String>,
 }
@@ -1217,10 +1253,10 @@ async fn replay_frames(
                 )
             })?;
 
-        let metric_mask = params.metric_mask.map(|f| MetricMask::parse(&f));
-        let cm = state.custom_metrics.read().unwrap();
+        let channel_mask = params.channel_mask.map(|f| ChannelMask::parse(&f));
+        let cm = state.custom_channels.read().unwrap();
         let cm_ref = if cm.is_empty() { None } else { Some(&*cm) };
-        let json_frames = serialize_frames(frames.into_iter(), &metric_mask, cm_ref);
+        let json_frames = serialize_frames(frames.into_iter(), &channel_mask, cm_ref);
 
         // When a replay_id is in the URL, the response is content-addressed and immutable
         let cache_header = if params.rid.is_some() {
@@ -1239,12 +1275,12 @@ async fn replay_frames(
         let history = state.history.read().await;
         let frames = history.get_frames_range(params.start, params.count);
 
-        let metric_mask = params.metric_mask.map(|f| MetricMask::parse(&f));
-        let cm = state.custom_metrics.read().unwrap();
+        let channel_mask = params.channel_mask.map(|f| ChannelMask::parse(&f));
+        let cm = state.custom_channels.read().unwrap();
         let cm_ref = if cm.is_empty() { None } else { Some(&*cm) };
         let json_frames = serialize_frames(
             frames.into_iter().map(|(i, f)| (i, f.clone())),
-            &metric_mask,
+            &channel_mask,
             cm_ref,
         );
 
@@ -1255,20 +1291,20 @@ async fn replay_frames(
     }
 }
 
-/// Serialize frames with optional metric mask filtering, shared by replay and history.
+/// Serialize frames with optional channel mask filtering, shared by replay and history.
 fn serialize_frames(
     frames: impl Iterator<Item = (usize, TelemetryFrame)>,
-    metric_mask: &Option<MetricMask>,
-    custom_metrics: Option<&crate::state::CustomMetrics>,
+    channel_mask: &Option<ChannelMask>,
+    custom_channels: Option<&crate::state::CustomChannels>,
 ) -> Vec<serde_json::Value> {
     frames
         .map(|(idx, frame)| {
             let tick = frame.meta.tick;
             let mut f_val = frame
-                .to_json_value_filtered(metric_mask.as_ref())
+                .to_json_value_filtered(channel_mask.as_ref())
                 .unwrap_or(serde_json::Value::Null);
             round_json_floats(&mut f_val);
-            if let Some(cm) = custom_metrics {
+            if let Some(cm) = custom_channels {
                 if !cm.is_empty() {
                     cm.merge_into(&mut f_val, tick);
                 }
@@ -1391,8 +1427,8 @@ async fn history_config(
 struct AggregateQuery {
     /// Duration to aggregate over, e.g. "60s", "5m", "1h". Defaults to 60s.
     duration: Option<String>,
-    /// Comma-separated metric paths, e.g. "vehicle.speed,engine.rpm"
-    metrics: String,
+    /// Comma-separated channel paths, e.g. "vehicle.speed,engine.rpm"
+    channels: String,
 }
 
 /// Parse a human-readable duration string into seconds.
@@ -1412,7 +1448,7 @@ fn parse_duration_str(s: &str) -> f64 {
 
 /// Extract a numeric value from a TelemetryFrame by dot-separated path.
 /// e.g. "vehicle.speed" → frame.vehicle.speed, "engine.rpm" → frame.engine.rpm
-fn extract_metric_value(frame: &TelemetryFrame, path: &str) -> Option<f64> {
+fn extract_channel_value(frame: &TelemetryFrame, path: &str) -> Option<f64> {
     let json = serde_json::to_value(frame).ok()?;
     let mut current = &json;
     for part in path.split('.') {
@@ -1429,13 +1465,13 @@ async fn history_aggregate(
     let history = state.history.read().await;
     let frames = history.get_frames_since_secs(duration_secs);
 
-    let metrics: Vec<&str> = params.metrics.split(',').map(|s| s.trim()).collect();
+    let channels: Vec<&str> = params.channels.split(',').map(|s| s.trim()).collect();
     let mut result = serde_json::Map::new();
 
-    for metric_path in &metrics {
+    for channel_path in &channels {
         let values: Vec<f64> = frames
             .iter()
-            .filter_map(|f| extract_metric_value(f, metric_path))
+            .filter_map(|f| extract_channel_value(f, channel_path))
             .collect();
 
         if values.is_empty() {
@@ -1451,7 +1487,7 @@ async fn history_aggregate(
         let stddev = variance.sqrt();
 
         result.insert(
-            metric_path.to_string(),
+            channel_path.to_string(),
             serde_json::json!({
                 "min": (min * 100_000.0).round() / 100_000.0,
                 "max": (max * 100_000.0).round() / 100_000.0,
@@ -2474,7 +2510,7 @@ async fn serve_session_page(
     Ok((
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-        web_ui::get_ui_html().to_string(),
+        web_ui::get_ui_html_with_key(&state.api_key.read().unwrap()),
     ))
 }
 
@@ -2503,4 +2539,15 @@ async fn api_docs() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
         include_str!("api_docs.html"),
     )
+}
+
+/// Regenerate the API key and return the new one.
+async fn reset_api_key(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let new_key = crate::api_key::regenerate();
+    *state.api_key.write().unwrap() = new_key.clone();
+    Json(serde_json::json!({
+        "status": "ok",
+        "key": new_key,
+        "message": "New API key generated. Reload the page to use it."
+    }))
 }

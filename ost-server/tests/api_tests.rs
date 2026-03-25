@@ -15,17 +15,35 @@ use std::path::Path;
 use std::sync::Arc;
 use tower::ServiceExt;
 
+const TEST_API_KEY: &str = "test-api-key-12345";
+
+fn test_state() -> AppState {
+    let state = AppState::new();
+    *state.api_key.write().unwrap() = TEST_API_KEY.to_string();
+    state
+}
+
 /// Helper: build a router with fresh AppState (no adapters registered)
 fn app() -> axum::Router {
-    let state = AppState::new();
-    create_router(state)
+    create_router(test_state())
 }
 
 /// Helper: build a router with AppState returned for further manipulation
 fn app_with_state() -> (axum::Router, AppState) {
-    let state = AppState::new();
+    let state = test_state();
     let router = create_router(state.clone());
     (router, state)
+}
+
+/// Helper: build a request builder with API key pre-set
+fn authed_request() -> axum::http::request::Builder {
+    Request::builder().header("Authorization", format!("Bearer {TEST_API_KEY}"))
+}
+
+/// Append ?key= to a URI for requests that need a different Authorization header (e.g. admin Basic auth)
+fn uri_with_key(path: &str) -> String {
+    let sep = if path.contains('?') { '&' } else { '?' };
+    format!("{path}{sep}key={TEST_API_KEY}")
 }
 
 /// Helper: collect response body into bytes
@@ -46,7 +64,7 @@ async fn test_get_root_returns_200_with_html() {
     let app = app();
 
     let response = app
-        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .oneshot(authed_request().uri("/").body(Body::empty()).unwrap())
         .await
         .unwrap();
 
@@ -79,7 +97,7 @@ async fn test_api_docs_returns_html() {
     let app = app();
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/docs")
                 .body(Body::empty())
                 .unwrap(),
@@ -107,7 +125,7 @@ async fn test_get_adapters_returns_200_with_empty_array() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/adapters")
                 .body(Body::empty())
                 .unwrap(),
@@ -134,7 +152,7 @@ async fn test_get_adapters_with_demo_adapter_registered() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/adapters")
                 .body(Body::empty())
                 .unwrap(),
@@ -164,7 +182,7 @@ async fn test_get_sinks_returns_200_with_empty_array() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/sinks")
                 .body(Body::empty())
                 .unwrap(),
@@ -191,12 +209,12 @@ async fn test_create_sink_returns_201() {
         "host": "127.0.0.1",
         "port": 9200,
         "update_rate_hz": 60.0,
-        "metric_mask": null
+        "channel_mask": null
     });
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/sinks")
                 .header("content-type", "application/json")
@@ -226,12 +244,12 @@ async fn test_create_sink_generates_id_when_empty() {
         "host": "127.0.0.1",
         "port": 9200,
         "update_rate_hz": 30.0,
-        "metric_mask": null
+        "channel_mask": null
     });
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/sinks")
                 .header("content-type", "application/json")
@@ -268,14 +286,14 @@ async fn test_create_then_list_sinks() {
             host: "127.0.0.1".to_string(),
             port: 9200,
             update_rate_hz: Some(60.0),
-            metric_mask: None,
+            channel_mask: None,
         });
     }
 
     // Now list sinks
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/sinks")
                 .body(Body::empty())
                 .unwrap(),
@@ -307,13 +325,13 @@ async fn test_delete_sink_returns_204() {
             host: "127.0.0.1".to_string(),
             port: 9200,
             update_rate_hz: Some(60.0),
-            metric_mask: None,
+            channel_mask: None,
         });
     }
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("DELETE")
                 .uri("/api/sinks/to-delete")
                 .body(Body::empty())
@@ -339,7 +357,7 @@ async fn test_delete_nonexistent_sink_returns_404() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("DELETE")
                 .uri("/api/sinks/nonexistent")
                 .body(Body::empty())
@@ -373,7 +391,7 @@ async fn test_telemetry_stream_returns_sse_content_type() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/telemetry/stream")
                 .body(Body::empty())
                 .unwrap(),
@@ -413,7 +431,7 @@ async fn test_telemetry_stream_receives_broadcast_frame() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/telemetry/stream")
                 .body(Body::empty())
                 .unwrap(),
@@ -463,7 +481,7 @@ async fn test_telemetry_stream_receives_broadcast_frame() {
 }
 
 #[tokio::test]
-async fn test_telemetry_stream_with_metric_filter() {
+async fn test_telemetry_stream_with_channel_filter() {
     let (app, state) = app_with_state();
 
     let tx = state.telemetry_tx.clone();
@@ -477,8 +495,8 @@ async fn test_telemetry_stream_with_metric_filter() {
 
     let response = app
         .oneshot(
-            Request::builder()
-                .uri("/api/telemetry/stream?metric_mask=vehicle,timing")
+            authed_request()
+                .uri("/api/telemetry/stream?channel_mask=vehicle,timing")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -495,7 +513,7 @@ async fn test_telemetry_stream_with_metric_filter() {
         .unwrap();
     assert!(
         content_type.contains("text/event-stream"),
-        "Should still return SSE content type with metric filter"
+        "Should still return SSE content type with channel filter"
     );
 
     // Read the body with a timeout
@@ -562,7 +580,7 @@ async fn test_telemetry_stream_delta_first_frame_is_full() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/telemetry/stream")
                 .body(Body::empty())
                 .unwrap(),
@@ -614,7 +632,7 @@ async fn test_telemetry_stream_delta_false_no_marker() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/telemetry/stream?delta=false")
                 .body(Body::empty())
                 .unwrap(),
@@ -740,7 +758,7 @@ async fn test_convert_ibt_returns_zstd_stream() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/convert/ibt")
                 .header(
@@ -812,7 +830,7 @@ async fn test_convert_ibt_rejects_non_ibt() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/convert/ibt")
                 .header(
@@ -842,7 +860,7 @@ async fn test_replay_upload_parses_ibt_and_returns_info() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/replay/upload")
                 .header(
@@ -886,7 +904,7 @@ async fn test_replay_upload_rejects_non_ibt() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/replay/upload")
                 .header(
@@ -921,7 +939,7 @@ async fn test_persistence_download_round_trip() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/persistence/download")
                 .body(Body::empty())
                 .unwrap(),
@@ -962,7 +980,7 @@ async fn test_persistence_download_empty_returns_404() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/persistence/download")
                 .body(Body::empty())
                 .unwrap(),
@@ -985,7 +1003,7 @@ async fn test_delete_persistence_file_nonexistent_returns_404() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("DELETE")
                 .uri("/api/persistence/files/nonexistent.ost.ndjson.zstd")
                 .body(Body::empty())
@@ -1003,7 +1021,7 @@ async fn test_delete_persistence_file_rejects_traversal() {
 
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("DELETE")
                 .uri("/api/persistence/files/..%2F..%2Fetc%2Fpasswd")
                 .body(Body::empty())
@@ -1123,8 +1141,8 @@ async fn test_history_aggregate_returns_stats() {
 
     let response = app
         .oneshot(
-            Request::builder()
-                .uri("/api/history/aggregate?duration=60s&metrics=vehicle.speed,vehicle.rpm")
+            authed_request()
+                .uri("/api/history/aggregate?duration=60s&channels=vehicle.speed,vehicle.rpm")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1160,8 +1178,8 @@ async fn test_history_aggregate_empty_buffer() {
 
     let response = app
         .oneshot(
-            Request::builder()
-                .uri("/api/history/aggregate?duration=60s&metrics=vehicle.speed")
+            authed_request()
+                .uri("/api/history/aggregate?duration=60s&channels=vehicle.speed")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1177,7 +1195,7 @@ async fn test_history_aggregate_empty_buffer() {
 }
 
 #[tokio::test]
-async fn test_history_aggregate_unknown_metric() {
+async fn test_history_aggregate_unknown_channel() {
     let (app, state) = app_with_state();
 
     // Push a frame
@@ -1196,8 +1214,8 @@ async fn test_history_aggregate_unknown_metric() {
 
     let response = app
         .oneshot(
-            Request::builder()
-                .uri("/api/history/aggregate?duration=60s&metrics=nonexistent.metric")
+            authed_request()
+                .uri("/api/history/aggregate?duration=60s&channels=nonexistent.channel")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1208,26 +1226,26 @@ async fn test_history_aggregate_unknown_metric() {
 
     let body = body_string(response.into_body()).await;
     let json: serde_json::Value = serde_json::from_str(&body).unwrap();
-    // Nonexistent metric should be omitted
+    // Nonexistent channel should be omitted
     assert!(json.as_object().unwrap().is_empty());
 }
 
-// ==================== Custom Metrics API ====================
+// ==================== Custom Channels API ====================
 
 #[tokio::test]
-async fn test_submit_and_list_custom_metrics() {
+async fn test_submit_and_list_custom_channels() {
     let (app, _state) = app_with_state();
 
-    // Submit sticky metrics
+    // Submit sticky channels
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
-                .uri("/api/metrics")
+                .uri("/api/channels")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"namespace":"analysis","metrics":{"score":0.85,"label":"good"}}"#,
+                    r#"{"namespace":"analysis","channels":{"score":0.85,"label":"good"}}"#,
                 ))
                 .unwrap(),
         )
@@ -1240,12 +1258,12 @@ async fn test_submit_and_list_custom_metrics() {
     assert_eq!(body["namespace"], "analysis");
     assert!(body["tick"].is_null());
 
-    // List custom metrics
+    // List custom channels
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
-                .uri("/api/metrics/custom")
+            authed_request()
+                .uri("/api/channels/custom")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1258,19 +1276,19 @@ async fn test_submit_and_list_custom_metrics() {
 }
 
 #[tokio::test]
-async fn test_submit_tick_specific_metrics() {
+async fn test_submit_tick_specific_channels() {
     let (app, _state) = app_with_state();
 
-    // Submit tick-specific metric
+    // Submit tick-specific channel
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
-                .uri("/api/metrics")
+                .uri("/api/channels")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"namespace":"brake","metrics":{"efficiency":0.92},"tick":12345}"#,
+                    r#"{"namespace":"brake","channels":{"efficiency":0.92},"tick":12345}"#,
                 ))
                 .unwrap(),
         )
@@ -1285,8 +1303,8 @@ async fn test_submit_tick_specific_metrics() {
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
-                .uri("/api/metrics/custom")
+            authed_request()
+                .uri("/api/channels/custom")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1298,12 +1316,12 @@ async fn test_submit_tick_specific_metrics() {
 }
 
 #[tokio::test]
-async fn test_clear_custom_metrics_by_namespace() {
+async fn test_clear_custom_channels_by_namespace() {
     let (app, state) = app_with_state();
 
     // Pre-populate
     {
-        let mut cm = state.custom_metrics.write().unwrap();
+        let mut cm = state.custom_channels.write().unwrap();
         cm.sticky
             .insert("ns1".to_string(), serde_json::json!({"a": 1}));
         cm.sticky
@@ -1314,9 +1332,9 @@ async fn test_clear_custom_metrics_by_namespace() {
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("DELETE")
-                .uri("/api/metrics/custom/ns1")
+                .uri("/api/channels/custom/ns1")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1328,8 +1346,8 @@ async fn test_clear_custom_metrics_by_namespace() {
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
-                .uri("/api/metrics/custom")
+            authed_request()
+                .uri("/api/channels/custom")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -1342,33 +1360,33 @@ async fn test_clear_custom_metrics_by_namespace() {
 }
 
 #[tokio::test]
-async fn test_submit_metrics_rejects_invalid_body() {
+async fn test_submit_channels_rejects_invalid_body() {
     let app = app();
 
     // Empty namespace
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
-                .uri("/api/metrics")
+                .uri("/api/channels")
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"namespace":"","metrics":{"a":1}}"#))
+                .body(Body::from(r#"{"namespace":"","channels":{"a":1}}"#))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), 400);
 
-    // metrics not an object
+    // channels not an object
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
-                .uri("/api/metrics")
+                .uri("/api/channels")
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"namespace":"x","metrics":42}"#))
+                .body(Body::from(r#"{"namespace":"x","channels":42}"#))
                 .unwrap(),
         )
         .await
@@ -1386,7 +1404,7 @@ async fn test_create_and_list_annotations() {
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/annotations")
                 .header("content-type", "application/json")
@@ -1408,7 +1426,7 @@ async fn test_create_and_list_annotations() {
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/annotations")
                 .body(Body::empty())
                 .unwrap(),
@@ -1446,7 +1464,7 @@ async fn test_delete_annotation() {
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("DELETE")
                 .uri("/api/annotations/test-1")
                 .body(Body::empty())
@@ -1460,7 +1478,7 @@ async fn test_delete_annotation() {
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/annotations")
                 .body(Body::empty())
                 .unwrap(),
@@ -1477,7 +1495,7 @@ async fn test_delete_nonexistent_annotation_returns_404() {
     let app = app();
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("DELETE")
                 .uri("/api/annotations/nonexistent")
                 .body(Body::empty())
@@ -1500,7 +1518,7 @@ fn serve_app() -> (axum::Router, AppState, std::path::PathBuf) {
             .as_nanos()
     ));
     let store = SessionStore::new(dir.clone(), 10 * 1024 * 1024 * 1024).unwrap();
-    let mut state = AppState::new();
+    let mut state = test_state();
     state.serve_mode = true;
     state.session_store = Some(Arc::new(store));
     state.admin_user = Some("admin".to_string());
@@ -1514,7 +1532,7 @@ async fn test_session_endpoints_return_400_when_not_serve_mode() {
     let app = app();
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/sessions")
                 .body(Body::empty())
                 .unwrap(),
@@ -1530,7 +1548,7 @@ async fn test_session_list_empty_in_serve_mode() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/sessions")
+                .uri(uri_with_key("/api/sessions"))
                 .header(
                     "Authorization",
                     format!("Basic {}", base64_encode("admin:secret")),
@@ -1553,7 +1571,7 @@ async fn test_session_upload_rejects_non_ibt() {
     let (boundary, body) = multipart_body("data.csv", b"not an ibt file");
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/sessions/upload")
                 .header(
@@ -1573,7 +1591,7 @@ async fn test_session_upload_rejects_non_ibt() {
 async fn test_landing_page_in_serve_mode() {
     let (app, _state, dir) = serve_app();
     let response = app
-        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .oneshot(authed_request().uri("/").body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(response.status(), 200);
@@ -1590,7 +1608,7 @@ async fn test_session_list_requires_admin_auth() {
     let response = app
         .clone()
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/sessions")
                 .body(Body::empty())
                 .unwrap(),
@@ -1603,7 +1621,7 @@ async fn test_session_list_requires_admin_auth() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/api/sessions")
+                .uri(uri_with_key("/api/sessions"))
                 .header(
                     "Authorization",
                     format!("Basic {}", base64_encode("admin:secret")),
@@ -1624,7 +1642,7 @@ async fn test_session_delete_nonexistent_returns_404() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/api/sessions/nonexistent")
+                .uri(uri_with_key("/api/sessions/nonexistent"))
                 .header(
                     "Authorization",
                     format!("Basic {}", base64_encode("admin:secret")),
@@ -1644,7 +1662,7 @@ async fn test_session_view_requires_token() {
     // Access session page without token → 404 (session doesn't exist)
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/s/nonexistent?token=bad")
                 .body(Body::empty())
                 .unwrap(),
@@ -1660,7 +1678,7 @@ async fn test_session_stats() {
     let (app, _state, dir) = serve_app();
     let response = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/sessions/stats")
                 .body(Body::empty())
                 .unwrap(),
@@ -1688,7 +1706,7 @@ async fn upload_session_fixture(app: axum::Router) -> serde_json::Value {
     let (boundary, body) = multipart_body("race.ibt", &ibt_data);
     let resp = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/sessions/upload")
                 .header(
@@ -1709,7 +1727,7 @@ async fn list_sessions_admin(app: axum::Router) -> Vec<serde_json::Value> {
     let resp = app
         .oneshot(
             Request::builder()
-                .uri("/api/sessions")
+                .uri(uri_with_key("/api/sessions"))
                 .header(
                     "Authorization",
                     format!("Basic {}", base64_encode("admin:secret")),
@@ -1780,7 +1798,7 @@ async fn test_session_upload_multiple_all_listed() {
         let resp = app
             .clone()
             .oneshot(
-                Request::builder()
+                authed_request()
                     .method("POST")
                     .uri("/api/sessions/upload")
                     .header(
@@ -1816,7 +1834,7 @@ async fn test_session_delete_removes_from_list() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(format!("/api/sessions/{session_id}"))
+                .uri(uri_with_key(&format!("/api/sessions/{session_id}")))
                 .header(
                     "Authorization",
                     format!("Basic {}", base64_encode("admin:secret")),
@@ -1847,7 +1865,7 @@ async fn test_session_load_with_valid_token() {
 
     let load_resp = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri(format!("/api/sessions/{session_id}/load?token={token}"))
                 .body(Body::empty())
@@ -1876,7 +1894,7 @@ async fn test_session_load_with_invalid_token() {
 
     let load_resp = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri(format!("/api/sessions/{session_id}/load?token=wrongtoken"))
                 .body(Body::empty())
@@ -1894,7 +1912,7 @@ async fn test_session_load_nonexistent_returns_404() {
     let (app, _state, dir) = serve_app();
     let load_resp = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .method("POST")
                 .uri("/api/sessions/doesnotexist/load?token=anything")
                 .body(Body::empty())
@@ -1916,7 +1934,7 @@ async fn test_session_stats_after_upload() {
 
     let stats_resp = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri("/api/sessions/stats")
                 .body(Body::empty())
                 .unwrap(),
@@ -1974,7 +1992,7 @@ async fn test_session_view_page_with_valid_token() {
     let url = info["url"].as_str().unwrap().to_string();
 
     let page_resp = app
-        .oneshot(Request::builder().uri(&url).body(Body::empty()).unwrap())
+        .oneshot(authed_request().uri(&url).body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_eq!(page_resp.status(), 200);
@@ -1995,7 +2013,7 @@ async fn test_session_view_page_with_wrong_token() {
 
     let page_resp = app
         .oneshot(
-            Request::builder()
+            authed_request()
                 .uri(format!("/s/{session_id}?token=wrongtoken"))
                 .body(Body::empty())
                 .unwrap(),

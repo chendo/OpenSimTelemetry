@@ -11,13 +11,13 @@ All notable changes to OpenSimTelemetry are documented in this file.
 - **Web dashboard** with real-time telemetry visualization via SSE streaming
 - **.ibt file replay** with full playback controls (play, pause, scrub, loop markers, lap navigation)
 - **Saved replay browser** with NDJSON+ZSTD persistence for loading previous sessions
-- **Graph widgets** with multi-Y-axis support, arbitrary metric plotting, crosshair tooltips synced across graphs, click-to-seek, horizontal scroll-to-seek, and graph presets management
+- **Graph widgets** with multi-Y-axis support, arbitrary channel plotting, crosshair tooltips synced across graphs, click-to-seek, horizontal scroll-to-seek, and graph presets management
 - **Vehicle widget** with steering wheel visualization, vertical pedal bars, and max G-force tracking with canvas markers
 - **Wheels widget** with tire temps, shock velocity, load-colored tire rectangles, per-tread wear zones, and data availability warnings
-- **All Metrics widget** with unit display, wildcard/regex filtering, update frequency control, and create-graph integration
-- **Computed metrics** allowing user-defined JS expressions compiled via `new Function()`
-- **Boolean and text/enum metric graphing** displayed as colored bars
-- **Metric picker** with checkboxes, search aliases, left-aligned labels, and enabled metrics sorted to top
+- **All Channels widget** with unit display, wildcard/regex filtering, update frequency control, and create-graph integration
+- **Computed channels** allowing user-defined JS expressions compiled via `new Function()`
+- **Boolean and text/enum channel graphing** displayed as colored bars
+- **Channel picker** with checkboxes, search aliases, left-aligned labels, and enabled channels sorted to top
 - **Graph legend** with click-to-toggle visibility, hover-to-dim other series, and dot-to-X on hover
 - **Remote streaming** via header URL input with status feedback and auto-connect
 - **API documentation widget** with endpoint reference and examples
@@ -25,7 +25,7 @@ All notable changes to OpenSimTelemetry are documented in this file.
 - **GridStack.js layout** for drag-and-drop widget arrangement
 - **Graph presets** with naming, suggestions, and management via settings modal
 - **Lap navigation** and lap time computation from SessionTime deltas
-- **Semantic colour scheme** for metrics: throttle=green, brake=red, clutch=blue, ABS=reddish; axis convention X=red, Y=green, Z=blue; motion categories differentiated by brightness/hue shift (g-force bright, rotation warm-shifted, rates lighter)
+- **Semantic colour scheme for channels: throttle=green, brake=red, clutch=blue, ABS=reddish; axis convention X=red, Y=green, Z=blue; motion categories differentiated by brightness/hue shift (g-force bright, rotation warm-shifted, rates lighter)
 
 ### API & Data
 
@@ -35,7 +35,7 @@ All notable changes to OpenSimTelemetry are documented in this file.
 - **Server-side history buffer** with seek-back and configuration UI
 - **Telemetry persistence** with NDJSON+ZSTD compression
 - **UDP sink** with configurable update rate (HTTP and file sinks removed)
-- **Metric mask** for filtering telemetry fields in API responses
+- **Channel mask** for filtering telemetry fields in API responses
 - **Chunked replay fetching** with pread optimization, abort support, and caching
 - **IBT conversion endpoint** (`POST /api/convert/ibt`) — upload .ibt file and stream back ZSTD-compressed NDJSON without buffering entire output in memory
 
@@ -62,9 +62,9 @@ All notable changes to OpenSimTelemetry are documented in this file.
 - Settings converted to modal dialog
 - Improved header button visibility
 - Graph time window scales horizontal scroll speed proportionally
-- En-dash used for range representation in metrics pane
-- Default graph metrics include clutch, ABS active, and steering angle
-- Metric labels improved with full paths in picker
+- En-dash used for range representation in channels pane
+- Default graph channels include clutch, ABS active, and steering angle
+- Channel labels improved with full paths in picker
 
 ### Bug Fixes
 
@@ -76,11 +76,11 @@ All notable changes to OpenSimTelemetry are documented in this file.
 - Fixed duplicate frame fetch requests during playback and scrubbing
 - Fixed chunk cache discarding non-adjacent prefetch data
 - Fixed missing session/weather/wheels data in replay mode
-- Fixed metric picker silently failing when no frame data or on render error
-- Fixed metric picker and preset menu clipped by `overflow:hidden`
+- Fixed channel picker silently failing when no frame data or on render error
+- Fixed channel picker and preset menu clipped by `overflow:hidden`
 - Fixed extras field mask case sensitivity
 - Fixed iRacing extras data grouped under "Extras" section; now appears under its own adapter-named section (e.g. "Iracing")
-- Fixed default graph metrics using wrong units for steering and angular velocity
+- Fixed default graph channels using wrong units for steering and angular velocity
 - Fixed crosshair on paused replay
 - Fixed live telemetry throughput calculation
 - Fixed iRacing wheel data extraction on Windows

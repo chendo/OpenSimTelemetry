@@ -18,8 +18,8 @@ On Windows with iRacing running, telemetry is detected and streamed automaticall
 
 ### Web Dashboard
 - Configurable grid of widgets: vehicle data, G-force visualisation, wheels, lap timing, session info
-- Graph widgets with preset and custom metrics, time windowing, crosshair tooltips
-- Custom metric plotting from any field including game-specific extras (boolean and numeric)
+- Graph widgets with preset and custom channels, time windowing, crosshair tooltips
+- Custom channel plotting from any field including game-specific extras (boolean and numeric)
 - Drag-and-drop layout with persistent save/restore
 
 ### Replay System
@@ -32,9 +32,9 @@ On Windows with iRacing running, telemetry is detected and streamed automaticall
 
 ### Streaming & Output
 - SSE endpoint (`/api/stream`) for real-time telemetry frames
-- Metric filtering to reduce bandwidth (request only the sections you need)
+- Channel filtering to reduce bandwidth (request only the sections you need)
 - Output sinks: HTTP POST, UDP, or file (NDJSON) forwarding
-- Per-sink metric masks for efficient data routing
+- Per-sink channel masks for efficient data routing
 
 ### Adapters
 - **iRacing** (Windows) — shared memory adapter with full telemetry + all unmapped vars forwarded as extras
@@ -61,7 +61,7 @@ On Windows with iRacing running, telemetry is detected and streamed automaticall
 curl http://localhost:9100/api/telemetry/stream
 
 # Filtered to specific sections
-curl "http://localhost:9100/api/telemetry/stream?metric_mask=vehicle,timing"
+curl "http://localhost:9100/api/telemetry/stream?channel_mask=vehicle,timing"
 ```
 
 ### Output Sinks
@@ -73,7 +73,7 @@ curl -X POST http://localhost:9100/api/sinks \
   -d '{
     "id": "motion-platform",
     "sink_type": {"type": "udp", "host": "192.168.1.100", "port": 9200},
-    "metric_mask": "motion,vehicle"
+    "channel_mask": "motion,vehicle"
   }'
 
 # File logger (NDJSON)

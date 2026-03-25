@@ -23,7 +23,7 @@ let _wakeupRender = null; // assigned by renderLoop setup in app.js
 function requestRedraw() { _uiDirty = true; _wakeupRender?.(); }
 let streamPaused = false;
 
-/* ==================== Semantic Metric Colours ==================== */
+/* ==================== Semantic Channel Colours ==================== */
 // Colour scheme conventions:
 //   Driver inputs: Throttle=green, Brake=red, Clutch=blue, ABS=reddish
 //   Axes: X=red, Y=green, Z=blue
@@ -34,7 +34,7 @@ let streamPaused = false;
 //     Velocity:     pastel        (pastel red, pastel green, pastel blue)
 //     Acceleration: dark primary  (dk red, dk green, dk blue)
 //     Position:     light primary (lt red, lt green, lt blue)
-const METRIC_COLORS = {
+const CHANNEL_COLORS = {
     // Driver inputs
     'vehicle.throttle':           '#22c55e',  // Green
     'vehicle.brake':              '#ef4444',  // Red
@@ -72,12 +72,12 @@ const METRIC_COLORS = {
     'motion.position.z':          '#60a5fa',  // Lt blue (Z)
 };
 
-function getMetricColor(path) {
-    return METRIC_COLORS[path] || nextCustomColor();
+function getChannelColor(path) {
+    return CHANNEL_COLORS[path] || nextCustomColor();
 }
 
-/* ==================== Graph Metrics Registry ==================== */
-const GRAPH_METRICS = {
+/* ==================== Graph Channels Registry ==================== */
+const GRAPH_CHANNELS = {
     speed:       { label: 'Speed',      color: '#38bdf8', unit: 'm/s',   norm: 'autoscale', extract: f => f.vehicle?.speed ?? 0 },
     rpm:         { label: 'RPM',        color: '#a855f6', unit: 'rpm',   norm: 'autoscale', extract: f => f.vehicle?.rpm ?? 0 },
     throttle:    { label: 'Throttle',   color: '#22c55e', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.throttle ?? 0 },
@@ -92,24 +92,24 @@ const GRAPH_METRICS = {
     yaw_rate:    { label: 'Yaw Rate',   color: '#a3e635', unit: '\u00B0/s',  norm: 'centered',  extract: f => f.motion?.yaw_rate ?? 0 },
     roll:        { label: 'Roll',       color: '#06b6d4', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.roll ?? 0 },
 };
-const GRAPH_METRIC_KEYS = Object.keys(GRAPH_METRICS);
+const GRAPH_CHANNEL_KEYS = Object.keys(GRAPH_CHANNELS);
 
 /* ==================== Graph Presets ==================== */
 const GRAPH_PRESETS = [
-    { name: 'Pedals & Speed', metrics: ['vehicle.speed', 'vehicle.throttle', 'vehicle.brake', 'vehicle.clutch', 'vehicle.steering_angle'] },
-    { name: 'G-Forces', metrics: ['motion.g_force.x', 'motion.g_force.z', 'motion.g_force.y'] },
-    { name: 'Wheel Suspension', metrics: ['wheels.*.suspension_travel', 'wheels.*.shock_velocity', 'wheels.*.ride_height'] },
-    { name: 'Tire Temps', metrics: ['wheels.*.surface_temp_*'] },
-    { name: 'Tire Wear', metrics: ['wheels.*.tyre_wear'] },
-    { name: 'Tire Pressure', metrics: ['wheels.*.tyre_pressure', 'wheels.*.tyre_cold_pressure'] },
-    { name: 'Brake Temps', metrics: ['wheels.*.brake_temp'] },
-    { name: 'Engine', metrics: ['vehicle.rpm', 'wheels.*.wheel_speed'] },
+    { name: 'Pedals & Speed', channels: ['vehicle.speed', 'vehicle.throttle', 'vehicle.brake', 'vehicle.clutch', 'vehicle.steering_angle'] },
+    { name: 'G-Forces', channels: ['motion.g_force.x', 'motion.g_force.z', 'motion.g_force.y'] },
+    { name: 'Wheel Suspension', channels: ['wheels.*.suspension_travel', 'wheels.*.shock_velocity', 'wheels.*.ride_height'] },
+    { name: 'Tire Temps', channels: ['wheels.*.surface_temp_*'] },
+    { name: 'Tire Wear', channels: ['wheels.*.tyre_wear'] },
+    { name: 'Tire Pressure', channels: ['wheels.*.tyre_pressure', 'wheels.*.tyre_cold_pressure'] },
+    { name: 'Brake Temps', channels: ['wheels.*.brake_temp'] },
+    { name: 'Engine', channels: ['vehicle.rpm', 'wheels.*.wheel_speed'] },
 ];
 
-/* ==================== Metric Unit Metadata ==================== */
-// Maps metric paths to { unit, norm } for arbitrary metric plotting.
-// Lookup: exact match first, then suffix match (*.metric_name).
-const METRIC_UNIT_MAP = {
+/* ==================== Channel Unit Metadata ==================== */
+// Maps channel paths to { unit, norm } for arbitrary channel plotting.
+// Lookup: exact match first, then suffix match (*.channel_name).
+const CHANNEL_UNIT_MAP = {
     // Exact paths with special handling
     'vehicle.speed':          { unit: 'm/s', norm: 'autoscale' },
     'vehicle.gear':           { unit: '',     norm: 'autoscale' },
@@ -216,20 +216,20 @@ const METRIC_UNIT_MAP = {
     '*.air_density':           { unit: 'kg/m\u00B3', norm: 'autoscale' },
 };
 
-const _metricUnitCache = new Map();
-function getMetricUnitInfo(path) {
-    let result = _metricUnitCache.get(path);
+const _channelUnitCache = new Map();
+function getChannelUnitInfo(path) {
+    let result = _channelUnitCache.get(path);
     if (result !== undefined) return result;
-    if (METRIC_UNIT_MAP[path]) { result = METRIC_UNIT_MAP[path]; }
+    if (CHANNEL_UNIT_MAP[path]) { result = CHANNEL_UNIT_MAP[path]; }
     else {
         result = { unit: '', norm: 'autoscale' };
         const parts = path.split('.');
         for (let i = 1; i < parts.length; i++) {
             const suffix = '*.' + parts.slice(i).join('.');
-            if (METRIC_UNIT_MAP[suffix]) { result = METRIC_UNIT_MAP[suffix]; break; }
+            if (CHANNEL_UNIT_MAP[suffix]) { result = CHANNEL_UNIT_MAP[suffix]; break; }
         }
     }
-    _metricUnitCache.set(path, result);
+    _channelUnitCache.set(path, result);
     return result;
 }
 
@@ -265,13 +265,13 @@ function applyUnitPref(baseUnit, value) {
     return { value, unit: baseUnit };
 }
 
-// Format a numeric metric value for display with unit conversion
-function formatMetricValue(path, value) {
+// Format a numeric channel value for display with unit conversion
+function formatChannelValue(path, value) {
     if (typeof value !== 'number') return { text: JSON.stringify(value), unit: '' };
-    const info = getMetricUnitInfo(path);
-    // Apply multiplier from METRIC_UNIT_MAP (legacy, if any remain)
+    const info = getChannelUnitInfo(path);
+    // Apply multiplier from CHANNEL_UNIT_MAP (legacy, if any remain)
     if (info.multiplier) value = value * info.multiplier;
-    // 0-1 → % for percentage metrics
+    // 0-1 → % for percentage channels
     if (info.unit === '%' && info.norm === 'pct') return { text: (value * 100).toFixed(1), unit: '%' };
     // Apply user unit preferences
     const converted = applyUnitPref(info.unit, value);
@@ -283,7 +283,7 @@ function formatMetricValue(path, value) {
     return { text, unit: displayUnit };
 }
 
-function resolveMetricPathParts(obj, parts) {
+function resolveChannelPathParts(obj, parts) {
     let cur = obj;
     for (let i = 0; i < parts.length; i++) {
         if (cur == null || typeof cur !== 'object') return null;
@@ -292,7 +292,7 @@ function resolveMetricPathParts(obj, parts) {
     return typeof cur === 'number' ? cur : null;
 }
 
-function resolveMetricPathRaw(obj, parts) {
+function resolveChannelPathRaw(obj, parts) {
     let cur = obj;
     for (let i = 0; i < parts.length; i++) {
         if (cur == null || typeof cur !== 'object') return undefined;
@@ -301,7 +301,7 @@ function resolveMetricPathRaw(obj, parts) {
     return cur;
 }
 
-// Hash a string to a deterministic HSL color for text/enum metric bars
+// Hash a string to a deterministic HSL color for text/enum channel bars
 function hashStringColor(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -375,9 +375,9 @@ const LABEL_ABBREVS = {
     delta_session_best: '\u0394 Sess Best', delta_optimal: '\u0394 Optimal',
 };
 
-/* ==================== Metric Aliases ==================== */
-// Alternative search terms for renamed/technical metric paths
-const METRIC_ALIASES = {
+/* ==================== Channel Aliases ==================== */
+// Alternative search terms for renamed/technical channel paths
+const CHANNEL_ALIASES = {
     'motion.pitch':      ['motion.rotation.x', 'rotation.x'],
     'motion.yaw':        ['motion.rotation.y', 'rotation.y'],
     'motion.roll':       ['motion.rotation.z', 'rotation.z'],
@@ -388,17 +388,17 @@ const METRIC_ALIASES = {
     'vehicle.tc_active':  ['electronics.tc_active'],
 };
 
-/* ==================== Metric Filter Matching ==================== */
+/* ==================== Channel Filter Matching ==================== */
 // Supports three modes:
 //   - /pattern/flags  → regex (case-insensitive by default)
 //   - contains *      → wildcard (* matches any non-dot chars within a path segment)
 //   - otherwise       → case-insensitive substring match
-// Also checks METRIC_ALIASES so renamed metrics are still discoverable.
-function matchMetricFilter(path, filter) {
+// Also checks CHANNEL_ALIASES so renamed channels are still discoverable.
+function matchChannelFilter(path, filter) {
     if (!filter) return true;
     if (_matchFilter(path, filter)) return true;
     // Check aliases for this path
-    const aliases = METRIC_ALIASES[path];
+    const aliases = CHANNEL_ALIASES[path];
     if (aliases) {
         for (const alias of aliases) {
             if (_matchFilter(alias, filter)) return true;

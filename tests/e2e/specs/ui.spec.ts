@@ -15,7 +15,7 @@ test.describe('UI: Header', () => {
     // Header buttons
     for (const id of [
       '#data-btn', '#menu-add-graph',
-      '#settings-btn', '#header-reset-layout', '#header-computed-metrics',
+      '#settings-btn', '#header-reset-layout', '#header-computed-channels',
     ]) {
       await expect(page.locator(id)).toBeVisible();
     }
@@ -67,7 +67,7 @@ test.describe('UI: Default Widgets', () => {
     await expect(page.locator('#ss-track')).toBeVisible();
     await expect(page.locator('#ss-car')).toBeVisible();
 
-    // Metrics widget
+    // Channels widget
     await expect(page.locator('[data-widget-id="allfields"]')).toBeVisible();
     await expect(page.locator('#af-filter')).toBeVisible();
     await expect(page.locator('#af-hide-nulls')).toBeVisible();
@@ -143,7 +143,7 @@ test.describe('UI: Settings Modal', () => {
   });
 });
 
-test.describe('UI: Metrics Widget', () => {
+test.describe('UI: Channels Widget', () => {
   test('filter toggles and rate dropdown', async ({ page }) => {
     await page.goto('/');
     await waitForPageReady(page);
@@ -167,7 +167,7 @@ test.describe('UI: Metrics Widget', () => {
 
     // Click 10 Hz option
     await page.evaluate(() =>
-      (document.querySelector('.metrics-rate-opt[data-hz="10"]') as HTMLElement).click(),
+      (document.querySelector('.channels-rate-opt[data-hz="10"]') as HTMLElement).click(),
     );
     await expect(page.locator('#af-rate-btn')).toHaveText('10 Hz');
     await expect(page.locator('#af-rate-menu')).not.toHaveClass(/open/);

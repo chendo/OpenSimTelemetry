@@ -8,4 +8,4 @@ pub mod model;
 pub mod units;
 
 pub use adapter::TelemetryAdapter;
-pub use model::{MetricMask, TelemetryFrame};
+pub use model::{ChannelMask, TelemetryFrame};

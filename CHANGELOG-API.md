@@ -4,6 +4,43 @@ Breaking changes and migration notes for consumers of the OpenSimTelemetry API (
 
 ## Unreleased
 
+### "Metrics" renamed to "Channels" (Breaking)
+
+All API endpoints, query parameters, and request/response fields using "metrics" have been renamed to "channels" to align with standard telemetry software terminology.
+
+**Endpoint renames:**
+
+| Before | After |
+|--------|-------|
+| `GET /api/metrics` | `GET /api/channels` |
+| `POST /api/metrics` | `POST /api/channels` |
+| `GET /api/metrics/custom` | `GET /api/channels/custom` |
+| `DELETE /api/metrics/custom` | `DELETE /api/channels/custom` |
+| `DELETE /api/metrics/custom/:namespace` | `DELETE /api/channels/custom/:namespace` |
+
+**Query parameter renames:**
+
+| Before | After | Affected endpoints |
+|--------|-------|--------------------|
+| `metric_mask` | `channel_mask` | `/api/stream`, `/api/telemetry/stream`, `/api/replay/frames` |
+| `metrics` | `channels` | `/api/history/aggregate` |
+
+**Request body field renames:**
+
+| Before | After | Endpoint |
+|--------|-------|----------|
+| `"metrics": {...}` | `"channels": {...}` | `POST /api/channels` |
+
+**Rust type renames** (for library consumers):
+
+| Before | After |
+|--------|-------|
+| `MetricMask` | `ChannelMask` |
+| `MetricMaskBuilder` | `ChannelMaskBuilder` |
+| `CustomMetrics` | `CustomChannels` |
+
+**UDP sink config:** The `metric_mask` field in sink configuration is now `channel_mask`.
+
 ### Namespace Refactor (Breaking)
 
 Three structural changes to the telemetry frame layout:
@@ -62,6 +99,30 @@ TelemetryFrame
   extras.*        — adapter-specific fields (flattened to top level in JSON)
 ```
 
+### API Key Authentication (New)
+
+All `/api/*` endpoints now require authentication. An API key is auto-generated on first boot and persisted to `~/.opensimtelemetry/api_key`.
+
+**Authentication methods** (any one is sufficient):
+- `Authorization: Bearer <key>` header
+- HTTP Basic auth: `ost:<key>` (username `ost`, password is the API key)
+- `?key=<key>` query parameter (for EventSource/SSE which can't set headers)
+
+**Override:** Set `OST_AUTH_TOKEN` env var to use a custom key instead of the auto-generated one.
+
+**UI pages** (`/`, `/s/:id`) are not gated — the API key is injected server-side into the HTML.
+
+**Settings UI:** The API key is shown in Settings with a Copy button and a Regenerate option.
+
+**Key management endpoint:**
+- `POST /api/key/reset` — regenerate the API key (returns the new key)
+
+### CORS Policy (Breaking)
+
+`CorsLayer::permissive()` has been replaced with a restrictive CORS policy:
+- **Default:** No CORS headers (same-origin only)
+- **With `OST_CORS_ORIGINS` env var:** Allows specified origins for API endpoints. Set to a comma-separated list of origins (e.g., `http://localhost:3000,https://myapp.com`)
+
 ### Heading Fix (Breaking)
 
 `motion.heading` was incorrectly negated, mirroring east↔west (e.g. NNE appeared as NNW). Now correctly outputs 0-360° compass bearing (0=N, 90=E, 180=S, 270=W) from iRacing's `YawNorth`.
@@ -84,9 +145,9 @@ The telemetry data model was completely redesigned for comprehensive iRacing cov
 
 | Before | After | Notes |
 |--------|-------|-------|
-| `FieldMask` | `MetricMask` | Rust type rename |
-| `field_mask` | `metric_mask` | JSON field and query parameter |
-| `?fields=` | `?metric_mask=` | Query parameter on all endpoints returning frames |
+| `FieldMask` | `MetricMask` → `ChannelMask` | Rust type rename |
+| `field_mask` | `metric_mask` → `channel_mask` | JSON field and query parameter |
+| `?fields=` | `?metric_mask=` → `?channel_mask=` | Query parameter on all endpoints returning frames |
 | `angular_velocity.x` | `pitch_rate` | Was a `Vector3`, now individual top-level fields |
 | `angular_velocity.y` | `yaw_rate` | |
 | `angular_velocity.z` | `roll_rate` | |
@@ -103,12 +164,12 @@ The telemetry data model was completely redesigned for comprehensive iRacing cov
 
 ### Promoted Fields (extras to standard model)
 
-Several iRacing-specific metrics were promoted from `extras.*` to the standard data model:
+Several iRacing-specific channels were promoted from `extras.*` to the standard data model:
 
 - `motion.position` — world-space position (x, y, z)
 - `wheels.*.tyre_wear_inner/middle/outer` — per-tread wear zones
 - `weather.track_surface_temp` — track surface temperature
-- Various engine metrics previously in extras
+- Various engine channels previously in extras
 
 If you were reading these from `extras.*`, update your paths to the standard model fields. The IBT parser now also forwards **all** unmapped iRacing variables to `extras`, so any iRacing var not in the standard model is accessible via `extras.<varName>`.
 
@@ -164,4 +225,4 @@ All float values in API responses are rounded to 5 decimal places to reduce payl
 
 ### Extras Field Matching
 
-The `metric_mask` filter for `extras.*` fields is now **case-insensitive**, fixing issues where iRacing variable names with mixed casing were not matched.
+The `channel_mask` filter for `extras.*` fields is now **case-insensitive**, fixing issues where iRacing variable names with mixed casing were not matched.

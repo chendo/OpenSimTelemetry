@@ -23,7 +23,7 @@ fn bench_frame_json_serialize(c: &mut Criterion) {
 
 fn bench_frame_json_filtered(c: &mut Criterion) {
     let frame = make_demo_frame();
-    let mask = ost_core::model::MetricMask::parse("vehicle,timing");
+    let mask = ost_core::model::ChannelMask::parse("vehicle,timing");
     c.bench_function("frame_to_json_filtered", |b| {
         b.iter(|| {
             let json = black_box(&frame).to_json_filtered(Some(&mask)).unwrap();

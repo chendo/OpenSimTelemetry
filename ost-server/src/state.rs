@@ -47,11 +47,11 @@ pub struct AppState {
     /// Persistence configuration for auto-saving telemetry to disk
     pub persistence_config: Arc<RwLock<PersistenceConfig>>,
 
-    /// Optional API authentication token (from OST_AUTH_TOKEN env var)
-    pub auth_token: Option<String>,
+    /// API key for authenticating requests (auto-generated or from OST_AUTH_TOKEN)
+    pub api_key: Arc<std::sync::RwLock<String>>,
 
-    /// User-submitted custom metrics (std RwLock for sync access in SSE filter_map)
-    pub custom_metrics: Arc<std::sync::RwLock<CustomMetrics>>,
+    /// User-submitted custom channels (std RwLock for sync access in SSE filter_map)
+    pub custom_channels: Arc<std::sync::RwLock<CustomChannels>>,
 
     /// Annotations on the telemetry timeline
     pub annotations: Arc<std::sync::RwLock<Vec<Annotation>>>,
@@ -70,34 +70,34 @@ pub struct AppState {
     pub admin_pass: Option<String>,
 }
 
-/// Storage for user-submitted custom metrics.
+/// Storage for user-submitted custom channels.
 ///
-/// Sticky metrics (no tick) are merged into every frame.
-/// Tick-specific metrics are merged only into frames with a matching tick number.
+/// Sticky channels (no tick) are merged into every frame.
+/// Tick-specific channels are merged only into frames with a matching tick number.
 #[derive(Default)]
-pub struct CustomMetrics {
+pub struct CustomChannels {
     /// Namespace → JSON object, merged into every frame
     pub sticky: HashMap<String, serde_json::Value>,
     /// Tick → Namespace → JSON object, merged into frames with matching tick
     pub by_tick: BTreeMap<u32, HashMap<String, serde_json::Value>>,
 }
 
-impl CustomMetrics {
-    /// Merge custom metrics into a frame JSON value.
+impl CustomChannels {
+    /// Merge custom channels into a frame JSON value.
     /// `tick` is the frame's tick number (from meta.tick), used for tick-specific lookups.
     pub fn merge_into(&self, frame_json: &mut serde_json::Value, tick: Option<u32>) {
         let obj = match frame_json.as_object_mut() {
             Some(o) => o,
             None => return,
         };
-        // Merge sticky metrics
+        // Merge sticky channels
         for (ns, data) in &self.sticky {
             obj.insert(ns.clone(), data.clone());
         }
-        // Merge tick-specific metrics
+        // Merge tick-specific channels
         if let Some(tick) = tick {
-            if let Some(tick_metrics) = self.by_tick.get(&tick) {
-                for (ns, data) in tick_metrics {
+            if let Some(tick_channels) = self.by_tick.get(&tick) {
+                for (ns, data) in tick_channels {
                     // If namespace already exists from sticky, merge fields
                     if let Some(existing) = obj.get_mut(ns) {
                         if let (Some(existing_obj), Some(new_obj)) =
@@ -146,7 +146,7 @@ pub struct SinkConfig {
     pub host: String,
     pub port: u16,
     pub update_rate_hz: Option<f64>,
-    pub metric_mask: Option<String>, // Comma-separated metric names
+    pub channel_mask: Option<String>, // Comma-separated channel names
 }
 
 impl AppState {
@@ -172,10 +172,8 @@ impl AppState {
             sinks_tx,
             history: Arc::new(RwLock::new(HistoryBuffer::new(600))),
             persistence_config: Arc::new(RwLock::new(PersistenceConfig::default())),
-            auth_token: std::env::var("OST_AUTH_TOKEN")
-                .ok()
-                .filter(|s| !s.is_empty()),
-            custom_metrics: Arc::new(std::sync::RwLock::new(CustomMetrics::default())),
+            api_key: Arc::new(std::sync::RwLock::new(String::new())),
+            custom_channels: Arc::new(std::sync::RwLock::new(CustomChannels::default())),
             annotations: Arc::new(std::sync::RwLock::new(Vec::new())),
             annotations_tx,
             serve_mode: false,

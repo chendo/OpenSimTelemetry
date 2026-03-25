@@ -20,9 +20,9 @@ class TelemetryStore {
         this._dirty = true;
         this._frameVersion++;
         const entry = { t: performance.now(), _frame: frame };
-        for (let i = 0; i < GRAPH_METRIC_KEYS.length; i++) {
-            const key = GRAPH_METRIC_KEYS[i];
-            entry[key] = GRAPH_METRICS[key].extract(frame);
+        for (let i = 0; i < GRAPH_CHANNEL_KEYS.length; i++) {
+            const key = GRAPH_CHANNEL_KEYS[i];
+            entry[key] = GRAPH_CHANNELS[key].extract(frame);
         }
         this._ring[this._head] = entry;
         this._head = (this._head + 1) % BUFFER_MAX;
@@ -68,49 +68,49 @@ class TelemetryStore {
     }
 }
 
-// Map preset GRAPH_METRICS keys to their TelemetryFrame metric paths
+// Map preset GRAPH_CHANNELS keys to their TelemetryFrame channel paths
 // e.g. speed → 'vehicle.speed', lat_g → 'motion.g_force.x'
-const GRAPH_METRIC_PATHS = {};
+const GRAPH_CHANNEL_PATHS = {};
 (function() {
-    for (const [key, m] of Object.entries(GRAPH_METRICS)) {
+    for (const [key, m] of Object.entries(GRAPH_CHANNELS)) {
         const src = m.extract.toString();
         // Match f.vehicle?.speed or f.motion?.g_force?.x etc.
         const match = src.match(/f\.([\w?]+(?:\.[\w?]+)*)/);
         if (match) {
-            GRAPH_METRIC_PATHS[key] = match[1].replace(/\?/g, '');
+            GRAPH_CHANNEL_PATHS[key] = match[1].replace(/\?/g, '');
         }
     }
 })();
 
-// Build a dynamic metric mask from all visible widgets on the dashboard.
-// Emits individual metric paths (e.g. "vehicle.speed,motion.g_force")
-// so the server can filter at the metric level, including game-specific namespaces.
-function buildReplayMetricMask() {
-    const metrics = new Set();
+// Build a dynamic channel mask from all visible widgets on the dashboard.
+// Emits individual channel paths (e.g. "vehicle.speed,motion.g_force")
+// so the server can filter at the channel level, including game-specific namespaces.
+function buildReplayChannelMask() {
+    const channels = new Set();
     // Static widgets
-    metrics.add('vehicle');      // VehicleWidget
-    metrics.add('motion');       // GForceWidget
-    metrics.add('wheels');       // WheelsWidget
-    metrics.add('timing');       // Session bar lap timing
-    metrics.add('session');      // Session bar info
-    metrics.add('weather');      // Session bar weather
+    channels.add('vehicle');      // VehicleWidget
+    channels.add('motion');       // GForceWidget
+    channels.add('wheels');       // WheelsWidget
+    channels.add('timing');       // Session bar lap timing
+    channels.add('session');      // Session bar info
+    channels.add('weather');      // Session bar weather
     // ABS/TC fields are now under 'vehicle' which is already included above
     // Collect individual paths from graph widgets
     if (typeof grid !== 'undefined') {
         for (const w of grid.widgets.values()) {
             if (!(w instanceof GraphWidget)) continue;
-            for (const key of w.enabledMetrics) {
-                if (GRAPH_METRIC_PATHS[key]) {
-                    metrics.add(GRAPH_METRIC_PATHS[key]);
+            for (const key of w.enabledChannels) {
+                if (GRAPH_CHANNEL_PATHS[key]) {
+                    channels.add(GRAPH_CHANNEL_PATHS[key]);
                 } else {
-                    // Custom metric: full dotted path like "iracing.RFtempCM"
-                    const custom = w.customMetrics.get(key);
-                    if (custom) metrics.add(key); // key IS the dotted path
+                    // Custom channel: full dotted path like "iracing.RFtempCM"
+                    const custom = w.customChannels.get(key);
+                    if (custom) channels.add(key); // key IS the dotted path
                 }
             }
         }
     }
-    return Array.from(metrics).join(',');
+    return Array.from(channels).join(',');
 }
 
 /* ==================== ReplayBuffer ==================== */
@@ -166,9 +166,9 @@ class ReplayBuffer {
     // Process a raw TelemetryFrame into a ring-compatible entry
     _processFrame(frame, frameIndex) {
         const entry = { t: this.simTimeMs(frameIndex), _frame: frame };
-        for (let i = 0; i < GRAPH_METRIC_KEYS.length; i++) {
-            const key = GRAPH_METRIC_KEYS[i];
-            entry[key] = GRAPH_METRICS[key].extract(frame);
+        for (let i = 0; i < GRAPH_CHANNEL_KEYS.length; i++) {
+            const key = GRAPH_CHANNEL_KEYS[i];
+            entry[key] = GRAPH_CHANNELS[key].extract(frame);
         }
         return entry;
     }
@@ -184,7 +184,7 @@ class ReplayBuffer {
     }
 
     // Fetch a single chunk, merge into cache
-    async _fetchChunk(chunkIdx, metrics, signal) {
+    async _fetchChunk(chunkIdx, channels, signal) {
         if (this._loadedChunks.has(chunkIdx) || this._fetchingChunks.has(chunkIdx)) return;
         const start = chunkIdx * this._chunkSize;
         if (start >= this.totalFrames) return;
@@ -192,7 +192,7 @@ class ReplayBuffer {
         this._fetchingChunks.add(chunkIdx);
         try {
             let url = `${apiBase()}/api/replay/frames?start=${start}&count=${count}`;
-            if (metrics) url += `&metric_mask=${encodeURIComponent(metrics)}`;
+            if (channels) url += `&channel_mask=${encodeURIComponent(channels)}}`;
             if (this.replayId) url += `&rid=${encodeURIComponent(this.replayId)}`;
             const opts = signal ? { signal } : {};
             const resp = await fetch(url, opts);
@@ -280,7 +280,7 @@ class ReplayBuffer {
     }
 
     // Main entry point: ensure cursor's region is loaded, prefetch adjacent chunks
-    async ensureLoaded(metrics) {
+    async ensureLoaded(channels) {
         // Reentrant guard: renderLoop calls this every frame without awaiting,
         // so prevent concurrent executions from piling up requests.
         if (this._ensureLoadedRunning) return;
@@ -299,12 +299,12 @@ class ReplayBuffer {
             // before rendering (cached chunks return instantly from _fetchChunk)
             const viewportSecs = 35;
             const viewportChunks = Math.ceil((this.tickRate * viewportSecs) / this._chunkSize);
-            const viewportPromises = [this._fetchChunk(cursorChunk, metrics, signal)];
+            const viewportPromises = [this._fetchChunk(cursorChunk, channels, signal)];
             for (let i = 1; i <= viewportChunks; i++) {
                 if (cursorChunk - i >= 0)
-                    viewportPromises.push(this._fetchChunk(cursorChunk - i, metrics, signal));
+                    viewportPromises.push(this._fetchChunk(cursorChunk - i, channels, signal));
                 if (cursorChunk + i <= maxChunk)
-                    viewportPromises.push(this._fetchChunk(cursorChunk + i, metrics, signal));
+                    viewportPromises.push(this._fetchChunk(cursorChunk + i, channels, signal));
             }
             await Promise.all(viewportPromises);
 
@@ -313,7 +313,7 @@ class ReplayBuffer {
                 const extraAhead = Math.ceil((this.tickRate * 45) / this._chunkSize);
                 for (let i = viewportChunks + 1; i <= viewportChunks + extraAhead; i++) {
                     if (cursorChunk + i <= maxChunk)
-                        this._fetchChunk(cursorChunk + i, metrics, signal);
+                        this._fetchChunk(cursorChunk + i, channels, signal);
                 }
             }
         } finally {
@@ -322,11 +322,11 @@ class ReplayBuffer {
     }
 
     // Debounced ensureLoaded for rapid scrubbing — aborts stale fetches
-    ensureLoadedDebounced(delayMs = 200, metrics) {
+    ensureLoadedDebounced(delayMs = 200, channels) {
         clearTimeout(this._fetchDebounce);
         // Cancel in-flight fetches from the previous scrub position
         if (this._abortController) this._abortController.abort();
-        this._fetchDebounce = setTimeout(() => this.ensureLoaded(metrics), delayMs);
+        this._fetchDebounce = setTimeout(() => this.ensureLoaded(channels), delayMs);
     }
 
     // Check if any viewport chunk (cursor ± 35s) needs fetching

@@ -44,13 +44,13 @@ test.describe('API: Sinks', () => {
     expect(sinks2.some((s: any) => s.id === sink.id)).toBeFalsy();
   });
 
-  test('create sink with metric mask', async ({ request }) => {
+  test('create sink with channel mask', async ({ request }) => {
     const resp = await request.post(`${API_BASE}/api/sinks`, {
-      data: { id: '', host: '127.0.0.1', port: 9998, metric_mask: 'rpm,speed' },
+      data: { id: '', host: '127.0.0.1', port: 9998, channel_mask: 'rpm,speed' },
     });
     expect(resp.status()).toBe(201);
     const sink = await resp.json();
-    expect(sink.metric_mask).toBe('rpm,speed');
+    expect(sink.channel_mask).toBe('rpm,speed');
     // Cleanup
     await request.delete(`${API_BASE}/api/sinks/${sink.id}`);
   });

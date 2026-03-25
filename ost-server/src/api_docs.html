@@ -47,7 +47,7 @@ nav a:hover{color:#00d4ff}
 <strong style="color:#e0e0e0">Sections</strong>
 <a href="#streaming">Streaming (SSE)</a>
 <a href="#adapters">Adapters</a>
-<a href="#metrics">Custom Metrics</a>
+<a href="#channels">Custom Channels</a>
 <a href="#annotations">Annotations</a>
 <a href="#replay">Replay</a>
 <a href="#history">History</a>
@@ -64,7 +64,7 @@ nav a:hover{color:#00d4ff}
 <p class="desc">Unified SSE stream multiplexing telemetry frames, adapter status, sink config, and annotation updates. Uses named events: <code>frame</code>, <code>status</code>, <code>sinks</code>, <code>annotations</code>. Preferred over individual stream endpoints (avoids HTTP/1.1 connection limit).</p>
 <div class="params"><table>
 <tr><th>Param</th><th>Type</th><th>Description</th></tr>
-<tr><td><code>metric_mask</code></td><td>string</td><td>Comma-separated sections to include (e.g. <code>vehicle,timing</code>)</td></tr>
+<tr><td><code>channel_mask</code></td><td>string</td><td>Comma-separated sections to include (e.g. <code>vehicle,timing</code>)</td></tr>
 <tr><td><code>rate</code></td><td>float</td><td>Frames per second (0.01–60, default 60)</td></tr>
 <tr><td><code>format</code></td><td>string</td><td><code>json</code> (default) or <code>msgpack</code> (base64-encoded MessagePack)</td></tr>
 <tr><td><code>delta</code></td><td>bool</td><td>Enable delta encoding (default <code>true</code>). Only changed sections are sent; full frame every 60th.</td></tr>
@@ -77,7 +77,7 @@ nav a:hover{color:#00d4ff}
 <tr><td><code>sinks</code></td><td>Sink config list updated (JSON array of all sinks).</td></tr>
 <tr><td><code>annotations</code></td><td>Annotation list updated (JSON array of all annotations).</td></tr>
 </table></div>
-<pre>curl -N "http://localhost:9100/api/stream?rate=10&metric_mask=vehicle,timing"</pre>
+<pre>curl -N "http://localhost:9100/api/stream?rate=10&channel_mask=vehicle,timing"</pre>
 </div>
 
 <div class="endpoint">
@@ -104,42 +104,42 @@ nav a:hover{color:#00d4ff}
 <p class="desc">Enable or disable an adapter by key name.</p>
 </div>
 
-<h2 id="metrics">Custom Metrics</h2>
+<h2 id="channels">Custom Channels</h2>
 
-<p class="desc" style="margin-bottom:12px">Submit arbitrary metrics that get merged into telemetry frames. <strong>Sticky</strong> metrics (no tick) appear in every frame. <strong>Tick-specific</strong> metrics appear only in the frame with a matching tick number. Custom metrics are included in SSE <code>frame</code> events and <code>GET /api/metrics</code> responses.</p>
+<p class="desc" style="margin-bottom:12px">Submit arbitrary channels that get merged into telemetry frames. <strong>Sticky</strong> channels (no tick) appear in every frame. <strong>Tick-specific</strong> channels appear only in the frame with a matching tick number. Custom channels are included in SSE <code>frame</code> events and <code>GET /api/channels</code> responses.</p>
 
 <div class="endpoint">
-<span class="method post">POST</span><span class="path">/api/metrics</span>
-<p class="desc">Submit custom metrics under a namespace. Metrics are merged into the telemetry frame JSON at the top level using the namespace as the key.</p>
-<pre>// Sticky metric — merged into every frame
-{"namespace": "analysis", "metrics": {"brake_bias": 0.57, "fuel_delta": -0.03}}
+<span class="method post">POST</span><span class="path">/api/channels</span>
+<p class="desc">Submit custom channels under a namespace. Channels are merged into the telemetry frame JSON at the top level using the namespace as the key.</p>
+<pre>// Sticky channel — merged into every frame
+{"namespace": "analysis", "channels": {"brake_bias": 0.57, "fuel_delta": -0.03}}
 
 // Tick-specific — merged only into frame with tick 42000
-{"namespace": "analysis", "metrics": {"optimal_line": true}, "tick": 42000}</pre>
+{"namespace": "analysis", "channels": {"optimal_line": true}, "tick": 42000}</pre>
 </div>
 
 <div class="endpoint">
-<span class="method get">GET</span><span class="path">/api/metrics</span>
-<p class="desc">Get the latest telemetry frame with custom metrics merged in. Supports <code>metric_mask</code> query param for section filtering.</p>
-<button class="try-btn" onclick="tryEndpoint(this,'/api/metrics')">Try it</button>
+<span class="method get">GET</span><span class="path">/api/channels</span>
+<p class="desc">Get the latest telemetry frame with custom channels merged in. Supports <code>channel_mask</code> query param for section filtering.</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/channels')">Try it</button>
 <pre class="try-result"></pre>
 </div>
 
 <div class="endpoint">
-<span class="method get">GET</span><span class="path">/api/metrics/custom</span>
-<p class="desc">List all currently stored custom metrics (sticky and tick-specific).</p>
-<button class="try-btn" onclick="tryEndpoint(this,'/api/metrics/custom')">Try it</button>
+<span class="method get">GET</span><span class="path">/api/channels/custom</span>
+<p class="desc">List all currently stored custom channels (sticky and tick-specific).</p>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/channels/custom')">Try it</button>
 <pre class="try-result"></pre>
 </div>
 
 <div class="endpoint">
-<span class="method delete">DELETE</span><span class="path">/api/metrics/custom</span>
-<p class="desc">Clear all custom metrics (both sticky and tick-specific).</p>
+<span class="method delete">DELETE</span><span class="path">/api/channels/custom</span>
+<p class="desc">Clear all custom channels (both sticky and tick-specific).</p>
 </div>
 
 <div class="endpoint">
-<span class="method delete">DELETE</span><span class="path">/api/metrics/custom/:namespace</span>
-<p class="desc">Clear custom metrics for a specific namespace only.</p>
+<span class="method delete">DELETE</span><span class="path">/api/channels/custom/:namespace</span>
+<p class="desc">Clear custom channels for a specific namespace only.</p>
 </div>
 
 <h2 id="annotations">Annotations</h2>
@@ -199,7 +199,7 @@ nav a:hover{color:#00d4ff}
 <tr><th>Param</th><th>Type</th><th>Description</th></tr>
 <tr><td><code>start</code></td><td>int</td><td>0-based start frame index</td></tr>
 <tr><td><code>count</code></td><td>int</td><td>Number of frames to fetch (max 7200)</td></tr>
-<tr><td><code>metric_mask</code></td><td>string</td><td>Comma-separated sections to include</td></tr>
+<tr><td><code>channel_mask</code></td><td>string</td><td>Comma-separated sections to include</td></tr>
 <tr><td><code>rid</code></td><td>string</td><td>Replay ID for immutable cache headers</td></tr>
 </table></div>
 </div>
@@ -232,13 +232,13 @@ nav a:hover{color:#00d4ff}
 
 <div class="endpoint">
 <span class="method get">GET</span><span class="path">/api/history/aggregate</span>
-<p class="desc">Compute statistics (min, max, avg, stddev, count) for metrics over a time window.</p>
+<p class="desc">Compute statistics (min, max, avg, stddev, count) for channels over a time window.</p>
 <div class="params"><table>
 <tr><th>Param</th><th>Type</th><th>Description</th></tr>
-<tr><td><code>metrics</code></td><td>string</td><td>Comma-separated dot-paths (e.g. <code>vehicle.speed,vehicle.rpm</code>)</td></tr>
+<tr><td><code>channels</code></td><td>string</td><td>Comma-separated dot-paths (e.g. <code>vehicle.speed,vehicle.rpm</code>)</td></tr>
 <tr><td><code>duration</code></td><td>string</td><td>Time window: <code>60s</code>, <code>5m</code>, <code>1h</code> (default <code>60s</code>)</td></tr>
 </table></div>
-<button class="try-btn" onclick="tryEndpoint(this,'/api/history/aggregate?duration=60s&metrics=vehicle.speed,vehicle.rpm')">Try it</button>
+<button class="try-btn" onclick="tryEndpoint(this,'/api/history/aggregate?duration=60s&channels=vehicle.speed,vehicle.rpm')">Try it</button>
 <pre class="try-result"></pre>
 </div>
 
