@@ -239,11 +239,16 @@ async fn auth_middleware(
     let path = req.uri().path();
 
     // UI pages are not gated — they embed the key server-side
-    if !path.starts_with("/api/") {
+    if !path.starts_with("/api/") || path == "/api/docs" {
         return Ok(next.run(req).await);
     }
 
     let key = state.api_key.read().unwrap().clone();
+
+    // No key configured — auth is disabled
+    if key.is_empty() {
+        return Ok(next.run(req).await);
+    }
 
     // Check Authorization header (Bearer or Basic)
     if let Some(auth) = req.headers().get(header::AUTHORIZATION) {
@@ -2534,10 +2539,16 @@ fn html_escape(s: &str) -> String {
 
 // === Interactive API Docs ===
 
-async fn api_docs() -> impl IntoResponse {
+async fn api_docs(State(state): State<AppState>) -> impl IntoResponse {
+    let key = state.api_key.read().unwrap().clone();
+    let html = include_str!("api_docs.html");
+    let injected = html.replace(
+        "</head>",
+        &format!(r#"<script>window.__OST_API_KEY__="{key}";</script></head>"#),
+    );
     (
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-        include_str!("api_docs.html"),
+        injected,
     )
 }
 

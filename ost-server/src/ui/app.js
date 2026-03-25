@@ -99,6 +99,24 @@ const remoteLabel = document.getElementById('remote-label');
 remoteInput.value = remoteBase || DEFAULT_ENDPOINT;
 
 function apiBase() { return remoteBase || ''; }
+function apiKey() { return window.__OST_API_KEY__ || ''; }
+
+// Append ?key= to a URL for auth (used by EventSource which can't set headers)
+function apiUrl(path) {
+    const base = apiBase() + path;
+    const k = apiKey();
+    if (!k) return base;
+    return base + (base.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(k);
+}
+
+// Fetch wrapper that injects Authorization header
+function apiFetch(url, opts = {}) {
+    const k = apiKey();
+    if (k) {
+        opts.headers = Object.assign({ 'Authorization': 'Bearer ' + k }, opts.headers || {});
+    }
+    return fetch(url, opts);
+}
 
 function _updateRemoteState() {
     remoteInput.classList.remove('remote-connected', 'remote-error', 'remote-connecting');
@@ -177,7 +195,7 @@ function connectSSE() {
     sseConnected = false;
     _fullFrame = null;
     _updateRemoteState();
-    const es = new EventSource(apiBase() + '/api/stream');
+    const es = new EventSource(apiUrl('/api/stream'));
     sseSource = es;
     es.onopen = () => {
         sseConnected = true; sseEverConnected = true; updateStatus();
@@ -327,7 +345,7 @@ function updateHeaderAdapters() {
         cb.addEventListener('change', async () => {
             const key = cb.closest('.sources-item').dataset.key;
             try {
-                await fetch(`${apiBase()}/api/adapters/${key}/toggle`, { method: 'POST' });
+                await apiFetch(`${apiBase()}/api/adapters/${key}/toggle`, { method: 'POST' });
                 // Status SSE will push the updated adapter list
             } catch (e) { console.error('Toggle adapter failed:', e); }
         });
@@ -345,7 +363,7 @@ pauseBtn.addEventListener('click', () => {
     pauseBtn.innerHTML = streamPaused ? '&#9654;' : '&#9646;&#9646;';
     pauseBtn.classList.toggle('paused', streamPaused);
     // Sync pause state to server history buffer
-    fetch(apiBase() + '/api/replay/control', {
+    apiFetch(apiBase() + '/api/replay/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: streamPaused ? 'pause' : 'play' })
@@ -409,7 +427,7 @@ document.getElementById('menu-browse-replays').addEventListener('click', async (
 
     // Fetch file list
     try {
-        const resp = await fetch(apiBase() + '/api/persistence/files');
+        const resp = await apiFetch(apiBase() + '/api/persistence/files');
         const files = await resp.json();
         list.innerHTML = '';
         if (files.length === 0) {
@@ -442,7 +460,7 @@ document.getElementById('menu-browse-replays').addEventListener('click', async (
                 loadBtn.textContent = '...';
                 loadBtn.disabled = true;
                 try {
-                    const r = await fetch(apiBase() + '/api/persistence/load', {
+                    const r = await apiFetch(apiBase() + '/api/persistence/load', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ filename: f.name })
@@ -474,7 +492,7 @@ document.getElementById('menu-browse-replays').addEventListener('click', async (
                 e.stopPropagation();
                 if (!confirm(`Delete ${f.name}?`)) return;
                 try {
-                    const r = await fetch(apiBase() + `/api/persistence/files/${encodeURIComponent(f.name)}`, { method: 'DELETE' });
+                    const r = await apiFetch(apiBase() + `/api/persistence/files/${encodeURIComponent(f.name)}`, { method: 'DELETE' });
                     if (r.ok) {
                         item.remove();
                         if (list.children.length === 0) {
@@ -1041,7 +1059,7 @@ const memoryEl = document.getElementById('header-memory');
 
 async function fetchHistoryInfo() {
     try {
-        const resp = await fetch(apiBase() + '/api/replay/info');
+        const resp = await apiFetch(apiBase() + '/api/replay/info');
         if (!resp.ok) return;
         const info = await resp.json();
         if (info.mode === 'history') {
@@ -1253,7 +1271,7 @@ function openSettingsModal() {
     histSelect.addEventListener('change', () => {
         const secs = parseInt(histSelect.value);
         localStorage.setItem(HISTORY_DURATION_KEY, secs);
-        fetch(apiBase() + '/api/history/config', {
+        apiFetch(apiBase() + '/api/history/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ max_duration_secs: secs })
@@ -1269,7 +1287,7 @@ function openSettingsModal() {
         const frequency_hz = parseInt(freqSelect.value);
         localStorage.setItem('ost-persistence-autosave', auto_save);
         localStorage.setItem('ost-persistence-freq', frequency_hz);
-        fetch(apiBase() + '/api/persistence/config', {
+        apiFetch(apiBase() + '/api/persistence/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ auto_save, frequency_hz })
@@ -1285,26 +1303,26 @@ function openSettingsModal() {
     const diskUsageSpan = modal.querySelector('#settings-disk-usage');
 
     // Load current retention config and stats
-    fetch(apiBase() + '/api/persistence/config').then(r => r.json()).then(cfg => {
+    apiFetch(apiBase() + '/api/persistence/config').then(r => r.json()).then(cfg => {
         if (cfg.retention) {
             retMaxSessions.value = cfg.retention.max_sessions != null ? String(cfg.retention.max_sessions) : '';
             retMaxAge.value = cfg.retention.max_age_days != null ? String(cfg.retention.max_age_days) : '';
         }
     }).catch(() => {});
-    fetch(apiBase() + '/api/persistence/stats').then(r => r.json()).then(stats => {
+    apiFetch(apiBase() + '/api/persistence/stats').then(r => r.json()).then(stats => {
         diskUsageSpan.textContent = `${stats.file_count} files, ${stats.total_size_mb} MB`;
     }).catch(() => { diskUsageSpan.textContent = 'N/A'; });
 
     function syncRetentionConfig() {
         const maxSessions = retMaxSessions.value ? parseInt(retMaxSessions.value) : null;
         const maxAge = retMaxAge.value ? parseInt(retMaxAge.value) : null;
-        fetch(apiBase() + '/api/persistence/config', {
+        apiFetch(apiBase() + '/api/persistence/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ max_sessions: maxSessions, max_age_days: maxAge })
         }).then(() => {
             // Refresh disk usage after cleanup
-            fetch(apiBase() + '/api/persistence/stats').then(r => r.json()).then(stats => {
+            apiFetch(apiBase() + '/api/persistence/stats').then(r => r.json()).then(stats => {
                 diskUsageSpan.textContent = `${stats.file_count} files, ${stats.total_size_mb} MB`;
             }).catch(() => {});
         }).catch(() => {});
@@ -1325,7 +1343,7 @@ function openSettingsModal() {
             sinksListEl.querySelectorAll('.btn-delete').forEach(btn => {
                 btn.addEventListener('click', async () => {
                     try {
-                        await fetch(`${apiBase()}/api/sinks/${btn.dataset.id}`, { method: 'DELETE' });
+                        await apiFetch(`${apiBase()}/api/sinks/${btn.dataset.id}`, { method: 'DELETE' });
                         // Re-render after short delay for SSE update
                         setTimeout(renderSinksList, 300);
                     } catch(e) { console.error(e); }
@@ -1345,7 +1363,7 @@ function openSettingsModal() {
             channel_mask: modal.querySelector('#settings-sk-mask').value.trim() || null,
         };
         try {
-            await fetch(apiBase() + '/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
+            await apiFetch(apiBase() + '/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) });
             modal.querySelector('#settings-sk-host').value = '';
             modal.querySelector('#settings-sk-port').value = '';
             modal.querySelector('#settings-sk-mask').value = '';
@@ -1584,7 +1602,7 @@ updateRecordingIndicator();
 (function syncSavedConfigs() {
     const savedSecs = parseInt(localStorage.getItem(HISTORY_DURATION_KEY));
     if (savedSecs) {
-        fetch(apiBase() + '/api/history/config', {
+        apiFetch(apiBase() + '/api/history/config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ max_duration_secs: savedSecs })
@@ -1593,7 +1611,7 @@ updateRecordingIndicator();
     // Sync persistence config
     const autoSave = localStorage.getItem('ost-persistence-autosave') === 'true';
     const freq = parseInt(localStorage.getItem('ost-persistence-freq')) || 60;
-    fetch(apiBase() + '/api/persistence/config', {
+    apiFetch(apiBase() + '/api/persistence/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ auto_save: autoSave, frequency_hz: freq })
@@ -1648,7 +1666,7 @@ document.body.addEventListener('drop', (e) => {
 // Check for existing replay on page load
 async function checkReplayOnLoad() {
     try {
-        const resp = await fetch(apiBase() + '/api/replay/info');
+        const resp = await apiFetch(apiBase() + '/api/replay/info');
         if (resp.ok) {
             const info = await resp.json();
             if (info.mode === 'replay') {

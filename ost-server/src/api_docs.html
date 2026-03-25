@@ -381,8 +381,10 @@ async function tryEndpoint(btn, url) {
     const pre = btn.nextElementSibling;
     pre.style.display = 'block';
     pre.textContent = 'Loading...';
+    const k = window.__OST_API_KEY__ || '';
+    const opts = k ? { headers: { 'Authorization': 'Bearer ' + k } } : {};
     try {
-        const res = await fetch(url);
+        const res = await fetch(url, opts);
         const text = await res.text();
         try { pre.textContent = JSON.stringify(JSON.parse(text), null, 2); }
         catch { pre.textContent = text; }

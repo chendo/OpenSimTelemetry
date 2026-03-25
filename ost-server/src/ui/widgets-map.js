@@ -47,7 +47,7 @@ class TrackMapWidget extends Widget {
 
         this._fetching = true;
         try {
-            const resp = await fetch(apiBase() + '/api/replay/trackmap');
+            const resp = await apiFetch(apiBase() + '/api/replay/trackmap');
             if (!resp.ok) return;
             const data = await resp.json();
             if (!Array.isArray(data.outline) || data.outline.length < 2) return;

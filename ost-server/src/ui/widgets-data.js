@@ -9,12 +9,12 @@ class AllChannelsWidget extends Widget {
                 <button class="channels-toggle-btn active" id="af-hide-nulls" title="Hide null values">Hide Nulls</button>
                 <button class="channels-toggle-btn" id="af-show-range" title="Show min/max range">Range</button>
                 <div class="channels-rate-wrap">
-                    <button class="channels-toggle-btn" id="af-rate-btn" title="Update frequency">1 Hz</button>
+                    <button class="channels-toggle-btn" id="af-rate-btn" title="Update frequency">10 Hz</button>
                     <div class="channels-rate-menu" id="af-rate-menu">
                         <div class="channels-rate-opt" data-hz="0">Off</div>
                         <div class="channels-rate-opt" data-hz="0.1">0.1 Hz</div>
-                        <div class="channels-rate-opt active" data-hz="1">1 Hz</div>
-                        <div class="channels-rate-opt" data-hz="10">10 Hz</div>
+                        <div class="channels-rate-opt" data-hz="1">1 Hz</div>
+                        <div class="channels-rate-opt active" data-hz="10">10 Hz</div>
                         <div class="channels-rate-opt" data-hz="30">30 Hz</div>
                         <div class="channels-rate-opt" data-hz="60">60 Hz</div>
                     </div>
@@ -26,7 +26,7 @@ class AllChannelsWidget extends Widget {
         this._hideNulls = true;
         this._showRange = false;
         this._minMax = {}; // path -> { min, max }
-        this._updateIntervalMs = 1000; // 1 Hz default
+        this._updateIntervalMs = 100; // 10 Hz default
 
         this._createGraphPaths = [];
         this.filterInput.addEventListener('input', () => this.renderChannels());
@@ -199,7 +199,7 @@ class OutputSinksWidget extends Widget {
                 update_rate_hz: parseFloat(c.querySelector('#sk-rate').value),
                 channel_mask: c.querySelector('#sk-mask').value.trim() || null,
             };
-            try { await fetch(apiBase() + '/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); } catch(e) { console.error(e); }
+            try { await apiFetch(apiBase() + '/api/sinks', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(config) }); } catch(e) { console.error(e); }
         });
     }
 
@@ -216,7 +216,7 @@ class OutputSinksWidget extends Widget {
                 }).join('');
                 this.listEl.querySelectorAll('.btn-delete').forEach(btn => {
                     btn.addEventListener('click', async () => {
-                        try { await fetch(`${apiBase()}/api/sinks/${btn.dataset.id}`, { method: 'DELETE' }); } catch(e) { console.error(e); }
+                        try { await apiFetch(`${apiBase()}/api/sinks/${btn.dataset.id}`, { method: 'DELETE' }); } catch(e) { console.error(e); }
                     });
                 });
             }

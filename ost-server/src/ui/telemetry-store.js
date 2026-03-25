@@ -195,7 +195,7 @@ class ReplayBuffer {
             if (channels) url += `&channel_mask=${encodeURIComponent(channels)}}`;
             if (this.replayId) url += `&rid=${encodeURIComponent(this.replayId)}`;
             const opts = signal ? { signal } : {};
-            const resp = await fetch(url, opts);
+            const resp = await apiFetch(url, opts);
             if (!resp.ok) throw new Error(await resp.text());
             const frames = await resp.json();
             this._mergeFrames(frames);
@@ -382,7 +382,7 @@ class ReplayBuffer {
             this.cursor = this.loopStart || 0;
             this._lastPlayTick = null; // prevent frame burst after seek
             // Sync server position (fire-and-forget)
-            fetch(apiBase() + '/api/replay/control', {
+            apiFetch(apiBase() + '/api/replay/control', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'seek', value: this.cursor })

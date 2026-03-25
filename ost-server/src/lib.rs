@@ -3,6 +3,7 @@
 //! Exposes server components for integration testing.
 
 pub mod api;
+pub mod api_key;
 pub mod history;
 pub mod manager;
 pub mod persistence;
