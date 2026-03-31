@@ -82,6 +82,26 @@ const GRAPH_CHANNEL_PATHS = {};
     }
 })();
 
+// Lightweight channel mask for scrubbing: motion + timing + active graph channels only.
+// Uses specific channel paths (not full namespaces) to minimise data transfer.
+function buildScrubChannelMask() {
+    const channels = new Set(['motion', 'timing']);
+    if (typeof grid !== 'undefined') {
+        for (const w of grid.widgets.values()) {
+            if (!(w instanceof GraphWidget)) continue;
+            for (const key of w.enabledChannels) {
+                if (GRAPH_CHANNEL_PATHS[key]) {
+                    channels.add(GRAPH_CHANNEL_PATHS[key]);
+                } else {
+                    const custom = w.customChannels.get(key);
+                    if (custom) channels.add(key);
+                }
+            }
+        }
+    }
+    return [...channels].join(',');
+}
+
 // Build a dynamic channel mask from all visible widgets on the dashboard.
 // Emits individual channel paths (e.g. "vehicle.speed,motion.g_force")
 // so the server can filter at the channel level, including game-specific namespaces.
@@ -136,6 +156,8 @@ class ReplayBuffer {
         this._lastPlayTick = null;
         this._abortController = null; // AbortController for cancelling stale fetches
         this.scrubbing = false;       // True during active slider drag
+        this._scrubFrame = null;      // Lightweight single frame fetched during scrubbing
+        this._scrubController = null; // AbortController for scrub frame fetches
         this.replayId = null;         // Replay ID for cache-busted URLs
         this.loopStart = null;        // Loop start frame (null = not set)
         this.loopEnd = null;          // Loop end frame (null = not set)
@@ -157,11 +179,7 @@ class ReplayBuffer {
     // Get current frame entry
     currentEntry() { return this.getEntry(this.cursor); }
 
-    // Get current TelemetryFrame (for store.currentFrame compatibility)
-    currentFrame() {
-        const e = this.currentEntry();
-        return e ? e._frame : null;
-    }
+    // NOTE: currentFrame() is defined below fetchScrubFrame() — it prefers cached entry, falls back to scrub frame
 
     // Process a raw TelemetryFrame into a ring-compatible entry
     _processFrame(frame, frameIndex) {
@@ -319,6 +337,37 @@ class ReplayBuffer {
         } finally {
             this._ensureLoadedRunning = false;
         }
+    }
+
+    // Lightweight single-frame fetch for responsive scrubbing.
+    // Fetches only motion+timing (track map position + basic data) for the cursor frame.
+    // Bypasses chunk system and reentrancy guard so it always fires.
+    async fetchScrubFrame() {
+        // Abort previous scrub fetch
+        if (this._scrubController) this._scrubController.abort();
+        this._scrubController = new AbortController();
+        try {
+            const mask = buildScrubChannelMask();
+            let url = `${apiBase()}/api/replay/frames?start=${this.cursor}&count=1&channel_mask=${encodeURIComponent(mask)}`;
+            if (this.replayId) url += `&rid=${encodeURIComponent(this.replayId)}`;
+            const resp = await apiFetch(url, { signal: this._scrubController.signal });
+            if (!resp.ok) return;
+            const frames = await resp.json();
+            if (frames.length > 0) {
+                // Store as a lightweight scrub frame for widgets to read
+                this._scrubFrame = frames[0].f;
+                this._dirty = true;
+            }
+        } catch (e) {
+            if (e.name === 'AbortError') return;
+        }
+    }
+
+    // Get the current frame: prefer cached entry, fall back to scrub frame
+    currentFrame() {
+        const e = this.currentEntry();
+        if (e) return e._frame;
+        return this._scrubFrame || null;
     }
 
     // Debounced ensureLoaded for rapid scrubbing — aborts stale fetches

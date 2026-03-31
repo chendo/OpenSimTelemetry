@@ -12,10 +12,14 @@ use std::collections::VecDeque;
 #[derive(Clone, Debug, Serialize)]
 pub struct LapMarker {
     pub lap_number: u32,
+    /// 0-based index within the same lap number, increments on each reset
+    pub lap_index: u32,
     /// 0-based index into the buffer (shifts when old frames are evicted)
     pub start_frame: usize,
-    /// Lap time of the just-completed lap (from timing.last_lap_time)
+    /// Lap time of the just-completed lap (from timing.last_lap_time), or elapsed time if incomplete
     pub lap_time_secs: Option<f64>,
+    /// True if the lap was interrupted by a reset checkpoint
+    pub incomplete: bool,
 }
 
 /// Ring buffer of recent TelemetryFrames
@@ -27,6 +31,8 @@ pub struct HistoryBuffer {
     // Lap detection
     laps: Vec<LapMarker>,
     last_lap_number: Option<u32>,
+    last_lap_distance_pct: Option<f32>,
+    next_lap_index: u32,
     // Session info captured from frames
     track_name: String,
     car_name: String,
@@ -42,6 +48,8 @@ impl HistoryBuffer {
             paused: false,
             laps: Vec::new(),
             last_lap_number: None,
+            last_lap_distance_pct: None,
+            next_lap_index: 0,
             track_name: String::new(),
             car_name: String::new(),
         }
@@ -80,14 +88,71 @@ impl HistoryBuffer {
                         .as_ref()
                         .and_then(|t| t.last_lap_time)
                         .map(|s| s.0 as f64);
+                    self.next_lap_index = 0;
                     self.laps.push(LapMarker {
                         lap_number: lap_num,
+                        lap_index: 0,
                         start_frame: self.frames.len(),
                         lap_time_secs: lap_time,
+                        incomplete: false,
                     });
                     self.last_lap_number = Some(lap_num);
+                    self.last_lap_distance_pct = None;
                 } else if lap_num == prev {
-                    // Same lap, no change needed
+                    // Same lap — check for reset checkpoint (pct going backwards)
+                    let current_pct = frame
+                        .timing
+                        .as_ref()
+                        .and_then(|t| t.lap_distance_pct)
+                        .map(|p| p.0);
+                    if let (Some(cur), Some(prev_pct)) = (current_pct, self.last_lap_distance_pct) {
+                        if prev_pct - cur > 0.001 {
+                            // Reset detected — mark the current segment as incomplete
+                            if let Some(last_lap) = self.laps.last_mut() {
+                                // Compute elapsed time from frame timestamps
+                                if last_lap.start_frame < self.frames.len() {
+                                    let start_ts = self.frames[last_lap.start_frame].meta.timestamp;
+                                    let now_ts = frame.meta.timestamp;
+                                    let elapsed =
+                                        (now_ts - start_ts).num_milliseconds() as f64 / 1000.0;
+                                    if elapsed > 0.0 {
+                                        last_lap.lap_time_secs = Some(elapsed);
+                                    }
+                                }
+                                last_lap.incomplete = true;
+                            } else {
+                                // No existing marker (first lap) — create retroactive one
+                                self.laps.push(LapMarker {
+                                    lap_number: lap_num,
+                                    lap_index: self.next_lap_index,
+                                    start_frame: 0,
+                                    lap_time_secs: if !self.frames.is_empty() {
+                                        let start_ts = self.frames[0].meta.timestamp;
+                                        let now_ts = frame.meta.timestamp;
+                                        let elapsed =
+                                            (now_ts - start_ts).num_milliseconds() as f64 / 1000.0;
+                                        if elapsed > 0.0 {
+                                            Some(elapsed)
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    },
+                                    incomplete: true,
+                                });
+                            }
+                            // Start a new segment
+                            self.next_lap_index += 1;
+                            self.laps.push(LapMarker {
+                                lap_number: lap_num,
+                                lap_index: self.next_lap_index,
+                                start_frame: self.frames.len(),
+                                lap_time_secs: None,
+                                incomplete: false,
+                            });
+                        }
+                    }
                 } else {
                     // lap_num < prev: telemetry dropout, don't update last_lap_number
                     // so when it recovers back to `prev`, no spurious transition is recorded
@@ -95,6 +160,16 @@ impl HistoryBuffer {
             } else {
                 self.last_lap_number = Some(lap_num);
             }
+        }
+
+        // Track lap_distance_pct for reset detection
+        let pct = frame
+            .timing
+            .as_ref()
+            .and_then(|t| t.lap_distance_pct)
+            .map(|p| p.0);
+        if pct.is_some() {
+            self.last_lap_distance_pct = pct;
         }
 
         // Push frame
@@ -230,7 +305,7 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use ost_core::model::{MetaData, SessionData, TimingData};
-    use ost_core::units::Seconds;
+    use ost_core::units::{Percentage, Seconds};
 
     fn make_frame(lap: Option<u32>, last_lap_time: Option<f64>) -> TelemetryFrame {
         TelemetryFrame {
@@ -498,5 +573,201 @@ mod tests {
         buf.push(frame);
         assert_eq!(buf.track_name(), "Spa");
         assert_eq!(buf.car_name(), "McLaren");
+    }
+
+    fn make_frame_with_pct(
+        lap: Option<u32>,
+        last_lap_time: Option<f64>,
+        pct: Option<f32>,
+        ts: chrono::DateTime<Utc>,
+    ) -> TelemetryFrame {
+        let mut frame = make_frame(lap, last_lap_time);
+        frame.meta.timestamp = ts;
+        if let Some(ref mut timing) = frame.timing {
+            timing.lap_distance_pct = pct.map(Percentage::new);
+        }
+        frame
+    }
+
+    #[test]
+    fn test_reset_detection_first_lap() {
+        let mut buf = HistoryBuffer::new(10);
+        let base = Utc::now();
+        // Lap 1, progressing from 0.0 to 0.9
+        for i in 0..10 {
+            buf.push(make_frame_with_pct(
+                Some(1),
+                None,
+                Some(i as f32 * 0.1),
+                base + chrono::Duration::seconds(i),
+            ));
+        }
+        assert!(buf.laps().is_empty()); // No lap transition yet
+
+        // Reset: pct jumps from 0.9 back to 0.3
+        buf.push(make_frame_with_pct(
+            Some(1),
+            None,
+            Some(0.3),
+            base + chrono::Duration::seconds(10),
+        ));
+
+        // Should have created a retroactive marker for the initial segment + new segment
+        assert_eq!(buf.laps().len(), 2);
+        assert_eq!(buf.laps()[0].lap_number, 1);
+        assert_eq!(buf.laps()[0].lap_index, 0);
+        assert!(buf.laps()[0].incomplete);
+        assert!(buf.laps()[0].lap_time_secs.is_some());
+        assert_eq!(buf.laps()[1].lap_number, 1);
+        assert_eq!(buf.laps()[1].lap_index, 1);
+        assert!(!buf.laps()[1].incomplete);
+    }
+
+    #[test]
+    fn test_reset_detection_mid_session() {
+        let mut buf = HistoryBuffer::new(10);
+        let base = Utc::now();
+        // Lap 1 progresses
+        for i in 0..10 {
+            buf.push(make_frame_with_pct(
+                Some(1),
+                None,
+                Some(i as f32 * 0.1),
+                base + chrono::Duration::seconds(i),
+            ));
+        }
+        // Transition to lap 2
+        buf.push(make_frame_with_pct(
+            Some(2),
+            Some(90.0),
+            Some(0.0),
+            base + chrono::Duration::seconds(10),
+        ));
+        assert_eq!(buf.laps().len(), 1);
+        assert_eq!(buf.laps()[0].lap_number, 2);
+        assert!(!buf.laps()[0].incomplete);
+
+        // Lap 2 progresses
+        for i in 1..8 {
+            buf.push(make_frame_with_pct(
+                Some(2),
+                None,
+                Some(i as f32 * 0.1),
+                base + chrono::Duration::seconds(10 + i),
+            ));
+        }
+
+        // Reset on lap 2 at 0.7 back to 0.2
+        buf.push(make_frame_with_pct(
+            Some(2),
+            None,
+            Some(0.2),
+            base + chrono::Duration::seconds(18),
+        ));
+
+        assert_eq!(buf.laps().len(), 2);
+        assert_eq!(buf.laps()[0].lap_number, 2);
+        assert_eq!(buf.laps()[0].lap_index, 0);
+        assert!(buf.laps()[0].incomplete);
+        assert_eq!(buf.laps()[1].lap_number, 2);
+        assert_eq!(buf.laps()[1].lap_index, 1);
+        assert!(!buf.laps()[1].incomplete);
+    }
+
+    #[test]
+    fn test_multiple_resets_same_lap() {
+        let mut buf = HistoryBuffer::new(10);
+        let base = Utc::now();
+        // Lap 1, progress to 0.5
+        for i in 0..6 {
+            buf.push(make_frame_with_pct(
+                Some(1),
+                None,
+                Some(i as f32 * 0.1),
+                base + chrono::Duration::seconds(i),
+            ));
+        }
+        // First reset: 0.5 -> 0.2
+        buf.push(make_frame_with_pct(
+            Some(1),
+            None,
+            Some(0.2),
+            base + chrono::Duration::seconds(6),
+        ));
+        assert_eq!(buf.laps().len(), 2);
+
+        // Progress again to 0.6
+        for i in 3..7 {
+            buf.push(make_frame_with_pct(
+                Some(1),
+                None,
+                Some(i as f32 * 0.1),
+                base + chrono::Duration::seconds(7 + i as i64),
+            ));
+        }
+        // Second reset: 0.6 -> 0.2
+        buf.push(make_frame_with_pct(
+            Some(1),
+            None,
+            Some(0.2),
+            base + chrono::Duration::seconds(14),
+        ));
+        // retroactive initial segment + first reset segment + second reset segment
+        assert_eq!(buf.laps().len(), 3);
+        assert_eq!(buf.laps()[0].lap_index, 0);
+        assert_eq!(buf.laps()[1].lap_index, 1);
+        assert_eq!(buf.laps()[2].lap_index, 2);
+        assert!(buf.laps()[0].incomplete);
+        assert!(buf.laps()[1].incomplete);
+        assert!(!buf.laps()[2].incomplete); // current segment, not yet reset
+    }
+
+    #[test]
+    fn test_no_false_reset_on_float_jitter() {
+        let mut buf = HistoryBuffer::new(10);
+        let base = Utc::now();
+        // Simulate minor float jitter (pct goes 0.500 -> 0.4999)
+        buf.push(make_frame_with_pct(Some(1), None, Some(0.500), base));
+        buf.push(make_frame_with_pct(
+            Some(1),
+            None,
+            Some(0.4999),
+            base + chrono::Duration::milliseconds(16),
+        ));
+        assert!(buf.laps().is_empty()); // No false reset
+    }
+
+    #[test]
+    fn test_lap_index_resets_on_new_lap() {
+        let mut buf = HistoryBuffer::new(10);
+        let base = Utc::now();
+        // Lap 1 with a reset
+        for i in 0..5 {
+            buf.push(make_frame_with_pct(
+                Some(1),
+                None,
+                Some(i as f32 * 0.1),
+                base + chrono::Duration::seconds(i),
+            ));
+        }
+        // Reset
+        buf.push(make_frame_with_pct(
+            Some(1),
+            None,
+            Some(0.1),
+            base + chrono::Duration::seconds(5),
+        ));
+        assert_eq!(buf.laps().len(), 2);
+
+        // Transition to lap 2
+        buf.push(make_frame_with_pct(
+            Some(2),
+            Some(90.0),
+            Some(0.0),
+            base + chrono::Duration::seconds(6),
+        ));
+        assert_eq!(buf.laps().len(), 3);
+        assert_eq!(buf.laps()[2].lap_number, 2);
+        assert_eq!(buf.laps()[2].lap_index, 0); // Resets to 0 on new lap
     }
 }

@@ -36,6 +36,21 @@ class ReplayPlayer {
         this.nextLapBtn.addEventListener('click', () => this.nextLap());
         this.seekSlider.addEventListener('input', (e) => this.onSeekInput(e.target.value));
         this.seekSlider.addEventListener('change', (e) => this.onSeekChange(e.target.value));
+        // Handle trackpad/mouse wheel scrolling on the seek bar
+        this._wheelEndTimer = null;
+        this.seekSlider.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const step = Math.max(1, Math.round(Math.abs(e.deltaY) * 0.5));
+            const dir = e.deltaY > 0 ? 1 : -1;
+            this.seekSlider.value = Math.min(
+                parseInt(this.seekSlider.max),
+                Math.max(parseInt(this.seekSlider.min), parseInt(this.seekSlider.value) + dir * step)
+            );
+            this.onSeekInput(this.seekSlider.value);
+            // Debounced scrub-end: finalize when wheel events stop
+            clearTimeout(this._wheelEndTimer);
+            this._wheelEndTimer = setTimeout(() => this.onSeekChange(this.seekSlider.value), 50);
+        }, { passive: false });
         this.exitBtn.addEventListener('click', () => this.exit());
         this.lapBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleLapMenu(); });
         document.addEventListener('click', () => this.closeLapMenu());
@@ -155,11 +170,12 @@ class ReplayPlayer {
         }
         this.lapGroup.style.display = '';
 
-        // Find best lap (lowest lap_time_secs, excluding null)
+        // Find best lap (lowest lap_time_secs, excluding null and incomplete)
         let bestIdx = -1, bestTime = Infinity;
         for (let i = 0; i < this.laps.length; i++) {
-            const lt = this.laps[i].lap_time_secs;
-            if (lt != null && lt < bestTime) { bestTime = lt; bestIdx = i; }
+            const lap = this.laps[i];
+            const lt = lap.lap_time_secs;
+            if (lt != null && !lap.incomplete && lt < bestTime) { bestTime = lt; bestIdx = i; }
         }
         this._bestLapIdx = bestIdx;
 
@@ -167,12 +183,18 @@ class ReplayPlayer {
         this.lapMenu.innerHTML = '';
         for (let i = 0; i < this.laps.length; i++) {
             const lap = this.laps[i];
+            const isIncomplete = lap.incomplete === true;
             const item = document.createElement('div');
-            item.className = 'replay-lap-item' + (i === bestIdx ? ' best' : '');
+            item.className = 'replay-lap-item' + (i === bestIdx ? ' best' : '') + (isIncomplete ? ' incomplete' : '');
             item.dataset.idx = i;
             const isBest = i === bestIdx;
             const timeStr = lap.lap_time_secs != null ? this.fmtLapTime(lap.lap_time_secs) : '--';
-            item.innerHTML = `<span class="replay-lap-num">${isBest ? '\u2605 ' : ''}Lap ${lap.lap_number}</span><span class="replay-lap-time">${timeStr}</span>`;
+            const lapLabel = lap.lap_index > 0 ? `Lap ${lap.lap_number}.${lap.lap_index}` : `Lap ${lap.lap_number}`;
+            const suffix = isIncomplete ? ' (reset)' : '';
+            item.innerHTML = `<span class="replay-lap-num">${isBest ? '\u2605 ' : ''}${lapLabel}${suffix}</span><span class="replay-lap-time">${timeStr}</span>`;
+            if (isIncomplete && lap.lap_time_secs != null) {
+                item.title = `Elapsed: ${this.fmtLapTime(lap.lap_time_secs)}`;
+            }
             item.addEventListener('click', () => this.seekToLap(i));
             this.lapMenu.appendChild(item);
         }
@@ -407,12 +429,11 @@ class ReplayPlayer {
         this.buf._dirty = true;
         // Update time display immediately
         this._updateTimeDisplay();
-        // Throttle: fetch at most once per 250ms during scrubbing
+        // Throttle: fetch single frame during scrubbing (lightweight, just motion+timing)
         const now = performance.now();
-        if (now - this._seekThrottleTime >= 250) {
+        if (now - this._seekThrottleTime >= 10) {
             this._seekThrottleTime = now;
-            if (this.buf._abortController) this.buf._abortController.abort();
-            this.buf.ensureLoaded(buildReplayChannelMask());
+            this.buf.fetchScrubFrame();
         }
         this.playPauseBtn.innerHTML = '&#9654;';
         requestRedraw();
@@ -461,7 +482,9 @@ class ReplayPlayer {
         if (lapIdx !== this._currentLapIdx) {
             this._currentLapIdx = lapIdx;
             if (lapIdx >= 0) {
-                this.lapBtn.textContent = `Lap ${this.laps[lapIdx].lap_number}`;
+                const l = this.laps[lapIdx];
+                const lapLabel = l.lap_index > 0 ? `Lap ${l.lap_number}.${l.lap_index}` : `Lap ${l.lap_number}`;
+                this.lapBtn.textContent = l.incomplete ? `${lapLabel} (reset)` : lapLabel;
             }
             // Update slider range to current lap
             const range = this._getLapRange(lapIdx);

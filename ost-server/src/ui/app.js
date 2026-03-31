@@ -912,12 +912,26 @@ function resetLiveScrollOffset() {
 
 // Called by GraphWidget horizontal scroll to move cursor
 let _lastScrollTime = 0;
+let _graphScrollThrottleTime = 0;
+let _graphScrollEndTimer = null;
 function graphScrollCursor(delta) {
     // Replay mode
     if (replayBuf.count > 0) {
         replayBuf.cursor = Math.max(0, Math.min(replayBuf.totalFrames - 1, replayBuf.cursor + delta));
         replayBuf._dirty = true;
         _lastScrollTime = performance.now();
+        // Fetch lightweight scrub frame during scrolling
+        const now = performance.now();
+        if (now - _graphScrollThrottleTime >= 10) {
+            _graphScrollThrottleTime = now;
+            replayBuf.fetchScrubFrame();
+        }
+        // Full data load when scrolling settles
+        clearTimeout(_graphScrollEndTimer);
+        _graphScrollEndTimer = setTimeout(() => {
+            if (replayBuf._abortController) replayBuf._abortController.abort();
+            replayBuf.ensureLoaded(buildReplayChannelMask());
+        }, 50);
         requestRedraw();
         return;
     }
@@ -962,12 +976,11 @@ seekSlider.addEventListener('input', (e) => {
     historyBuf.cursor = frame;
     historyBuf._dirty = true;
     updateSeekTimeDisplay();
-    // Throttle fetch during scrubbing
+    // Throttle: fetch single frame during scrubbing (lightweight, just motion+timing)
     const now = performance.now();
-    if (now - _seekThrottleTime >= 250) {
+    if (now - _seekThrottleTime >= 10) {
         _seekThrottleTime = now;
-        if (historyBuf._abortController) historyBuf._abortController.abort();
-        historyBuf.ensureLoaded(buildReplayChannelMask());
+        historyBuf.fetchScrubFrame();
     }
     requestRedraw();
 });
@@ -981,6 +994,21 @@ seekSlider.addEventListener('change', (e) => {
     historyBuf.ensureLoaded(buildReplayChannelMask());
     requestRedraw();
 });
+
+// Handle trackpad/mouse wheel scrolling on the history seek bar
+let _seekWheelEndTimer = null;
+seekSlider.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const step = Math.max(1, Math.round(Math.abs(e.deltaY) * 0.5));
+    const dir = e.deltaY > 0 ? 1 : -1;
+    seekSlider.value = Math.min(
+        parseInt(seekSlider.max),
+        Math.max(parseInt(seekSlider.min), parseInt(seekSlider.value) + dir * step)
+    );
+    seekSlider.dispatchEvent(new Event('input'));
+    clearTimeout(_seekWheelEndTimer);
+    _seekWheelEndTimer = setTimeout(() => seekSlider.dispatchEvent(new Event('change')), 50);
+}, { passive: false });
 
 seekLiveBtn.addEventListener('click', () => {
     exitHistoryMode();
@@ -1035,7 +1063,7 @@ function updateSeekLapMarkers() {
     const total = historyInfo.total_frames;
     if (total <= 0) return;
     // Quick hash to avoid rebuilding every frame
-    const hash = historyInfo.laps.map(l => `${l.lap_number}:${l.start_frame}`).join(',');
+    const hash = historyInfo.laps.map(l => `${l.lap_number}:${l.lap_index}:${l.start_frame}`).join(',');
     if (hash === _lastLapMarkersHash) return;
     _lastLapMarkersHash = hash;
 
@@ -1044,11 +1072,11 @@ function updateSeekLapMarkers() {
         const lap = historyInfo.laps[i];
         const pct = (lap.start_frame / total) * 100;
         const tick = document.createElement('div');
-        tick.className = 'seek-lap-tick';
+        tick.className = 'seek-lap-tick' + (lap.incomplete ? ' incomplete' : '');
         tick.style.left = pct + '%';
         const label = document.createElement('span');
         label.className = 'seek-lap-label';
-        label.textContent = 'L' + lap.lap_number;
+        label.textContent = lap.lap_index > 0 ? `L${lap.lap_number}.${lap.lap_index}` : `L${lap.lap_number}`;
         tick.appendChild(label);
         seekLaps.appendChild(tick);
     }

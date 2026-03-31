@@ -143,6 +143,8 @@ impl ReplayState {
 
         let mut laps: Vec<LapInfo> = Vec::new();
         let mut last_lap: Option<u32> = None;
+        let mut prev_pct: Option<f32> = None;
+        let mut lap_index: u32 = 0;
         let mut first_lat: Option<f64> = None;
         let mut first_lon: Option<f64> = None;
         let mut last_lat: f64 = 0.0;
@@ -171,13 +173,58 @@ impl ReplayState {
                     }
                     first_lat = None;
                     first_lon = None;
+                    lap_index = 0;
+                    prev_pct = None;
                     laps.push(LapInfo {
                         lap_number: lap_num as i32,
+                        lap_index: 0,
                         start_frame: i,
                         lap_time_secs: None,
+                        incomplete: false,
                     });
+                } else {
+                    // Same lap number — check for reset checkpoint (pct going backwards)
+                    let current_pct = f
+                        .timing
+                        .as_ref()
+                        .and_then(|t| t.lap_distance_pct)
+                        .map(|p| p.0);
+                    if let (Some(cur), Some(prev_p)) = (current_pct, prev_pct) {
+                        if prev_p - cur > 0.001 {
+                            // Reset detected — mark current segment as incomplete
+                            if let Some(last) = laps.last_mut() {
+                                // Compute elapsed time from frame timestamps
+                                let t_start = frames[last.start_frame].meta.timestamp;
+                                let t_end = f.meta.timestamp;
+                                let elapsed = (t_end - t_start).num_milliseconds() as f64 / 1000.0;
+                                if elapsed > 0.0 {
+                                    last.lap_time_secs = Some(elapsed);
+                                }
+                                last.incomplete = true;
+                            }
+                            lap_index += 1;
+                            first_lat = None;
+                            first_lon = None;
+                            laps.push(LapInfo {
+                                lap_number: lap_num as i32,
+                                lap_index,
+                                start_frame: i,
+                                lap_time_secs: None,
+                                incomplete: false,
+                            });
+                        }
+                    }
                 }
                 last_lap = Some(lap_num);
+            }
+            // Track lap_distance_pct for reset detection
+            let current_pct = f
+                .timing
+                .as_ref()
+                .and_then(|t| t.lap_distance_pct)
+                .map(|p| p.0);
+            if current_pct.is_some() {
+                prev_pct = current_pct;
             }
             // Track first and last GPS positions for the current lap
             if let Some(m) = &f.motion {
@@ -194,17 +241,24 @@ impl ReplayState {
             }
         }
 
-        // Build track outline from GPS data — use fastest complete lap
+        // Build track outline from GPS data — use fastest complete lap, or bin by pct
         let best_lap = laps
             .iter()
             .enumerate()
-            .filter(|(_i, lap)| lap.lap_time_secs.is_some())
+            .filter(|(_i, lap)| lap.lap_time_secs.is_some() && !lap.incomplete)
             .min_by(|(_, a), (_, b)| {
                 a.lap_time_secs
                     .unwrap()
                     .partial_cmp(&b.lap_time_secs.unwrap())
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
+
+        // Check if frames have lap_distance_pct for binning fallback
+        let has_pct = frames
+            .iter()
+            .any(|f| f.timing.as_ref().and_then(|t| t.lap_distance_pct).is_some());
+        let use_binning = best_lap.is_none() && has_pct;
+
         let (start_frame, end_frame) = if let Some((idx, _)) = best_lap {
             let start = laps[idx].start_frame;
             let end = if idx + 1 < laps.len() {
@@ -217,29 +271,74 @@ impl ReplayState {
             (0, total_frames)
         };
 
-        let mut track_outline = Vec::new();
-        let mut last_lat = f64::NAN;
-        let mut last_lng = f64::NAN;
         const MIN_DELTA: f64 = 0.000005;
-        for f in &frames[start_frame..end_frame] {
-            let on_track = f.vehicle.as_ref().and_then(|v| v.on_track);
-            if on_track == Some(false) {
-                continue;
-            }
-            if let Some(m) = &f.motion {
-                if let (Some(lat), Some(lng)) = (m.latitude, m.longitude) {
-                    if lat == 0.0 && lng == 0.0 {
-                        continue;
+        let track_outline = if use_binning {
+            // Bin GPS points by lap_distance_pct — handles resets without teleport lines
+            const NUM_BINS: usize = 5000;
+            let mut bins: Vec<Option<[f64; 2]>> = vec![None; NUM_BINS];
+            for f in &frames[start_frame..end_frame] {
+                let on_track = f.vehicle.as_ref().and_then(|v| v.on_track);
+                if on_track == Some(false) {
+                    continue;
+                }
+                let pct = match f
+                    .timing
+                    .as_ref()
+                    .and_then(|t| t.lap_distance_pct)
+                    .map(|p| p.0)
+                {
+                    Some(p) if p > 0.0 && p <= 1.0 => p,
+                    _ => continue,
+                };
+                if let Some(m) = &f.motion {
+                    if let (Some(lat), Some(lng)) = (m.latitude, m.longitude) {
+                        if lat == 0.0 && lng == 0.0 {
+                            continue;
+                        }
+                        let bin = ((pct * NUM_BINS as f32) as usize).min(NUM_BINS - 1);
+                        bins[bin] = Some([lat, lng]);
                     }
-                    if (lat - last_lat).abs() < MIN_DELTA && (lng - last_lng).abs() < MIN_DELTA {
-                        continue;
-                    }
-                    track_outline.push([lat, lng]);
-                    last_lat = lat;
-                    last_lng = lng;
                 }
             }
-        }
+            let mut points = Vec::new();
+            let mut last_lat = f64::NAN;
+            let mut last_lng = f64::NAN;
+            for bin in bins.into_iter().flatten() {
+                if (bin[0] - last_lat).abs() < MIN_DELTA && (bin[1] - last_lng).abs() < MIN_DELTA {
+                    continue;
+                }
+                points.push(bin);
+                last_lat = bin[0];
+                last_lng = bin[1];
+            }
+            points
+        } else {
+            // Sequential scan of a single complete lap (or all frames if no pct)
+            let mut points = Vec::new();
+            let mut last_lat = f64::NAN;
+            let mut last_lng = f64::NAN;
+            for f in &frames[start_frame..end_frame] {
+                let on_track = f.vehicle.as_ref().and_then(|v| v.on_track);
+                if on_track == Some(false) {
+                    continue;
+                }
+                if let Some(m) = &f.motion {
+                    if let (Some(lat), Some(lng)) = (m.latitude, m.longitude) {
+                        if lat == 0.0 && lng == 0.0 {
+                            continue;
+                        }
+                        if (lat - last_lat).abs() < MIN_DELTA && (lng - last_lng).abs() < MIN_DELTA
+                        {
+                            continue;
+                        }
+                        points.push([lat, lng]);
+                        last_lat = lat;
+                        last_lng = lng;
+                    }
+                }
+            }
+            points
+        };
 
         let mut hasher = DefaultHasher::new();
         file_size.hash(&mut hasher);

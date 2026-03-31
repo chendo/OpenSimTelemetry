@@ -7,7 +7,8 @@ Use `just` for all build tasks:
 ```
 just check    # Fast compilation check (no codegen)
 just build    # Debug build
-just test     # Run all workspace tests
+just test         # Run all workspace tests (full output)
+just test-summary # Run all tests, show only pass/fail counts and failures
 just lint     # Clippy lints
 just fmt      # Format code
 just ci       # Full CI check (check + lint + test + fmt-check)
@@ -32,6 +33,6 @@ just run      # Run server locally (debug, port 9100)
 
 ## Testing
 
-`just test` runs all workspace tests. The server tests use `tower::ServiceExt::oneshot` for HTTP endpoint testing without binding a port.
+Use `just test-summary` to run tests and see pass/fail counts (preferred for CI checks). Use `just test` for full output when debugging failures. The server tests use `tower::ServiceExt::oneshot` for HTTP endpoint testing without binding a port.
 
 Do NOT use `cargo run` or `just run` during automated work — it binds port 9100 and blocks.

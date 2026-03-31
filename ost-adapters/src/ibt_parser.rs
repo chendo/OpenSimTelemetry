@@ -122,8 +122,12 @@ impl VarValue {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LapInfo {
     pub lap_number: i32,
+    /// 0-based index within the same lap number, increments on each reset
+    pub lap_index: u32,
     pub start_frame: usize,
     pub lap_time_secs: Option<f64>,
+    /// True if the lap was interrupted by a reset checkpoint
+    pub incomplete: bool,
 }
 
 /// Main .ibt file header (48 bytes at offset 0)
@@ -466,6 +470,10 @@ impl IbtFile {
             .var_index
             .get("Lon")
             .map(|&i| self.var_headers[i].clone());
+        let lap_dist_pct_vh = self
+            .var_index
+            .get("LapDistPct")
+            .map(|&i| self.var_headers[i].clone());
 
         // Bulk read all sample buffers
         let buf_len = self.header.buf_len as usize;
@@ -509,6 +517,8 @@ impl IbtFile {
         // Find lap transitions
         let mut laps: Vec<LapInfo> = Vec::new();
         let mut prev_lap: Option<i32> = None;
+        let mut prev_pct: Option<f32> = None;
+        let mut lap_index: u32 = 0;
         // Track first and last GPS positions to validate the lap forms a closed loop
         let mut first_lat: Option<f64> = None;
         let mut first_lon: Option<f64> = None;
@@ -580,12 +590,59 @@ impl IbtFile {
                 // Start tracking new lap
                 first_lat = None;
                 first_lon = None;
+                lap_index = 0;
                 laps.push(LapInfo {
                     lap_number: lap_num,
+                    lap_index: 0,
                     start_frame: i,
                     lap_time_secs: None,
+                    incomplete: false,
                 });
                 prev_lap = Some(lap_num);
+                prev_pct = None; // Reset pct tracking on lap transition
+            } else {
+                // Same lap number — check for reset checkpoint (pct going backwards)
+                let current_pct = lap_dist_pct_vh
+                    .as_ref()
+                    .and_then(|vh| read_f32(frame_buf, vh));
+                if let (Some(cur), Some(prev_p)) = (current_pct, prev_pct) {
+                    if prev_p - cur > 0.001 {
+                        // Reset detected — mark current segment as incomplete with elapsed time
+                        if let Some(last) = laps.last_mut() {
+                            let t_end = session_time_vh
+                                .as_ref()
+                                .and_then(|vh| read_f64(frame_buf, vh));
+                            let prev_frame = &bulk_buf[last.start_frame * buf_len..][..buf_len];
+                            let t_start = session_time_vh
+                                .as_ref()
+                                .and_then(|vh| read_f64(prev_frame, vh));
+                            last.lap_time_secs = match (t_start, t_end) {
+                                (Some(ts), Some(te)) if te > ts => Some(te - ts),
+                                _ => None,
+                            };
+                            last.incomplete = true;
+                        }
+                        // Start new segment with incremented lap_index
+                        lap_index += 1;
+                        first_lat = None;
+                        first_lon = None;
+                        laps.push(LapInfo {
+                            lap_number: lap_num,
+                            lap_index,
+                            start_frame: i,
+                            lap_time_secs: None,
+                            incomplete: false,
+                        });
+                    }
+                }
+            }
+
+            // Track lap_distance_pct for reset detection
+            let current_pct = lap_dist_pct_vh
+                .as_ref()
+                .and_then(|vh| read_f32(frame_buf, vh));
+            if current_pct.is_some() {
+                prev_pct = current_pct;
             }
 
             // Track first and last GPS positions for the current lap
@@ -608,8 +665,10 @@ impl IbtFile {
         Ok(laps)
     }
 
-    /// Extract the track outline as lat/lng pairs from the fastest complete lap.
-    /// Falls back to scanning all frames if no complete lap exists.
+    /// Extract the track outline as lat/lng pairs.
+    /// Uses the fastest complete lap when available for a clean single-lap outline.
+    /// Falls back to binning all frames by `LapDistPct` to handle resets and
+    /// incomplete laps without teleport lines.
     /// Only includes points where the car is on-track (`IsOnTrack == true`).
     pub fn build_track_outline(&mut self, laps: &[LapInfo]) -> Result<Vec<[f64; 2]>> {
         let record_count = self.record_count();
@@ -617,12 +676,11 @@ impl IbtFile {
             return Ok(Vec::new());
         }
 
-        // Find fastest complete lap. Only laps validated by iRacing's LapLastLapTime
-        // and LapDistPct (reaching ~100%) have lap_time_secs set.
+        // Find fastest complete lap
         let best_lap = laps
             .iter()
             .enumerate()
-            .filter(|(_i, lap)| lap.lap_time_secs.is_some())
+            .filter(|(_i, lap)| lap.lap_time_secs.is_some() && !lap.incomplete)
             .min_by(|(_, a), (_, b)| {
                 a.lap_time_secs
                     .unwrap()
@@ -630,7 +688,23 @@ impl IbtFile {
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
-        // Determine frame range to scan
+        let lat_vh = self.var_index.get("Lat").map(|&i| &self.var_headers[i]);
+        let lon_vh = self.var_index.get("Lon").map(|&i| &self.var_headers[i]);
+        let (lat_vh, lon_vh) = match (lat_vh, lon_vh) {
+            (Some(a), Some(b)) => (a.clone(), b.clone()),
+            _ => return Ok(Vec::new()),
+        };
+        let on_track_vh = self
+            .var_index
+            .get("IsOnTrack")
+            .map(|&i| self.var_headers[i].clone());
+        let lap_dist_pct_vh = self
+            .var_index
+            .get("LapDistPct")
+            .map(|&i| self.var_headers[i].clone());
+
+        // Determine frame range and whether to use binning
+        let use_binning = best_lap.is_none() && lap_dist_pct_vh.is_some();
         let (start_frame, end_frame) = if let Some((idx, _lap)) = best_lap {
             let start = laps[idx].start_frame;
             let end = if idx + 1 < laps.len() {
@@ -643,20 +717,6 @@ impl IbtFile {
             (0, record_count)
         };
 
-        let lat_vh = self.var_index.get("Lat").map(|&i| &self.var_headers[i]);
-        let lon_vh = self.var_index.get("Lon").map(|&i| &self.var_headers[i]);
-
-        let (lat_vh, lon_vh) = match (lat_vh, lon_vh) {
-            (Some(a), Some(b)) => (a.clone(), b.clone()),
-            _ => return Ok(Vec::new()), // No GPS data available
-        };
-
-        let on_track_vh = self
-            .var_index
-            .get("IsOnTrack")
-            .map(|&i| self.var_headers[i].clone());
-
-        // Read only the frame range we need
         let buf_len = self.header.buf_len as usize;
         let range_bytes = buf_len * (end_frame - start_frame);
         let seek_offset = self.sample_data_offset + (start_frame * buf_len) as u64;
@@ -664,48 +724,117 @@ impl IbtFile {
         let mut bulk_buf = vec![0u8; range_bytes];
         self.file.read_exact(&mut bulk_buf)?;
 
-        let mut points = Vec::new();
-        let mut last_lat = f64::NAN;
-        let mut last_lng = f64::NAN;
-        const MIN_DELTA: f64 = 0.000005;
+        let read_f32 = |frame_buf: &[u8], vh: &VarHeader| -> Option<f32> {
+            let off = vh.offset as usize;
+            if off + 4 <= frame_buf.len() {
+                Some(f32::from_le_bytes(
+                    frame_buf[off..off + 4].try_into().unwrap(),
+                ))
+            } else {
+                None
+            }
+        };
 
         let frame_count = end_frame - start_frame;
-        for i in 0..frame_count {
-            let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
 
-            if let Some(ref vh) = on_track_vh {
-                let off = vh.offset as usize;
-                if off < frame_buf.len() && frame_buf[off] == 0 {
+        if use_binning {
+            // Bin GPS points by LapDistPct — handles resets without teleport lines
+            const NUM_BINS: usize = 5000;
+            let pct_vh = lap_dist_pct_vh.as_ref().unwrap();
+            let mut bins: Vec<Option<[f64; 2]>> = vec![None; NUM_BINS];
+
+            for i in 0..frame_count {
+                let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
+
+                if let Some(ref vh) = on_track_vh {
+                    let off = vh.offset as usize;
+                    if off < frame_buf.len() && frame_buf[off] == 0 {
+                        continue;
+                    }
+                }
+
+                let pct = match read_f32(frame_buf, pct_vh) {
+                    Some(p) if p > 0.0 && p <= 1.0 => p,
+                    _ => continue,
+                };
+
+                let lat_off = lat_vh.offset as usize;
+                if lat_off + 8 > frame_buf.len() {
                     continue;
                 }
+                let lat = f64::from_le_bytes(frame_buf[lat_off..lat_off + 8].try_into().unwrap());
+
+                let lon_off = lon_vh.offset as usize;
+                if lon_off + 8 > frame_buf.len() {
+                    continue;
+                }
+                let lng = f64::from_le_bytes(frame_buf[lon_off..lon_off + 8].try_into().unwrap());
+
+                if lat == 0.0 && lng == 0.0 {
+                    continue;
+                }
+
+                let bin = ((pct * NUM_BINS as f32) as usize).min(NUM_BINS - 1);
+                bins[bin] = Some([lat, lng]);
             }
 
-            let lat_off = lat_vh.offset as usize;
-            if lat_off + 8 > frame_buf.len() {
-                continue;
+            // Collect non-empty bins with MIN_DELTA dedup
+            let mut points = Vec::new();
+            let mut last_lat = f64::NAN;
+            let mut last_lng = f64::NAN;
+            const MIN_DELTA: f64 = 0.000005;
+            for bin in bins.into_iter().flatten() {
+                if (bin[0] - last_lat).abs() < MIN_DELTA && (bin[1] - last_lng).abs() < MIN_DELTA {
+                    continue;
+                }
+                points.push(bin);
+                last_lat = bin[0];
+                last_lng = bin[1];
             }
-            let lat = f64::from_le_bytes(frame_buf[lat_off..lat_off + 8].try_into().unwrap());
+            Ok(points)
+        } else {
+            // Sequential scan of a single complete lap (or all frames if no pct available)
+            let mut points = Vec::new();
+            let mut last_lat = f64::NAN;
+            let mut last_lng = f64::NAN;
+            const MIN_DELTA: f64 = 0.000005;
 
-            let lon_off = lon_vh.offset as usize;
-            if lon_off + 8 > frame_buf.len() {
-                continue;
+            for i in 0..frame_count {
+                let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
+
+                if let Some(ref vh) = on_track_vh {
+                    let off = vh.offset as usize;
+                    if off < frame_buf.len() && frame_buf[off] == 0 {
+                        continue;
+                    }
+                }
+
+                let lat_off = lat_vh.offset as usize;
+                if lat_off + 8 > frame_buf.len() {
+                    continue;
+                }
+                let lat = f64::from_le_bytes(frame_buf[lat_off..lat_off + 8].try_into().unwrap());
+
+                let lon_off = lon_vh.offset as usize;
+                if lon_off + 8 > frame_buf.len() {
+                    continue;
+                }
+                let lng = f64::from_le_bytes(frame_buf[lon_off..lon_off + 8].try_into().unwrap());
+
+                if lat == 0.0 && lng == 0.0 {
+                    continue;
+                }
+
+                if (lat - last_lat).abs() < MIN_DELTA && (lng - last_lng).abs() < MIN_DELTA {
+                    continue;
+                }
+
+                points.push([lat, lng]);
+                last_lat = lat;
+                last_lng = lng;
             }
-            let lng = f64::from_le_bytes(frame_buf[lon_off..lon_off + 8].try_into().unwrap());
-
-            if lat == 0.0 && lng == 0.0 {
-                continue;
-            }
-
-            if (lat - last_lat).abs() < MIN_DELTA && (lng - last_lng).abs() < MIN_DELTA {
-                continue;
-            }
-
-            points.push([lat, lng]);
-            last_lat = lat;
-            last_lng = lng;
+            Ok(points)
         }
-
-        Ok(points)
     }
 
     /// Read a contiguous range of samples in a single disk operation.

@@ -76,6 +76,14 @@ run-release:
 test:
     cargo test --workspace
 
+# Run all tests, summary only (shows pass/fail counts and any failures)
+test-summary:
+    #!/usr/bin/env bash
+    output=$(cargo test --workspace 2>&1)
+    code=$?
+    echo "$output" | grep -E "^(test result:|failures:$|    [a-z_])"
+    exit $code
+
 # Run clippy lints
 lint:
     cargo clippy --all-targets -- -D warnings

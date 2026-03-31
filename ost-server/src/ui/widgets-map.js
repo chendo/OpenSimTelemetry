@@ -139,7 +139,7 @@ class TrackMapWidget extends Widget {
             y: (b.maxLat - lat) * scale + offY,
         });
 
-        // Draw track outline (single validated lap — no teleport gaps expected)
+        // Draw track outline
         ctx.beginPath();
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
         ctx.lineWidth = 2.5 * dpr;

@@ -351,6 +351,7 @@ body {
     height: 6px;
     background: rgba(255,255,255,0.2);
 }
+.seek-lap-tick.incomplete { background: rgba(255, 100, 100, 0.3); }
 .seek-lap-label {
     position: absolute;
     top: 6px;
@@ -1652,6 +1653,8 @@ body {
 .replay-lap-item:last-child { border-radius: 0 0 6px 6px; }
 .replay-lap-item.current { border-left: 2px solid var(--accent); }
 .replay-lap-item.best .replay-lap-time { color: var(--accent); font-weight: 600; }
+.replay-lap-item.incomplete .replay-lap-num { font-style: italic; opacity: 0.6; }
+.replay-lap-item.incomplete .replay-lap-time { color: var(--text-muted); font-style: italic; }
 .replay-lap-num { white-space: nowrap; }
 .replay-lap-time { font-family: var(--font-mono); white-space: nowrap; }
 
