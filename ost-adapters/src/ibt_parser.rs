@@ -128,6 +128,8 @@ pub struct LapInfo {
     pub lap_time_secs: Option<f64>,
     /// True if the lap was interrupted by a reset checkpoint
     pub incomplete: bool,
+    /// Reason the lap is invalid (e.g., "Off track"), None if valid
+    pub invalid_reason: Option<String>,
 }
 
 /// Main .ibt file header (48 bytes at offset 0)
@@ -474,6 +476,10 @@ impl IbtFile {
             .var_index
             .get("LapDistPct")
             .map(|&i| self.var_headers[i].clone());
+        let on_track_vh = self
+            .var_index
+            .get("IsOnTrack")
+            .map(|&i| self.var_headers[i].clone());
 
         // Bulk read all sample buffers
         let buf_len = self.header.buf_len as usize;
@@ -514,6 +520,9 @@ impl IbtFile {
         let mut sum_pct_sq: f64 = 0.0;
         let mut pct_count: usize = 0;
         let mut lap_index: u32 = 0;
+        let mut consecutive_off_track: usize = 0;
+        let mut went_off_track = false;
+        let mut had_pct_discontinuity = false;
 
         for i in 0..record_count {
             let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
@@ -587,10 +596,20 @@ impl IbtFile {
                             }
                         }
                     }
+
+                    // Mark invalid laps
+                    if went_off_track {
+                        laps[prev_idx].invalid_reason = Some("Off track".to_string());
+                    } else if had_pct_discontinuity {
+                        laps[prev_idx].invalid_reason = Some("Lap % discontinuity".to_string());
+                    }
                 }
 
                 // Start tracking new lap
                 lap_index = 0;
+                consecutive_off_track = 0;
+                went_off_track = false;
+                had_pct_discontinuity = false;
                 sum_pct = 0.0;
                 sum_pct_sq = 0.0;
                 pct_count = 0;
@@ -600,6 +619,7 @@ impl IbtFile {
                     start_frame: i,
                     lap_time_secs: None,
                     incomplete: false,
+                    invalid_reason: None,
                 });
                 prev_lap = Some(lap_num);
                 prev_pct = None; // Reset pct tracking on lap transition
@@ -627,6 +647,9 @@ impl IbtFile {
                         }
                         // Start new segment with incremented lap_index
                         lap_index += 1;
+                        consecutive_off_track = 0;
+                        went_off_track = false;
+                        had_pct_discontinuity = false;
                         sum_pct = 0.0;
                         sum_pct_sq = 0.0;
                         pct_count = 0;
@@ -636,6 +659,7 @@ impl IbtFile {
                             start_frame: i,
                             lap_time_secs: None,
                             incomplete: false,
+                            invalid_reason: None,
                         });
                     }
                 }
@@ -646,11 +670,31 @@ impl IbtFile {
                 .as_ref()
                 .and_then(|vh| read_f32(frame_buf, vh));
             if let Some(p) = current_pct {
+                // Detect forward pct discontinuity (>1% jump in a single frame = teleport)
+                if let Some(pp) = prev_pct {
+                    let delta = p - pp;
+                    if delta > 0.01 {
+                        had_pct_discontinuity = true;
+                    }
+                }
                 let pd = p as f64;
                 sum_pct += pd;
                 sum_pct_sq += pd * pd;
                 pct_count += 1;
                 prev_pct = current_pct;
+            }
+
+            // Track off-track status (>5 consecutive frames = significant excursion)
+            if let Some(ref vh) = on_track_vh {
+                let off = vh.offset as usize;
+                if off < frame_buf.len() && frame_buf[off] == 0 {
+                    consecutive_off_track += 1;
+                    if consecutive_off_track > 5 {
+                        went_off_track = true;
+                    }
+                } else {
+                    consecutive_off_track = 0;
+                }
             }
         }
 
@@ -668,16 +712,30 @@ impl IbtFile {
             return Ok(Vec::new());
         }
 
-        // Find fastest complete lap
-        let best_lap = laps
+        // Find best lap for outline: prefer clean (no off-track), then any complete
+        let time_cmp = |a: &&LapInfo, b: &&LapInfo| {
+            a.lap_time_secs
+                .unwrap()
+                .partial_cmp(&b.lap_time_secs.unwrap())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        };
+        let complete_laps: Vec<_> = laps
             .iter()
             .enumerate()
             .filter(|(_i, lap)| lap.lap_time_secs.is_some() && !lap.incomplete)
-            .min_by(|(_, a), (_, b)| {
-                a.lap_time_secs
-                    .unwrap()
-                    .partial_cmp(&b.lap_time_secs.unwrap())
-                    .unwrap_or(std::cmp::Ordering::Equal)
+            .collect();
+        // Tier 1: fastest clean lap (no off-track, no invalid reason)
+        let best_lap = complete_laps
+            .iter()
+            .filter(|(_i, lap)| lap.invalid_reason.is_none())
+            .min_by(|(_, a), (_, b)| time_cmp(a, b))
+            .copied()
+            // Tier 2: fastest complete lap (even if off-track)
+            .or_else(|| {
+                complete_laps
+                    .iter()
+                    .min_by(|(_, a), (_, b)| time_cmp(a, b))
+                    .copied()
             });
 
         let lat_vh = self.var_index.get("Lat").map(|&i| &self.var_headers[i]);

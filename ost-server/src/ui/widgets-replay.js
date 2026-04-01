@@ -170,12 +170,12 @@ class ReplayPlayer {
         }
         this.lapGroup.style.display = '';
 
-        // Find best lap (lowest lap_time_secs, excluding null and incomplete)
+        // Find best lap (lowest lap_time_secs, excluding null, incomplete, and invalid)
         let bestIdx = -1, bestTime = Infinity;
         for (let i = 0; i < this.laps.length; i++) {
             const lap = this.laps[i];
             const lt = lap.lap_time_secs;
-            if (lt != null && !lap.incomplete && lt < bestTime) { bestTime = lt; bestIdx = i; }
+            if (lt != null && !lap.incomplete && !lap.invalid_reason && lt < bestTime) { bestTime = lt; bestIdx = i; }
         }
         this._bestLapIdx = bestIdx;
 
@@ -184,14 +184,16 @@ class ReplayPlayer {
         for (let i = 0; i < this.laps.length; i++) {
             const lap = this.laps[i];
             const isIncomplete = lap.incomplete === true;
+            const isInvalid = !!lap.invalid_reason;
             const item = document.createElement('div');
-            item.className = 'replay-lap-item' + (i === bestIdx ? ' best' : '') + (isIncomplete ? ' incomplete' : '');
+            item.className = 'replay-lap-item' + (i === bestIdx ? ' best' : '') + (isIncomplete ? ' incomplete' : '') + (isInvalid ? ' invalid' : '');
             item.dataset.idx = i;
             const isBest = i === bestIdx;
             const timeStr = lap.lap_time_secs != null ? this.fmtLapTime(lap.lap_time_secs) : '--';
             const lapLabel = lap.lap_index > 0 ? `Lap ${lap.lap_number}.${lap.lap_index}` : `Lap ${lap.lap_number}`;
             const suffix = isIncomplete ? ' (reset)' : '';
-            item.innerHTML = `<span class="replay-lap-num">${isBest ? '\u2605 ' : ''}${lapLabel}${suffix}</span><span class="replay-lap-time">${timeStr}</span>`;
+            const asterisk = isInvalid ? `<span class="lap-invalid-marker" title="${lap.invalid_reason}">*</span>` : '';
+            item.innerHTML = `<span class="replay-lap-num">${isBest ? '\u2605 ' : ''}${lapLabel}${suffix}</span><span class="replay-lap-time">${timeStr}${asterisk}</span>`;
             if (isIncomplete && lap.lap_time_secs != null) {
                 item.title = `Elapsed: ${this.fmtLapTime(lap.lap_time_secs)}`;
             }

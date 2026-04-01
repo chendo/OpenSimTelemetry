@@ -127,8 +127,9 @@ fn main() {
             f64::NAN
         };
 
+        let invalid = lap.invalid_reason.as_deref().unwrap_or("");
         println!(
-            "{:<5} {:<6} {:<8} {:<12} {:<8.4} {:<8.4} {:<8}{incomplete}",
+            "{:<5} {:<6} {:<8} {:<12} {:<8.4} {:<8.4} {:<8} {}{incomplete}",
             i,
             lap.lap_number,
             num_frames,
@@ -136,6 +137,7 @@ fn main() {
             avg_pct,
             std_dev,
             pct_values.len(),
+            invalid,
         );
     }
 
@@ -153,7 +155,7 @@ fn main() {
 
     if let Some(best) = laps
         .iter()
-        .filter(|l| l.lap_time_secs.is_some() && !l.incomplete)
+        .filter(|l| l.lap_time_secs.is_some() && !l.incomplete && l.invalid_reason.is_none())
         .min_by(|a, b| {
             a.lap_time_secs
                 .unwrap()
@@ -169,6 +171,42 @@ fn main() {
         );
     } else {
         println!("Best lap: none (no complete laps)");
+    }
+
+    // Dump pct for a specific lap if --dump-lap N is specified
+    if let Some(dump_arg) = env::args().nth(2) {
+        if dump_arg == "--dump-lap" {
+            if let Some(lap_idx_str) = env::args().nth(3) {
+                let lap_idx: usize = lap_idx_str.parse().unwrap();
+                if lap_idx < laps.len() {
+                    let end = if lap_idx + 1 < laps.len() {
+                        laps[lap_idx + 1].start_frame
+                    } else {
+                        record_count
+                    };
+                    println!(
+                        "\n=== Pct Dump for lap index {} (frames {}..{}) ===",
+                        lap_idx, laps[lap_idx].start_frame, end
+                    );
+                    let mut prev_pct = f32::NAN;
+                    for frame in laps[lap_idx].start_frame..end.min(record_count) {
+                        if let Some(off) = pct_off {
+                            let p = read_f32(frame, off);
+                            let delta = if prev_pct.is_nan() { 0.0 } else { p - prev_pct };
+                            // Only print on significant change or discontinuity
+                            if delta.abs() > 0.005
+                                || prev_pct.is_nan()
+                                || frame == laps[lap_idx].start_frame
+                                || frame == end - 1
+                            {
+                                println!("  frame {}: pct={:.6} delta={:.6}", frame, p, delta);
+                            }
+                            prev_pct = p;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Track outline

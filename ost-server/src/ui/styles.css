@@ -1655,6 +1655,7 @@ body {
 .replay-lap-item.best .replay-lap-time { color: var(--accent); font-weight: 600; }
 .replay-lap-item.incomplete .replay-lap-num { font-style: italic; opacity: 0.6; }
 .replay-lap-item.incomplete .replay-lap-time { color: var(--text-muted); font-style: italic; }
+.lap-invalid-marker { color: #f59e0b; cursor: help; margin-left: 2px; font-weight: 600; }
 .replay-lap-num { white-space: nowrap; }
 .replay-lap-time { font-family: var(--font-mono); white-space: nowrap; }
 

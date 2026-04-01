@@ -148,8 +148,8 @@ e2e-install:
     cd tests/e2e && npm install
 
 # Inspect an .ibt file (lap index, track outline diagnostics)
-ibt-inspect file:
-    cargo run -p ost-adapters --example ibt_inspect -- "{{file}}"
+ibt-inspect file +args='':
+    cargo run -p ost-adapters --example ibt_inspect -- "{{file}}" {{args}}
 
 # Clean build artifacts
 clean:

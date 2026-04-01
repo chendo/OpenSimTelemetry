@@ -141,6 +141,9 @@ impl ReplayState {
         let mut sum_pct_sq: f64 = 0.0;
         let mut pct_count: usize = 0;
         let mut lap_index: u32 = 0;
+        let mut consecutive_off_track: usize = 0;
+        let mut went_off_track = false;
+        let mut had_pct_discontinuity = false;
         for (i, f) in frames.iter().enumerate() {
             if let Some(lap_num) = f.timing.as_ref().and_then(|t| t.lap_number) {
                 if last_lap.is_some_and(|prev| prev != lap_num) {
@@ -168,8 +171,18 @@ impl ReplayState {
                                 .filter(|&t| t > 0.0);
                             laps[prev_idx].lap_time_secs = lap_time;
                         }
+                        // Mark invalid laps
+                        let prev_idx = laps.len() - 1;
+                        if went_off_track {
+                            laps[prev_idx].invalid_reason = Some("Off track".to_string());
+                        } else if had_pct_discontinuity {
+                            laps[prev_idx].invalid_reason = Some("Lap % discontinuity".to_string());
+                        }
                     }
                     lap_index = 0;
+                    consecutive_off_track = 0;
+                    went_off_track = false;
+                    had_pct_discontinuity = false;
                     sum_pct = 0.0;
                     sum_pct_sq = 0.0;
                     pct_count = 0;
@@ -180,6 +193,7 @@ impl ReplayState {
                         start_frame: i,
                         lap_time_secs: None,
                         incomplete: false,
+                        invalid_reason: None,
                     });
                 } else {
                     // Same lap number — check for reset checkpoint (pct going backwards)
@@ -202,6 +216,9 @@ impl ReplayState {
                                 last.incomplete = true;
                             }
                             lap_index += 1;
+                            consecutive_off_track = 0;
+                            went_off_track = false;
+                            had_pct_discontinuity = false;
                             sum_pct = 0.0;
                             sum_pct_sq = 0.0;
                             pct_count = 0;
@@ -211,6 +228,7 @@ impl ReplayState {
                                 start_frame: i,
                                 lap_time_secs: None,
                                 incomplete: false,
+                                invalid_reason: None,
                             });
                         }
                     }
@@ -224,24 +242,53 @@ impl ReplayState {
                 .and_then(|t| t.lap_distance_pct)
                 .map(|p| p.0);
             if let Some(p) = current_pct {
+                // Detect forward pct discontinuity (>1% jump in a single frame = teleport)
+                if let Some(pp) = prev_pct {
+                    let delta = p - pp;
+                    if delta > 0.01 {
+                        had_pct_discontinuity = true;
+                    }
+                }
                 let pd = p as f64;
                 sum_pct += pd;
                 sum_pct_sq += pd * pd;
                 pct_count += 1;
                 prev_pct = current_pct;
             }
+            // Track off-track status (>5 consecutive frames = significant excursion)
+            match f.vehicle.as_ref().and_then(|v| v.on_track) {
+                Some(false) => {
+                    consecutive_off_track += 1;
+                    if consecutive_off_track > 5 {
+                        went_off_track = true;
+                    }
+                }
+                _ => consecutive_off_track = 0,
+            }
         }
 
-        // Build track outline from GPS data — use fastest complete lap, or bin by pct
-        let best_lap = laps
+        // Build track outline — prefer clean lap, then any complete, then binning
+        let time_cmp = |a: &&LapInfo, b: &&LapInfo| {
+            a.lap_time_secs
+                .unwrap()
+                .partial_cmp(&b.lap_time_secs.unwrap())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        };
+        let complete_laps: Vec<_> = laps
             .iter()
             .enumerate()
             .filter(|(_i, lap)| lap.lap_time_secs.is_some() && !lap.incomplete)
-            .min_by(|(_, a), (_, b)| {
-                a.lap_time_secs
-                    .unwrap()
-                    .partial_cmp(&b.lap_time_secs.unwrap())
-                    .unwrap_or(std::cmp::Ordering::Equal)
+            .collect();
+        let best_lap = complete_laps
+            .iter()
+            .filter(|(_i, lap)| lap.invalid_reason.is_none())
+            .min_by(|(_, a), (_, b)| time_cmp(a, b))
+            .copied()
+            .or_else(|| {
+                complete_laps
+                    .iter()
+                    .min_by(|(_, a), (_, b)| time_cmp(a, b))
+                    .copied()
             });
 
         // Check if frames have lap_distance_pct for binning fallback
