@@ -133,34 +133,32 @@ impl ReplayState {
             .and_then(|v| v.car_name.clone())
             .unwrap_or_default();
 
-        // Build lap index from timing data, validating with GPS proximity (start ≈ end)
-        fn gps_distance_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-            let dlat_m = (lat2 - lat1) * 111_320.0;
-            let mid_lat = (lat1 + lat2) / 2.0;
-            let dlon_m = (lon2 - lon1) * 111_320.0 * mid_lat.to_radians().cos();
-            (dlat_m * dlat_m + dlon_m * dlon_m).sqrt()
-        }
-
+        // Build lap index from timing data, validating with pct distribution
         let mut laps: Vec<LapInfo> = Vec::new();
         let mut last_lap: Option<u32> = None;
         let mut prev_pct: Option<f32> = None;
+        let mut sum_pct: f64 = 0.0;
+        let mut sum_pct_sq: f64 = 0.0;
+        let mut pct_count: usize = 0;
         let mut lap_index: u32 = 0;
-        let mut first_lat: Option<f64> = None;
-        let mut first_lon: Option<f64> = None;
-        let mut last_lat: f64 = 0.0;
-        let mut last_lon: f64 = 0.0;
         for (i, f) in frames.iter().enumerate() {
             if let Some(lap_num) = f.timing.as_ref().and_then(|t| t.lap_number) {
                 if last_lap.is_some_and(|prev| prev != lap_num) {
-                    // Lap transition — validate previous lap forms a closed loop (within 10m)
+                    // Lap transition — validate previous lap via avg pct (~0.5 = full lap)
                     if !laps.is_empty() {
-                        let lap_complete = if let (Some(flat), Some(flon)) = (first_lat, first_lon)
-                        {
-                            gps_distance_m(flat, flon, last_lat, last_lon) < 10.0
+                        let avg_pct = if pct_count > 0 {
+                            sum_pct / pct_count as f64
                         } else {
-                            false
+                            0.0
                         };
-                        if lap_complete {
+                        let std_dev = if pct_count > 1 {
+                            let variance = (sum_pct_sq - sum_pct * sum_pct / pct_count as f64)
+                                / (pct_count - 1) as f64;
+                            variance.max(0.0).sqrt()
+                        } else {
+                            0.0
+                        };
+                        if avg_pct > 0.45 && avg_pct < 0.55 && std_dev > 0.25 && std_dev < 0.32 {
                             let prev_idx = laps.len() - 1;
                             let lap_time = f
                                 .timing
@@ -171,9 +169,10 @@ impl ReplayState {
                             laps[prev_idx].lap_time_secs = lap_time;
                         }
                     }
-                    first_lat = None;
-                    first_lon = None;
                     lap_index = 0;
+                    sum_pct = 0.0;
+                    sum_pct_sq = 0.0;
+                    pct_count = 0;
                     prev_pct = None;
                     laps.push(LapInfo {
                         lap_number: lap_num as i32,
@@ -190,7 +189,7 @@ impl ReplayState {
                         .and_then(|t| t.lap_distance_pct)
                         .map(|p| p.0);
                     if let (Some(cur), Some(prev_p)) = (current_pct, prev_pct) {
-                        if prev_p - cur > 0.001 {
+                        if prev_p - cur > 0.01 && prev_p < 0.99 {
                             // Reset detected — mark current segment as incomplete
                             if let Some(last) = laps.last_mut() {
                                 // Compute elapsed time from frame timestamps
@@ -203,8 +202,9 @@ impl ReplayState {
                                 last.incomplete = true;
                             }
                             lap_index += 1;
-                            first_lat = None;
-                            first_lon = None;
+                            sum_pct = 0.0;
+                            sum_pct_sq = 0.0;
+                            pct_count = 0;
                             laps.push(LapInfo {
                                 lap_number: lap_num as i32,
                                 lap_index,
@@ -217,27 +217,18 @@ impl ReplayState {
                 }
                 last_lap = Some(lap_num);
             }
-            // Track lap_distance_pct for reset detection
+            // Track lap_distance_pct for reset detection and lap completion
             let current_pct = f
                 .timing
                 .as_ref()
                 .and_then(|t| t.lap_distance_pct)
                 .map(|p| p.0);
-            if current_pct.is_some() {
+            if let Some(p) = current_pct {
+                let pd = p as f64;
+                sum_pct += pd;
+                sum_pct_sq += pd * pd;
+                pct_count += 1;
                 prev_pct = current_pct;
-            }
-            // Track first and last GPS positions for the current lap
-            if let Some(m) = &f.motion {
-                if let (Some(lat), Some(lon)) = (m.latitude, m.longitude) {
-                    if lat != 0.0 || lon != 0.0 {
-                        if first_lat.is_none() {
-                            first_lat = Some(lat);
-                            first_lon = Some(lon);
-                        }
-                        last_lat = lat;
-                        last_lon = lon;
-                    }
-                }
             }
         }
 

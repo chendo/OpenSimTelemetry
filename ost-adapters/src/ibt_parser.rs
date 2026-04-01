@@ -435,6 +435,14 @@ impl IbtFile {
         &self.var_headers
     }
 
+    pub fn header_ref(&self) -> &IbtHeader {
+        &self.header
+    }
+
+    pub fn sample_data_offset(&self) -> u64 {
+        self.sample_data_offset
+    }
+
     pub fn file_size(&self) -> u64 {
         self.file_size
     }
@@ -461,14 +469,6 @@ impl IbtFile {
         let session_time_vh = self
             .var_index
             .get("SessionTime")
-            .map(|&i| self.var_headers[i].clone());
-        let lat_vh = self
-            .var_index
-            .get("Lat")
-            .map(|&i| self.var_headers[i].clone());
-        let lon_vh = self
-            .var_index
-            .get("Lon")
             .map(|&i| self.var_headers[i].clone());
         let lap_dist_pct_vh = self
             .var_index
@@ -506,24 +506,14 @@ impl IbtFile {
             }
         };
 
-        /// Approximate distance in meters between two WGS84 points
-        fn gps_distance_m(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-            let dlat_m = (lat2 - lat1) * 111_320.0;
-            let mid_lat = (lat1 + lat2) / 2.0;
-            let dlon_m = (lon2 - lon1) * 111_320.0 * mid_lat.to_radians().cos();
-            (dlat_m * dlat_m + dlon_m * dlon_m).sqrt()
-        }
-
         // Find lap transitions
         let mut laps: Vec<LapInfo> = Vec::new();
         let mut prev_lap: Option<i32> = None;
         let mut prev_pct: Option<f32> = None;
+        let mut sum_pct: f64 = 0.0;
+        let mut sum_pct_sq: f64 = 0.0;
+        let mut pct_count: usize = 0;
         let mut lap_index: u32 = 0;
-        // Track first and last GPS positions to validate the lap forms a closed loop
-        let mut first_lat: Option<f64> = None;
-        let mut first_lon: Option<f64> = None;
-        let mut last_lat: f64 = 0.0;
-        let mut last_lon: f64 = 0.0;
 
         for i in 0..record_count {
             let frame_buf = &bulk_buf[i * buf_len..(i + 1) * buf_len];
@@ -539,13 +529,25 @@ impl IbtFile {
                 if !laps.is_empty() {
                     let prev_idx = laps.len() - 1;
 
-                    // A complete lap must start and end at the same position (within 10m)
-                    let lap_complete = if let (Some(flat), Some(flon)) = (first_lat, first_lon) {
-                        let dist = gps_distance_m(flat, flon, last_lat, last_lon);
-                        dist < 10.0
+                    // A complete lap has avg LapDistPct ~0.5 (car drove the full track).
+                    // Partial/reset laps have skewed avg (e.g., 0.17 for resets near S/F).
+                    // A complete lap has avg LapDistPct ~0.5 and stddev ~0.289
+                    // (uniform distribution from driving the full track).
+                    // Partial/reset laps have skewed avg and abnormal stddev.
+                    let avg_pct = if pct_count > 0 {
+                        sum_pct / pct_count as f64
                     } else {
-                        false
+                        0.0
                     };
+                    let std_dev = if pct_count > 1 {
+                        let variance = (sum_pct_sq - sum_pct * sum_pct / pct_count as f64)
+                            / (pct_count - 1) as f64;
+                        variance.max(0.0).sqrt()
+                    } else {
+                        0.0
+                    };
+                    let lap_complete =
+                        avg_pct > 0.45 && avg_pct < 0.55 && std_dev > 0.25 && std_dev < 0.32;
 
                     if lap_complete {
                         // Use iRacing's official LapLastLapTime (set at start of new lap)
@@ -588,9 +590,10 @@ impl IbtFile {
                 }
 
                 // Start tracking new lap
-                first_lat = None;
-                first_lon = None;
                 lap_index = 0;
+                sum_pct = 0.0;
+                sum_pct_sq = 0.0;
+                pct_count = 0;
                 laps.push(LapInfo {
                     lap_number: lap_num,
                     lap_index: 0,
@@ -606,7 +609,7 @@ impl IbtFile {
                     .as_ref()
                     .and_then(|vh| read_f32(frame_buf, vh));
                 if let (Some(cur), Some(prev_p)) = (current_pct, prev_pct) {
-                    if prev_p - cur > 0.001 {
+                    if prev_p - cur > 0.01 && prev_p < 0.99 {
                         // Reset detected — mark current segment as incomplete with elapsed time
                         if let Some(last) = laps.last_mut() {
                             let t_end = session_time_vh
@@ -624,8 +627,9 @@ impl IbtFile {
                         }
                         // Start new segment with incremented lap_index
                         lap_index += 1;
-                        first_lat = None;
-                        first_lon = None;
+                        sum_pct = 0.0;
+                        sum_pct_sq = 0.0;
+                        pct_count = 0;
                         laps.push(LapInfo {
                             lap_number: lap_num,
                             lap_index,
@@ -637,28 +641,16 @@ impl IbtFile {
                 }
             }
 
-            // Track lap_distance_pct for reset detection
+            // Track lap_distance_pct for reset detection and lap completion (avg pct)
             let current_pct = lap_dist_pct_vh
                 .as_ref()
                 .and_then(|vh| read_f32(frame_buf, vh));
-            if current_pct.is_some() {
+            if let Some(p) = current_pct {
+                let pd = p as f64;
+                sum_pct += pd;
+                sum_pct_sq += pd * pd;
+                pct_count += 1;
                 prev_pct = current_pct;
-            }
-
-            // Track first and last GPS positions for the current lap
-            if let (Some(ref la_vh), Some(ref lo_vh)) = (&lat_vh, &lon_vh) {
-                if let (Some(lat), Some(lon)) =
-                    (read_f64(frame_buf, la_vh), read_f64(frame_buf, lo_vh))
-                {
-                    if lat != 0.0 || lon != 0.0 {
-                        if first_lat.is_none() {
-                            first_lat = Some(lat);
-                            first_lon = Some(lon);
-                        }
-                        last_lat = lat;
-                        last_lon = lon;
-                    }
-                }
             }
         }
 
@@ -1935,9 +1927,9 @@ SessionInfo:
         let mut ibt = IbtFile::open(&fixture_path()).expect("Failed to open .ibt file");
         let laps = ibt.build_lap_index().unwrap();
         assert_eq!(laps.len(), 18);
-        // Lap 0 is the out-lap (incomplete — no transition before it)
+        // Lap 0 is the out-lap (pct reaches ~1.0 so it gets a time now)
         assert_eq!(laps[0].lap_number, 0);
-        assert!(laps[0].lap_time_secs.is_none());
+        assert!(laps[0].lap_time_secs.is_some());
         // Lap 1 has a timed lap (~55.5s around Tsukuba)
         assert_eq!(laps[1].lap_number, 1);
         let t1 = laps[1].lap_time_secs.expect("Lap 1 should have a time");
@@ -1945,9 +1937,9 @@ SessionInfo:
             t1 > 54.0 && t1 < 57.0,
             "Lap 1 time {t1} out of range for Tsukuba"
         );
-        // 12 timed laps total (laps 1-12)
+        // 13 timed laps total (out-lap + laps 1-12)
         let timed_count = laps.iter().filter(|l| l.lap_time_secs.is_some()).count();
-        assert_eq!(timed_count, 12);
+        assert_eq!(timed_count, 13);
     }
 
     #[test]

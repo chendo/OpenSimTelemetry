@@ -147,6 +147,10 @@ e2e-docker:
 e2e-install:
     cd tests/e2e && npm install
 
+# Inspect an .ibt file (lap index, track outline diagnostics)
+ibt-inspect file:
+    cargo run -p ost-adapters --example ibt_inspect -- "{{file}}"
+
 # Clean build artifacts
 clean:
     cargo clean

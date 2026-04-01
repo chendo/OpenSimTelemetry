@@ -106,7 +106,7 @@ impl HistoryBuffer {
                         .and_then(|t| t.lap_distance_pct)
                         .map(|p| p.0);
                     if let (Some(cur), Some(prev_pct)) = (current_pct, self.last_lap_distance_pct) {
-                        if prev_pct - cur > 0.001 {
+                        if prev_pct - cur > 0.01 && prev_pct < 0.99 {
                             // Reset detected — mark the current segment as incomplete
                             if let Some(last_lap) = self.laps.last_mut() {
                                 // Compute elapsed time from frame timestamps
