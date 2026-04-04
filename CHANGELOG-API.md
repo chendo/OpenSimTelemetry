@@ -4,6 +4,52 @@ Breaking changes and migration notes for consumers of the OpenSimTelemetry API (
 
 ## Unreleased
 
+### Columnar Telemetry Endpoint (New)
+
+New endpoint for fetching telemetry data in columnar (channel-per-array) format, optimized for charting, analysis, and data export.
+
+**Endpoint:** `GET /api/telemetry/columns`
+
+**Query parameters:**
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `channels` | Yes | — | Comma-separated channel patterns (see below) |
+| `source` | No | `history` | Data source: `history` or `replay` |
+| `duration` | No | `60s` | Time window for history source (e.g., `60s`, `5m`, `1h`) |
+| `start` | No | — | 0-based frame index (overrides `duration` for history) |
+| `count` | No | 7200 | Max frames to return (capped at 7200) |
+
+**Channel pattern syntax:**
+
+- **Literal:** `vehicle.speed` — exact path match
+- **Prefix:** `vehicle` — matches all paths under `vehicle.*`
+- **Glob:** `vehicle.*` (one segment), `wheels.**` (any depth)
+- **Regex:** `/engine\..*/` — slash-delimited regex against full path
+
+**Response format:**
+
+```json
+{
+  "meta": {
+    "frame_count": 3600,
+    "channels": ["vehicle.speed", "engine.rpm"],
+    "first_tick": 1000,
+    "last_tick": 4600
+  },
+  "columns": {
+    "meta.tick": [1000, 1001, 1002, ...],
+    "meta.timestamp": ["2026-04-04T12:00:00Z", ...],
+    "vehicle.speed": [45.2, 45.8, 46.1, ...],
+    "engine.rpm": [6500, 6800, 7100, ...]
+  }
+}
+```
+
+- `meta.tick` and `meta.timestamp` are always included as built-in columns
+- Missing values are `null`
+- Values preserve their original type (number, string, boolean)
+
 ### "Metrics" renamed to "Channels" (Breaking)
 
 All API endpoints, query parameters, and request/response fields using "metrics" have been renamed to "channels" to align with standard telemetry software terminology.

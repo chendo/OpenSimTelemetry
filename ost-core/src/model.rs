@@ -1501,6 +1501,147 @@ pub fn compute_section_delta(
     serde_json::Value::Object(delta)
 }
 
+// =============================================================================
+// Columnar data utilities — path enumeration, value extraction, channel selector
+// =============================================================================
+
+/// Recursively enumerate all leaf (non-object) paths in a JSON Value.
+/// Returns dotted paths like "vehicle.speed", "wheels.fl.tyre.pressure".
+pub fn enumerate_leaf_paths(value: &serde_json::Value, prefix: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    if let Some(obj) = value.as_object() {
+        for (key, val) in obj {
+            let path = if prefix.is_empty() {
+                key.clone()
+            } else {
+                format!("{}.{}", prefix, key)
+            };
+            if val.is_object() {
+                paths.extend(enumerate_leaf_paths(val, &path));
+            } else {
+                paths.push(path);
+            }
+        }
+    }
+    paths.sort();
+    paths
+}
+
+/// Extract a value at a dot-separated path from a JSON Value.
+/// e.g. "vehicle.speed" walks into {"vehicle": {"speed": 45.2}} → Some(45.2)
+pub fn extract_value_at_path(value: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
+    let mut current = value;
+    for part in path.split('.') {
+        current = current.get(part)?;
+    }
+    Some(current.clone())
+}
+
+/// A parsed channel selector supporting literal, glob, and regex patterns.
+#[derive(Debug)]
+pub struct ChannelSelector {
+    patterns: Vec<ChannelPattern>,
+}
+
+#[derive(Debug)]
+enum ChannelPattern {
+    Literal(String),
+    Glob(regex::Regex),
+    Regex(regex::Regex),
+}
+
+impl ChannelSelector {
+    /// Parse a comma-separated channel selector string.
+    ///
+    /// Pattern types:
+    /// - Literal: `vehicle.speed` (no wildcards)
+    /// - Glob: `vehicle.*`, `wheels.**` (`*` = one segment, `**` = any depth)
+    /// - Regex: `/pattern/` (slash-delimited)
+    pub fn parse(input: &str) -> Result<Self, String> {
+        let mut patterns = Vec::new();
+        for part in input.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            if part.starts_with('/') && part.ends_with('/') && part.len() > 2 {
+                // Regex pattern
+                let re_str = &part[1..part.len() - 1];
+                let re = regex::Regex::new(re_str)
+                    .map_err(|e| format!("invalid regex '{}': {}", re_str, e))?;
+                patterns.push(ChannelPattern::Regex(re));
+            } else if part.contains('*') || part.contains('?') {
+                // Glob pattern — convert to regex
+                let mut re_str = String::from("^");
+                let mut chars = part.chars().peekable();
+                while let Some(ch) = chars.next() {
+                    match ch {
+                        '*' => {
+                            if chars.peek() == Some(&'*') {
+                                chars.next(); // consume second *
+                                              // Skip trailing dot if present (e.g., "wheels.**" or "wheels.**.")
+                                if chars.peek() == Some(&'.') {
+                                    chars.next();
+                                }
+                                re_str.push_str(".+");
+                            } else {
+                                re_str.push_str("[^.]+");
+                            }
+                        }
+                        '?' => re_str.push_str("[^.]"),
+                        '.' => re_str.push_str("\\."),
+                        c => {
+                            if regex::escape(&c.to_string()) != c.to_string() {
+                                re_str.push_str(&regex::escape(&c.to_string()));
+                            } else {
+                                re_str.push(c);
+                            }
+                        }
+                    }
+                }
+                re_str.push('$');
+                let re = regex::Regex::new(&re_str)
+                    .map_err(|e| format!("invalid glob '{}': {}", part, e))?;
+                patterns.push(ChannelPattern::Glob(re));
+            } else {
+                patterns.push(ChannelPattern::Literal(part.to_string()));
+            }
+        }
+        Ok(ChannelSelector { patterns })
+    }
+
+    /// Resolve patterns against available paths, returning sorted deduplicated matches.
+    pub fn resolve(&self, available_paths: &[String]) -> Vec<String> {
+        let mut matched = Vec::new();
+        let mut seen = HashSet::new();
+        for pattern in &self.patterns {
+            match pattern {
+                ChannelPattern::Literal(lit) => {
+                    // Exact match or prefix match (e.g., "vehicle" matches "vehicle.speed")
+                    for path in available_paths {
+                        if (path == lit
+                            || path.starts_with(lit)
+                                && path.as_bytes().get(lit.len()) == Some(&b'.'))
+                            && seen.insert(path.clone())
+                        {
+                            matched.push(path.clone());
+                        }
+                    }
+                }
+                ChannelPattern::Glob(re) | ChannelPattern::Regex(re) => {
+                    for path in available_paths {
+                        if re.is_match(path) && seen.insert(path.clone()) {
+                            matched.push(path.clone());
+                        }
+                    }
+                }
+            }
+        }
+        matched.sort();
+        matched
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1905,5 +2046,130 @@ mod tests {
         // weather was absent, now present
         assert!(map.get("weather").is_some());
         assert!(!map["weather"].is_null());
+    }
+
+    // =========================================================================
+    // Columnar utility tests
+    // =========================================================================
+
+    #[test]
+    fn test_enumerate_leaf_paths() {
+        let val = serde_json::json!({
+            "vehicle": { "speed": 45.0, "rpm": 6500 },
+            "meta": { "tick": 1, "game": "test" }
+        });
+        let paths = enumerate_leaf_paths(&val, "");
+        assert!(paths.contains(&"vehicle.speed".to_string()));
+        assert!(paths.contains(&"vehicle.rpm".to_string()));
+        assert!(paths.contains(&"meta.tick".to_string()));
+        assert!(paths.contains(&"meta.game".to_string()));
+        // Should not contain intermediate objects
+        assert!(!paths.contains(&"vehicle".to_string()));
+    }
+
+    #[test]
+    fn test_extract_value_at_path() {
+        let val = serde_json::json!({
+            "vehicle": { "speed": 45.2 },
+            "meta": { "game": "iracing" }
+        });
+        assert_eq!(
+            extract_value_at_path(&val, "vehicle.speed"),
+            Some(serde_json::json!(45.2))
+        );
+        assert_eq!(
+            extract_value_at_path(&val, "meta.game"),
+            Some(serde_json::json!("iracing"))
+        );
+        assert_eq!(extract_value_at_path(&val, "nonexistent.path"), None);
+    }
+
+    #[test]
+    fn test_channel_selector_literal() {
+        let sel = ChannelSelector::parse("vehicle.speed,meta.tick").unwrap();
+        let available = vec![
+            "meta.game".to_string(),
+            "meta.tick".to_string(),
+            "vehicle.rpm".to_string(),
+            "vehicle.speed".to_string(),
+        ];
+        let matched = sel.resolve(&available);
+        assert_eq!(matched, vec!["meta.tick", "vehicle.speed"]);
+    }
+
+    #[test]
+    fn test_channel_selector_literal_prefix() {
+        let sel = ChannelSelector::parse("vehicle").unwrap();
+        let available = vec![
+            "meta.tick".to_string(),
+            "vehicle.rpm".to_string(),
+            "vehicle.speed".to_string(),
+        ];
+        let matched = sel.resolve(&available);
+        assert_eq!(matched, vec!["vehicle.rpm", "vehicle.speed"]);
+    }
+
+    #[test]
+    fn test_channel_selector_glob() {
+        let sel = ChannelSelector::parse("vehicle.*").unwrap();
+        let available = vec![
+            "meta.tick".to_string(),
+            "vehicle.rpm".to_string(),
+            "vehicle.speed".to_string(),
+            "vehicle.electronics.abs".to_string(),
+        ];
+        let matched = sel.resolve(&available);
+        // * matches one segment only, so vehicle.electronics.abs should NOT match
+        assert_eq!(matched, vec!["vehicle.rpm", "vehicle.speed"]);
+    }
+
+    #[test]
+    fn test_channel_selector_double_glob() {
+        let sel = ChannelSelector::parse("wheels.**").unwrap();
+        let available = vec![
+            "meta.tick".to_string(),
+            "wheels.fl.tyre.pressure".to_string(),
+            "wheels.fr.tyre.pressure".to_string(),
+        ];
+        let matched = sel.resolve(&available);
+        assert_eq!(
+            matched,
+            vec!["wheels.fl.tyre.pressure", "wheels.fr.tyre.pressure"]
+        );
+    }
+
+    #[test]
+    fn test_channel_selector_regex() {
+        let sel = ChannelSelector::parse("/engine\\..*/").unwrap();
+        let available = vec![
+            "engine.rpm".to_string(),
+            "engine.water_temp".to_string(),
+            "vehicle.speed".to_string(),
+        ];
+        let matched = sel.resolve(&available);
+        assert_eq!(matched, vec!["engine.rpm", "engine.water_temp"]);
+    }
+
+    #[test]
+    fn test_channel_selector_mixed() {
+        let sel = ChannelSelector::parse("meta.tick,vehicle.*,/engine\\..*/").unwrap();
+        let available = vec![
+            "engine.rpm".to_string(),
+            "engine.water_temp".to_string(),
+            "meta.tick".to_string(),
+            "vehicle.rpm".to_string(),
+            "vehicle.speed".to_string(),
+        ];
+        let matched = sel.resolve(&available);
+        assert_eq!(
+            matched,
+            vec![
+                "engine.rpm",
+                "engine.water_temp",
+                "meta.tick",
+                "vehicle.rpm",
+                "vehicle.speed"
+            ]
+        );
     }
 }

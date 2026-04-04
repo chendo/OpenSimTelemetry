@@ -15,7 +15,10 @@ use axum::{
     Json, Router,
 };
 use futures::stream::{self, Stream, StreamExt as FuturesStreamExt};
-use ost_core::model::{compute_section_delta, ChannelMask, TelemetryFrame};
+use ost_core::model::{
+    compute_section_delta, enumerate_leaf_paths, extract_value_at_path, ChannelMask,
+    ChannelSelector, TelemetryFrame,
+};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::time::Duration;
@@ -329,6 +332,7 @@ pub fn create_router(state: AppState) -> Router {
         // History buffer config & aggregation
         .route("/api/history/config", post(history_config))
         .route("/api/history/aggregate", get(history_aggregate))
+        .route("/api/telemetry/columns", get(columnar_telemetry))
         // Conversion endpoints
         .route(
             "/api/convert/ibt",
@@ -1455,11 +1459,7 @@ fn parse_duration_str(s: &str) -> f64 {
 /// e.g. "vehicle.speed" → frame.vehicle.speed, "engine.rpm" → frame.engine.rpm
 fn extract_channel_value(frame: &TelemetryFrame, path: &str) -> Option<f64> {
     let json = serde_json::to_value(frame).ok()?;
-    let mut current = &json;
-    for part in path.split('.') {
-        current = current.get(part)?;
-    }
-    current.as_f64()
+    extract_value_at_path(&json, path)?.as_f64()
 }
 
 async fn history_aggregate(
@@ -1504,6 +1504,155 @@ async fn history_aggregate(
     }
 
     Json(serde_json::Value::Object(result))
+}
+
+// =============================================================================
+// Columnar telemetry endpoint
+// =============================================================================
+
+#[derive(Deserialize)]
+struct ColumnarQuery {
+    /// Comma-separated channel patterns (literal, glob with *, or /regex/)
+    channels: String,
+    /// Data source: "history" (default) or "replay"
+    #[serde(default = "default_source")]
+    source: String,
+    /// Time window for history source (e.g., "60s", "5m"). Default: "60s"
+    duration: Option<String>,
+    /// 0-based start frame index
+    start: Option<usize>,
+    /// Number of frames (max 7200)
+    count: Option<usize>,
+}
+
+fn default_source() -> String {
+    "history".to_string()
+}
+
+async fn columnar_telemetry(
+    State(state): State<AppState>,
+    Query(params): Query<ColumnarQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let selector =
+        ChannelSelector::parse(&params.channels).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    // Collect frames from the requested source
+    let frames: Vec<TelemetryFrame> = match params.source.as_str() {
+        "replay" => {
+            let replay_guard = state.replay.read().await;
+            let replay = replay_guard
+                .as_ref()
+                .ok_or((StatusCode::NOT_FOUND, "no replay loaded".to_string()))?;
+            let start = params.start.unwrap_or(0);
+            let count = params.count.unwrap_or(7200).min(7200);
+            replay
+                .get_frames_range(start, count)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+                .into_iter()
+                .map(|(_, f)| f)
+                .collect()
+        }
+        _ => {
+            // history (default)
+            let history = state.history.read().await;
+            if let (Some(start), Some(count)) = (params.start, params.count) {
+                let count = count.min(7200);
+                history
+                    .get_frames_range(start, count)
+                    .into_iter()
+                    .map(|(_, f)| f.clone())
+                    .collect()
+            } else {
+                let duration_secs =
+                    parse_duration_str(&params.duration.unwrap_or_else(|| "60s".to_string()));
+                history
+                    .get_frames_since_secs(duration_secs)
+                    .into_iter()
+                    .cloned()
+                    .collect()
+            }
+        }
+    };
+
+    if frames.is_empty() {
+        return Ok(Json(serde_json::json!({
+            "meta": { "frame_count": 0, "channels": [] },
+            "columns": {}
+        })));
+    }
+
+    // Enumerate available paths from a sample frame (union of first and last for coverage)
+    let first_json = serde_json::to_value(&frames[0]).unwrap_or_default();
+    let mut available = enumerate_leaf_paths(&first_json, "");
+    if frames.len() > 1 {
+        let last_json = serde_json::to_value(frames.last().unwrap()).unwrap_or_default();
+        for path in enumerate_leaf_paths(&last_json, "") {
+            if !available.contains(&path) {
+                available.push(path);
+            }
+        }
+        available.sort();
+    }
+
+    // Resolve channel patterns against available paths
+    let mut matched = selector.resolve(&available);
+
+    // Always include meta.tick and meta.timestamp if not already present
+    for builtin in &["meta.tick", "meta.timestamp"] {
+        let s = builtin.to_string();
+        if !matched.contains(&s) {
+            matched.insert(0, s);
+        }
+    }
+
+    // Build columns
+    let mut columns: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    for ch in &matched {
+        columns.insert(
+            ch.clone(),
+            serde_json::Value::Array(Vec::with_capacity(frames.len())),
+        );
+    }
+
+    let mut first_tick: Option<serde_json::Value> = None;
+    let mut last_tick: Option<serde_json::Value> = None;
+
+    for frame in &frames {
+        let json = serde_json::to_value(frame).unwrap_or_default();
+        for ch in &matched {
+            let val = extract_value_at_path(&json, ch).unwrap_or(serde_json::Value::Null);
+            if ch == "meta.tick" {
+                if first_tick.is_none() && !val.is_null() {
+                    first_tick = Some(val.clone());
+                }
+                if !val.is_null() {
+                    last_tick = Some(val.clone());
+                }
+            }
+            columns
+                .get_mut(ch)
+                .unwrap()
+                .as_array_mut()
+                .unwrap()
+                .push(val);
+        }
+    }
+
+    // Filter out meta.tick/meta.timestamp from the user-visible channel list
+    let user_channels: Vec<&String> = matched
+        .iter()
+        .filter(|c| *c != "meta.tick" && *c != "meta.timestamp")
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "meta": {
+            "frame_count": frames.len(),
+            "channels": user_channels,
+            "first_tick": first_tick,
+            "last_tick": last_tick,
+        },
+        "columns": columns,
+    })))
 }
 
 /// Start the playback background task that pushes frames through the broadcast channel
