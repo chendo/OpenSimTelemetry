@@ -1235,6 +1235,14 @@ function openSettingsModal() {
             <button type="submit" class="btn-add">Add</button>
         </form>
         <div class="settings-divider"></div>
+        <div class="settings-section-title">CORS Origins</div>
+        <div style="font-size:0.6rem;color:var(--text-muted);margin-bottom:6px">Allow cross-origin API access from these origins. Leave empty for same-origin only.</div>
+        <div id="settings-cors-list" style="margin-bottom:8px"><div class="no-data">Loading...</div></div>
+        <form id="settings-cors-form" style="display:flex;gap:6px;align-items:center">
+            <input type="text" class="cm-form-input" id="settings-cors-origin" placeholder="https://example.com" style="flex:1" required>
+            <button type="submit" class="btn-add">Add</button>
+        </form>
+        <div class="settings-divider"></div>
         <div class="settings-section-title">API</div>
         <div class="api-docs" style="font-size:0.65rem">
             <div class="api-section">
@@ -1398,6 +1406,71 @@ function openSettingsModal() {
             // Re-render after short delay for SSE update
             setTimeout(renderSinksList, 300);
         } catch(e) { console.error(e); }
+    });
+
+    // CORS Origins
+    const corsListEl = modal.querySelector('#settings-cors-list');
+    let corsOrigins = [];
+
+    async function loadCorsOrigins() {
+        try {
+            const res = await apiFetch(apiBase() + '/api/settings/cors');
+            const data = await res.json();
+            corsOrigins = data.origins || [];
+            renderCorsOrigins();
+        } catch(e) {
+            corsListEl.innerHTML = '<div class="no-data">Failed to load</div>';
+        }
+    }
+
+    function renderCorsOrigins() {
+        if (corsOrigins.length === 0) {
+            corsListEl.innerHTML = '<div class="no-data">No origins configured (same-origin only)</div>';
+        } else {
+            corsListEl.innerHTML = corsOrigins.map((origin, i) =>
+                `<div class="sink-item"><div style="font-size:0.7rem;font-family:monospace">${origin}</div><button class="btn-delete" data-idx="${i}">Delete</button></div>`
+            ).join('');
+            corsListEl.querySelectorAll('.btn-delete').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    corsOrigins.splice(parseInt(btn.dataset.idx), 1);
+                    await saveCorsOrigins();
+                });
+            });
+        }
+    }
+
+    async function saveCorsOrigins() {
+        try {
+            await apiFetch(apiBase() + '/api/settings/cors', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ origins: corsOrigins }),
+            });
+            renderCorsOrigins();
+        } catch(e) { console.error(e); }
+    }
+
+    loadCorsOrigins();
+
+    modal.querySelector('#settings-cors-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = modal.querySelector('#settings-cors-origin');
+        const origin = input.value.trim();
+        if (!origin) return;
+        // Basic validation: must start with http:// or https://
+        if (!/^https?:\/\/.+/.test(origin)) {
+            input.setCustomValidity('Must be a URL starting with http:// or https://');
+            input.reportValidity();
+            return;
+        }
+        input.setCustomValidity('');
+        // Remove trailing slash for consistency
+        const normalized = origin.replace(/\/+$/, '');
+        if (!corsOrigins.includes(normalized)) {
+            corsOrigins.push(normalized);
+            await saveCorsOrigins();
+        }
+        input.value = '';
     });
 
     // Unit preferences

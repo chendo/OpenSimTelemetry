@@ -2024,3 +2024,315 @@ async fn test_session_view_page_with_wrong_token() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ==================== CORS Middleware ====================
+
+#[tokio::test]
+async fn test_cors_no_origin_header_passes_through() {
+    let app = app();
+    let response = app
+        .oneshot(
+            authed_request()
+                .uri("/api/adapters")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    // No CORS headers should be present
+    assert!(response
+        .headers()
+        .get("access-control-allow-origin")
+        .is_none());
+}
+
+#[tokio::test]
+async fn test_cors_unlisted_origin_gets_no_cors_headers() {
+    let (app, state) = app_with_state();
+    // Add an allowed origin that is NOT the one we'll send
+    *state.cors_origins.write().unwrap() = vec!["https://allowed.example.com".to_string()];
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .uri("/api/adapters")
+                .header("Origin", "https://evil.example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    // No CORS headers for non-matching origin
+    assert!(response
+        .headers()
+        .get("access-control-allow-origin")
+        .is_none());
+}
+
+#[tokio::test]
+async fn test_cors_allowed_origin_gets_cors_headers() {
+    let (app, state) = app_with_state();
+    *state.cors_origins.write().unwrap() = vec!["https://myapp.example.com".to_string()];
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .uri("/api/adapters")
+                .header("Origin", "https://myapp.example.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response
+            .headers()
+            .get("access-control-allow-origin")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "https://myapp.example.com"
+    );
+    assert!(response.headers().get("vary").is_some());
+}
+
+#[tokio::test]
+async fn test_cors_preflight_returns_204_for_allowed_origin() {
+    let (app, state) = app_with_state();
+    *state.cors_origins.write().unwrap() = vec!["https://dashboard.example.com".to_string()];
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/api/adapters")
+                .header("Origin", "https://dashboard.example.com")
+                .header("Access-Control-Request-Method", "GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+    assert_eq!(
+        response
+            .headers()
+            .get("access-control-allow-origin")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "https://dashboard.example.com"
+    );
+    assert!(response
+        .headers()
+        .get("access-control-allow-methods")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("GET"));
+    assert!(response
+        .headers()
+        .get("access-control-allow-headers")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("Authorization"));
+    assert_eq!(
+        response
+            .headers()
+            .get("access-control-max-age")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "3600"
+    );
+}
+
+#[tokio::test]
+async fn test_cors_preflight_no_cors_for_unlisted_origin() {
+    let (app, state) = app_with_state();
+    *state.cors_origins.write().unwrap() = vec!["https://allowed.example.com".to_string()];
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/api/adapters")
+                .header("Origin", "https://notallowed.example.com")
+                .header("Access-Control-Request-Method", "GET")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // Should pass through without CORS headers (no 204 shortcircuit)
+    assert!(response
+        .headers()
+        .get("access-control-allow-origin")
+        .is_none());
+}
+
+#[tokio::test]
+async fn test_cors_empty_origins_means_same_origin_only() {
+    let (app, _state) = app_with_state();
+    // cors_origins defaults to empty vec
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .uri("/api/adapters")
+                .header("Origin", "https://anysite.com")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert!(response
+        .headers()
+        .get("access-control-allow-origin")
+        .is_none());
+}
+
+// ==================== CORS Settings API ====================
+
+#[tokio::test]
+async fn test_get_cors_settings_returns_empty_by_default() {
+    let app = app();
+    let response = app
+        .oneshot(
+            authed_request()
+                .uri("/api/settings/cors")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(body["origins"], serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn test_get_cors_settings_returns_configured_origins() {
+    let (app, state) = app_with_state();
+    *state.cors_origins.write().unwrap() = vec![
+        "https://a.example.com".to_string(),
+        "https://b.example.com".to_string(),
+    ];
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .uri("/api/settings/cors")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(
+        body["origins"],
+        serde_json::json!(["https://a.example.com", "https://b.example.com"])
+    );
+}
+
+#[tokio::test]
+async fn test_put_cors_settings_updates_runtime_state() {
+    let (app, state) = app_with_state();
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .method("PUT")
+                .uri("/api/settings/cors")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "origins": ["https://new.example.com"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    let body: serde_json::Value =
+        serde_json::from_str(&body_string(response.into_body()).await).unwrap();
+    assert_eq!(body["status"], "ok");
+    assert_eq!(
+        body["origins"],
+        serde_json::json!(["https://new.example.com"])
+    );
+
+    // Verify runtime state was updated
+    let origins = state.cors_origins.read().unwrap().clone();
+    assert_eq!(origins, vec!["https://new.example.com"]);
+}
+
+#[tokio::test]
+async fn test_put_cors_settings_rejects_missing_origins() {
+    let app = app();
+    let response = app
+        .oneshot(
+            authed_request()
+                .method("PUT")
+                .uri("/api/settings/cors")
+                .header("Content-Type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
+async fn test_put_cors_filters_empty_strings() {
+    let (app, state) = app_with_state();
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .method("PUT")
+                .uri("/api/settings/cors")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({
+                        "origins": ["https://valid.com", "", "  ", "https://also-valid.com"]
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    let origins = state.cors_origins.read().unwrap().clone();
+    assert_eq!(origins, vec!["https://valid.com", "https://also-valid.com"]);
+}
+
+#[tokio::test]
+async fn test_cors_settings_require_auth() {
+    let app = app();
+    // No auth header
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/settings/cors")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 401);
+}

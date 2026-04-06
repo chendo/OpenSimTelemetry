@@ -24,7 +24,6 @@ use std::convert::Infallible;
 use std::time::Duration;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::sync::CancellationToken;
-use tower_http::cors::CorsLayer;
 
 /// Get the current process resident set size (RSS) in bytes.
 fn get_process_rss_bytes() -> Option<u64> {
@@ -360,47 +359,79 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/sessions/:id", delete(delete_session))
         .route("/api/sessions/:id/load", post(load_session))
         .route("/api/sessions/stats", get(session_stats))
-        .route("/api/key/reset", post(reset_api_key));
-
-    let cors = build_cors_layer();
+        .route("/api/key/reset", post(reset_api_key))
+        .route(
+            "/api/settings/cors",
+            get(get_cors_settings).put(put_cors_settings),
+        );
 
     router
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
         ))
-        .layer(cors)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            cors_middleware,
+        ))
         .with_state(state)
 }
 
-/// Build CORS layer. Allows configured origins for API endpoints when
-/// OST_CORS_ORIGINS is set, otherwise same-origin only.
-fn build_cors_layer() -> CorsLayer {
-    use tower_http::cors::AllowOrigin;
+/// Dynamic CORS middleware. Checks the request Origin against `state.cors_origins`
+/// at runtime, allowing origins to be added/removed without a restart.
+/// For OPTIONS preflights with a matching origin, returns 204 immediately.
+async fn cors_middleware(
+    State(state): State<AppState>,
+    req: axum::http::Request<axum::body::Body>,
+    next: Next,
+) -> axum::response::Response {
+    let origin = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
 
-    let origins = std::env::var("OST_CORS_ORIGINS")
-        .ok()
-        .filter(|s| !s.is_empty());
+    let origin = match origin {
+        Some(o) => o,
+        None => return next.run(req).await, // Same-origin, no CORS needed
+    };
 
-    match origins {
-        Some(origins_str) => {
-            let origins: Vec<_> = origins_str
-                .split(',')
-                .filter_map(|s| s.trim().parse().ok())
-                .collect();
-            tracing::info!("CORS enabled for origins: {origins_str}");
-            CorsLayer::new()
-                .allow_origin(AllowOrigin::list(origins))
-                .allow_methods([
-                    axum::http::Method::GET,
-                    axum::http::Method::POST,
-                    axum::http::Method::DELETE,
-                ])
-                .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
-                .max_age(Duration::from_secs(3600))
-        }
-        None => CorsLayer::new(),
+    // Check if origin is allowed
+    let allowed = {
+        let origins = state.cors_origins.read().unwrap();
+        origins.iter().any(|o| o == &origin)
+    };
+
+    if !allowed {
+        return next.run(req).await; // No CORS headers → browser blocks
     }
+
+    // Handle preflight
+    if req.method() == axum::http::Method::OPTIONS {
+        return axum::http::Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, &origin)
+            .header(
+                header::ACCESS_CONTROL_ALLOW_METHODS,
+                "GET, POST, PUT, DELETE",
+            )
+            .header(
+                header::ACCESS_CONTROL_ALLOW_HEADERS,
+                "Authorization, Content-Type",
+            )
+            .header(header::ACCESS_CONTROL_MAX_AGE, "3600")
+            .header(header::VARY, "Origin")
+            .body(axum::body::Body::empty())
+            .unwrap()
+            .into_response();
+    }
+
+    // Normal request — run handler then inject CORS headers
+    let mut response = next.run(req).await;
+    let headers = response.headers_mut();
+    headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.parse().unwrap());
+    headers.insert(header::VARY, "Origin".parse().unwrap());
+    response
 }
 
 // === Adapter Endpoints ===
@@ -2703,11 +2734,47 @@ async fn api_docs(State(state): State<AppState>) -> impl IntoResponse {
 
 /// Regenerate the API key and return the new one.
 async fn reset_api_key(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let new_key = crate::api_key::regenerate();
+    let new_key = crate::config::regenerate_key();
     *state.api_key.write().unwrap() = new_key.clone();
     Json(serde_json::json!({
         "status": "ok",
         "key": new_key,
         "message": "New API key generated. Reload the page to use it."
     }))
+}
+
+// === CORS Settings Endpoints ===
+
+async fn get_cors_settings(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let origins = state.cors_origins.read().unwrap().clone();
+    Json(serde_json::json!({ "origins": origins }))
+}
+
+async fn put_cors_settings(
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    let origins: Vec<String> = body
+        .get("origins")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .ok_or((StatusCode::BAD_REQUEST, "Missing \"origins\" array"))?;
+
+    // Persist to disk
+    crate::config::save_cors_origins(&origins)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to save config"))?;
+
+    // Update runtime state
+    *state.cors_origins.write().unwrap() = origins.clone();
+
+    tracing::info!("CORS origins updated: {:?}", origins);
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "origins": origins,
+    })))
 }

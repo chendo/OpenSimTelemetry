@@ -3,7 +3,7 @@
 //! Main server application with web UI and REST API
 
 use anyhow::Result;
-use ost_server::{api, api_key, manager, persistence, sessions, state};
+use ost_server::{api, config, manager, persistence, sessions, state};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::info;
@@ -20,13 +20,17 @@ async fn main() -> Result<()> {
 
     let serve_mode = std::env::args().any(|a| a == "--serve");
 
-    // Load or generate API key
-    let api_key = api_key::load_or_generate();
-    info!("API key: {}", api_key);
+    // Load persistent config (API key, CORS origins, etc.)
+    let server_config = config::load_effective_config();
+    info!("API key: {}", server_config.api_key);
+    if !server_config.cors_origins.is_empty() {
+        info!("CORS origins: {:?}", server_config.cors_origins);
+    }
 
     // Create application state
     let mut state = state::AppState::new();
-    *state.api_key.write().unwrap() = api_key;
+    *state.api_key.write().unwrap() = server_config.api_key;
+    *state.cors_origins.write().unwrap() = server_config.cors_origins;
 
     if serve_mode {
         info!("Starting OpenSimTelemetry Server in SERVE mode");

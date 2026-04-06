@@ -4,6 +4,7 @@
 
 pub mod api;
 pub mod api_key;
+pub mod config;
 pub mod history;
 pub mod manager;
 pub mod persistence;

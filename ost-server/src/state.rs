@@ -50,6 +50,9 @@ pub struct AppState {
     /// API key for authenticating requests (auto-generated or from OST_AUTH_TOKEN)
     pub api_key: Arc<std::sync::RwLock<String>>,
 
+    /// Allowed CORS origins (checked by custom middleware at runtime)
+    pub cors_origins: Arc<std::sync::RwLock<Vec<String>>>,
+
     /// User-submitted custom channels (std RwLock for sync access in SSE filter_map)
     pub custom_channels: Arc<std::sync::RwLock<CustomChannels>>,
 
@@ -173,6 +176,7 @@ impl AppState {
             history: Arc::new(RwLock::new(HistoryBuffer::new(600))),
             persistence_config: Arc::new(RwLock::new(PersistenceConfig::default())),
             api_key: Arc::new(std::sync::RwLock::new(String::new())),
+            cors_origins: Arc::new(std::sync::RwLock::new(Vec::new())),
             custom_channels: Arc::new(std::sync::RwLock::new(CustomChannels::default())),
             annotations: Arc::new(std::sync::RwLock::new(Vec::new())),
             annotations_tx,
