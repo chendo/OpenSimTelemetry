@@ -4,6 +4,7 @@ members = [
     "ost-adapters",
     "ost-parse",
     "ost-server",
+    "ost-cli",
 ]
 resolver = "2"
 

@@ -1,0 +1,19 @@
+[package]
+name = "ost-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI front-end for the OpenSimTelemetry streaming parse path"
+
+[[bin]]
+name = "ost-cli"
+path = "src/main.rs"
+
+[dependencies]
+ost-parse = { path = "../ost-parse" }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
