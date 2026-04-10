@@ -2,6 +2,7 @@
 members = [
     "ost-core",
     "ost-adapters",
+    "ost-parse",
     "ost-server",
 ]
 resolver = "2"
