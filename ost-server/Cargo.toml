@@ -10,6 +10,7 @@ description = "OpenSimTelemetry server with web UI and API"
 [dependencies]
 ost-core = { path = "../ost-core" }
 ost-adapters = { path = "../ost-adapters" }
+ost-parse = { path = "../ost-parse" }
 
 tokio = { workspace = true }
 axum = { workspace = true }

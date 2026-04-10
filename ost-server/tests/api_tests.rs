@@ -52,6 +52,31 @@ async fn body_bytes(body: Body) -> Vec<u8> {
     collected.to_bytes().to_vec()
 }
 
+/// Helper: read up to `target_lines` newline-terminated lines from a
+/// streaming response body, then drop the body. Useful for endpoints
+/// that stream a long NDJSON response — dropping the body closes the
+/// underlying duplex pipe and causes the producer to exit early via
+/// `BrokenPipe`, avoiding a multi-minute wait for the full payload.
+async fn body_first_n_lines(body: Body, target_lines: usize) -> Vec<u8> {
+    use futures::StreamExt;
+    let mut buf = Vec::new();
+    let mut seen = 0usize;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.expect("body chunk");
+        for &b in chunk.iter() {
+            buf.push(b);
+            if b == b'\n' {
+                seen += 1;
+                if seen >= target_lines {
+                    return buf;
+                }
+            }
+        }
+    }
+    buf
+}
+
 /// Helper: collect response body into string
 async fn body_string(body: Body) -> String {
     String::from_utf8(body_bytes(body).await).unwrap()
@@ -824,6 +849,251 @@ async fn test_convert_ibt_returns_zstd_stream() {
     let last: serde_json::Value =
         serde_json::from_str(lines.last().unwrap()).expect("Last line should be valid JSON");
     assert_eq!(last["meta"]["game"], "iRacing Replay");
+}
+
+// ==================== POST /api/parse ====================
+
+/// Parse the streamed NDJSON response into (header_object, frame_objects).
+/// Stops once `frame_limit` frame lines have been collected so the test
+/// doesn't have to wait for all 73k frames in debug mode.
+fn split_ndjson_lines(
+    bytes: &[u8],
+    frame_limit: usize,
+) -> (serde_json::Value, Vec<serde_json::Value>) {
+    let text = std::str::from_utf8(bytes).expect("ndjson should be utf-8");
+    let mut lines = text.split('\n').filter(|l| !l.is_empty());
+    let header_line = lines.next().expect("missing header line");
+    let header: serde_json::Value = serde_json::from_str(header_line).expect("header should parse");
+    let frames: Vec<serde_json::Value> = lines
+        .take(frame_limit)
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).expect("frame line should parse"))
+        .collect();
+    (header, frames)
+}
+
+#[tokio::test]
+async fn test_parse_endpoint_raw_body_returns_ndjson() {
+    if !has_fixture() {
+        return;
+    }
+
+    let app = app();
+    let ibt_data = std::fs::read(fixture_path()).expect("Failed to read fixture");
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .method("POST")
+                .uri("/api/parse?format=ibt")
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(ibt_data))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200, "POST /api/parse should return 200");
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert_eq!(content_type, "application/x-ndjson");
+
+    // Read just the header + first 5 frame lines, then drop the body
+    // so the parser exits via BrokenPipe instead of streaming all 73k.
+    let bytes = body_first_n_lines(response.into_body(), 6).await;
+    let (header, frames) = split_ndjson_lines(&bytes, 5);
+
+    assert_eq!(header["format"], "ost-parse");
+    assert_eq!(header["version"], 1);
+    assert_eq!(header["source_format"], "ibt");
+    assert_eq!(header["mode"], "sparse");
+    assert_eq!(header["total_frames"], 73225);
+    assert_eq!(header["metadata"]["track_name"], "Tsukuba Circuit 2k Full");
+    assert_eq!(header["metadata"]["tick_rate"], 60.0);
+    let replay_id = header["metadata"]["replay_id"].as_str().unwrap();
+    assert_eq!(replay_id.len(), 16);
+    let channels = header["channels"].as_array().unwrap();
+    assert!(!channels.is_empty(), "channels should be non-empty");
+    assert!(channels.iter().any(|c| c == "vehicle.speed"));
+
+    assert!(!frames.is_empty(), "expected at least one frame");
+    for f in &frames {
+        let obj = f.as_object().expect("frame should be an object");
+        assert!(!obj.is_empty());
+        for (_, v) in obj {
+            assert!(!v.is_object() && !v.is_array());
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_parse_endpoint_multipart_body_returns_ndjson() {
+    if !has_fixture() {
+        return;
+    }
+
+    let app = app();
+    let ibt_data = std::fs::read(fixture_path()).expect("Failed to read fixture");
+    let (boundary, body) = multipart_body("race.ibt", &ibt_data);
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .method("POST")
+                .uri("/api/parse")
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    // Read just the header + first 5 frame lines, then drop the body
+    // so the parser exits via BrokenPipe instead of streaming all 73k.
+    let bytes = body_first_n_lines(response.into_body(), 6).await;
+    let (header, frames) = split_ndjson_lines(&bytes, 5);
+
+    // Multipart didn't pass ?format, so the file extension drives detection.
+    assert_eq!(header["source_format"], "ibt");
+    assert_eq!(header["mode"], "sparse");
+    assert!(!frames.is_empty());
+}
+
+#[tokio::test]
+async fn test_parse_endpoint_dense_mode() {
+    if !has_fixture() {
+        return;
+    }
+
+    let app = app();
+    let ibt_data = std::fs::read(fixture_path()).expect("Failed to read fixture");
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .method("POST")
+                .uri("/api/parse?format=ibt&mode=dense")
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(ibt_data))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    // Read just the header + first 5 frame lines, then drop the body
+    // so the parser exits via BrokenPipe instead of streaming all 73k.
+    let bytes = body_first_n_lines(response.into_body(), 6).await;
+    let (header, frames) = split_ndjson_lines(&bytes, 5);
+    assert_eq!(header["mode"], "dense");
+
+    // In dense mode, the first frame should already include every numeric
+    // channel (carry-forward initialised to 0). Pick a few likely-numeric
+    // channels and assert they're present.
+    let first = frames.first().unwrap().as_object().unwrap();
+    for ch in [
+        "vehicle.speed",
+        "vehicle.rpm",
+        "motion.g_force.x",
+        "motion.g_force.y",
+        "motion.g_force.z",
+    ] {
+        assert!(first.contains_key(ch), "dense first frame missing {ch}");
+        assert!(first[ch].is_number());
+    }
+}
+
+#[tokio::test]
+async fn test_parse_endpoint_compact_mode() {
+    if !has_fixture() {
+        return;
+    }
+
+    let app = app();
+    let ibt_data = std::fs::read(fixture_path()).expect("Failed to read fixture");
+
+    let response = app
+        .oneshot(
+            authed_request()
+                .method("POST")
+                .uri("/api/parse?format=ibt&mode=compact")
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(ibt_data))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    let bytes = body_first_n_lines(response.into_body(), 6).await;
+    let (header, frames) = split_ndjson_lines(&bytes, 5);
+    assert_eq!(header["mode"], "compact");
+
+    // Compact header.channels is numeric-only and defines the column index.
+    let channels = header["channels"].as_array().unwrap();
+    assert!(!channels.is_empty());
+    assert!(
+        !channels.iter().any(|c| c == "session.track_name"),
+        "compact channels should not include string fields"
+    );
+    assert!(channels.iter().any(|c| c == "vehicle.speed"));
+
+    // Every frame is a positional JSON array of length channels.len(),
+    // containing only numbers (carry-forward init to 0).
+    for frame in &frames {
+        let arr = frame
+            .as_array()
+            .expect("compact frame should be a JSON array");
+        assert_eq!(
+            arr.len(),
+            channels.len(),
+            "compact frame length must match channels length"
+        );
+        for v in arr {
+            assert!(v.is_number(), "compact frame slot must be numeric");
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_parse_endpoint_unknown_mode_400() {
+    let app = app();
+    let response = app
+        .oneshot(
+            authed_request()
+                .method("POST")
+                .uri("/api/parse?format=ibt&mode=bogus")
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(b"some bytes".to_vec()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+}
+
+#[tokio::test]
+async fn test_parse_endpoint_unknown_format_400() {
+    let app = app();
+    let response = app
+        .oneshot(
+            authed_request()
+                .method("POST")
+                .uri("/api/parse?format=bogus")
+                .header("content-type", "application/octet-stream")
+                .body(Body::from(b"some bytes".to_vec()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
 }
 
 #[tokio::test]

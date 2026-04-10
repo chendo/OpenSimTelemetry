@@ -340,6 +340,11 @@ pub fn create_router(state: AppState) -> Router {
             "/api/convert/ibt",
             post(convert_ibt).layer(DefaultBodyLimit::max(1024 * 1024 * 1024)),
         )
+        // Stateless streaming parse via ost-parse
+        .route(
+            "/api/parse",
+            post(parse_replay).layer(DefaultBodyLimit::max(1024 * 1024 * 1024)),
+        )
         // Persistence endpoints
         .route(
             "/api/persistence/config",
@@ -2007,6 +2012,174 @@ async fn convert_ibt(mut multipart: Multipart) -> Result<impl IntoResponse, (Sta
     );
 
     Ok((headers, body))
+}
+
+// === /api/parse — stateless streaming parse via ost-parse ===
+//
+// Stateless: each request owns its own temp file and parser task. There
+// is no shared `AppState.replay` slot — concurrent requests do not
+// collide. The blocking parser writes NDJSON into one half of a
+// `tokio::io::duplex` pipe; the other half is wrapped as a
+// `ReaderStream` and returned as the response body. Memory ceiling per
+// request is one frame's worth of channel values plus the duplex pipe
+// buffer (64 KiB).
+//
+// On client disconnect, the duplex read half is dropped, the next
+// blocking write returns `BrokenPipe`, `ost-parse` propagates that as a
+// `ParseError::Io`, the spawned task exits, and the RAII `TempFileGuard`
+// removes the temp file.
+
+#[derive(Deserialize)]
+struct ParseQuery {
+    /// Format override (e.g. `"ibt"`). If absent, inferred from the
+    /// uploaded filename when available, otherwise defaults to `"ibt"`.
+    format: Option<String>,
+    /// Frame output mode: `sparse` (default), `dense`, or `compact`.
+    /// See `ost_parse::FrameMode`.
+    mode: Option<String>,
+}
+
+/// Owns a path on disk and removes it on drop.
+struct TempFileGuard(std::path::PathBuf);
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+async fn parse_replay(
+    Query(query): Query<ParseQuery>,
+    request: axum::extract::Request,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use axum::body::to_bytes;
+    use axum::extract::FromRequest;
+
+    // 1) Sniff Content-Type to decide multipart vs raw.
+    let content_type = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    let (file_name, data) = if content_type.starts_with("multipart/form-data") {
+        // Multipart path: extract the first file field via the
+        // standard axum extractor.
+        let mut multipart = axum::extract::Multipart::from_request(request, &())
+            .await
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("multipart init: {e}")))?;
+        let field = multipart
+            .next_field()
+            .await
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("multipart read: {e}")))?
+            .ok_or((StatusCode::BAD_REQUEST, "no file in multipart".to_string()))?;
+        let file_name = field.file_name().unwrap_or("upload.bin").to_string();
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("multipart bytes: {e}")))?;
+        (file_name, bytes)
+    } else {
+        // Raw body path. 1 GiB cap matches /api/replay/upload.
+        let bytes = to_bytes(request.into_body(), 1024 * 1024 * 1024)
+            .await
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("read body: {e}")))?;
+        (String::new(), bytes)
+    };
+
+    // 2) Resolve format. ?format wins; otherwise sniff the filename;
+    //    otherwise default to ibt.
+    let format = query
+        .format
+        .clone()
+        .or_else(|| {
+            std::path::Path::new(&file_name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_ascii_lowercase())
+        })
+        .unwrap_or_else(|| "ibt".to_string());
+
+    let parser = ost_parse::parser_for_extension(&format).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("unsupported format: {format}"),
+        )
+    })?;
+
+    let mode = match query.mode.as_deref() {
+        None => ost_parse::FrameMode::Sparse,
+        Some(name) => ost_parse::FrameMode::parse(name).ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("unknown mode: {name} (expected sparse, dense, or compact)"),
+            )
+        })?,
+    };
+    let parse_opts = ost_parse::ParseOptions { mode };
+
+    // 3) Persist the upload to a per-request temp file. The guard's
+    //    Drop runs on the blocking task's thread when the parse exits
+    //    (success, error, or client disconnect).
+    let temp_dir = std::env::temp_dir().join("ost-parse");
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("temp dir: {e}")))?;
+    let unique = format!(
+        "{}-{}.{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0),
+        format
+    );
+    let temp_path = temp_dir.join(unique);
+    std::fs::write(&temp_path, &data).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("temp write: {e}"),
+        )
+    })?;
+    let guard = TempFileGuard(temp_path.clone());
+
+    tracing::info!(
+        "Parsing replay: format={format}, mode={}, bytes={}",
+        mode.as_wire_str(),
+        data.len()
+    );
+
+    // 4) Set up the streaming pipeline (mirrors convert_ibt).
+    let (write_half, read_half) = tokio::io::duplex(65536);
+    let sync_write = tokio_util::io::SyncIoBridge::new(write_half);
+
+    tokio::task::spawn_blocking(move || {
+        use std::io::{BufWriter, Write};
+        let _guard = guard; // moved in so Drop runs at task exit
+        let mut buffered = BufWriter::with_capacity(64 * 1024, sync_write);
+        if let Err(e) = parser.parse_to_ndjson(&temp_path, &mut buffered, &parse_opts) {
+            // BrokenPipe just means the client disconnected — not worth
+            // logging at error level.
+            match &e {
+                ost_parse::ParseError::Io(io_err)
+                    if io_err.kind() == std::io::ErrorKind::BrokenPipe =>
+                {
+                    tracing::debug!("client disconnected during parse");
+                }
+                _ => {
+                    tracing::error!("parse_to_ndjson failed: {e}");
+                }
+            }
+        }
+        let _ = buffered.flush();
+    });
+
+    let stream = tokio_util::io::ReaderStream::new(read_half);
+    let body = axum::body::Body::from_stream(stream);
+
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        "application/x-ndjson".parse().unwrap(),
+    );
+    Ok((headers, body).into_response())
 }
 
 async fn persistence_download(
