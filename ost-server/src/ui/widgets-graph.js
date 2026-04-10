@@ -293,49 +293,37 @@ class GraphWidget extends Widget {
     }
 
     _collectAllPaths(frame) {
+        // Frames are flat — keys are already dot-paths.
         const paths = [];
-        const walk = (obj, prefix) => {
-            for (const [key, value] of Object.entries(obj)) {
-                if (key === '_frame') continue;
-                const path = prefix ? `${prefix}.${key}` : key;
-                if (value && typeof value === 'object' && !Array.isArray(value)) walk(value, path);
-                else if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') paths.push(path);
+        for (const [key, value] of Object.entries(frame)) {
+            if (key === '_delta') continue;
+            if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {
+                paths.push(key);
             }
-        };
-        walk(frame, '');
+        }
         return paths;
     }
 
     _resolve(obj, parts) {
-        let cur = obj;
-        for (const p of parts) {
-            if (cur == null || typeof cur !== 'object') return null;
-            cur = cur[p];
-        }
-        return cur;
+        if (obj == null) return null;
+        return obj[parts.join('.')];
     }
 
     openChannelPicker(anchorEl) {
         if (this._picker) { this.closeChannelPicker(); return; }
         const frame = store.currentFrame;
 
-        // Collect all numeric, boolean, and string fields grouped by top-level section
+        // Frames are flat — keys are already dot-separated paths.
+        // Group numeric/boolean/string channels by top-level section.
         const sections = {};
         if (frame) {
-            const walk = (obj, prefix) => {
-                for (const [key, value] of Object.entries(obj)) {
-                    if (key === '_frame') continue;
-                    const path = prefix ? `${prefix}.${key}` : key;
-                    if (value && typeof value === 'object' && !Array.isArray(value)) {
-                        walk(value, path);
-                    } else if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {
-                        const section = path.split('.')[0];
-                        if (!sections[section]) sections[section] = [];
-                        sections[section].push(path);
-                    }
-                }
-            };
-            walk(frame, '');
+            for (const [path, value] of Object.entries(frame)) {
+                if (path === '_delta') continue;
+                if (typeof value !== 'number' && typeof value !== 'boolean' && typeof value !== 'string') continue;
+                const section = path.split('.')[0];
+                if (!sections[section]) sections[section] = [];
+                sections[section].push(path);
+            }
         }
 
         // Build popover
@@ -845,8 +833,8 @@ class GraphWidget extends Widget {
                 if (ann.start_tick != null || ann.end_tick != null) {
                     for (let i = 0; i < dataCount; i++) {
                         const entry = getEntry(i);
-                        if (!entry || !entry._frame?.meta?.tick) continue;
-                        const tick = entry._frame.meta.tick;
+                        const tick = entry?._frame?.['meta.tick'];
+                        if (tick == null) continue;
                         const x = pad.left + ((entryTime(i) - tMin) / tRange) * pw;
                         if (ann.start_tick != null && tick >= ann.start_tick && x0 == null) x0 = x;
                         if (ann.end_tick != null && tick <= ann.end_tick) x1 = x;

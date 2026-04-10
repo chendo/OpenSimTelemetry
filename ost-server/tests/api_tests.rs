@@ -535,28 +535,29 @@ async fn test_telemetry_stream_with_channel_filter() {
         if let Some(data_line) = text.lines().find(|l| l.starts_with("data:")) {
             let json_str = data_line.trim_start_matches("data:").trim();
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
-                // Should have requested sections
+                let obj = parsed.as_object().expect("frame should be a JSON object");
+                // Should have requested channels (flat dot-paths)
                 assert!(
-                    parsed.get("vehicle").is_some(),
-                    "Filtered response should include vehicle"
+                    obj.keys().any(|k| k.starts_with("vehicle.")),
+                    "Filtered response should include vehicle.* channels"
                 );
                 assert!(
-                    parsed.get("timing").is_some(),
-                    "Filtered response should include timing"
+                    obj.keys().any(|k| k.starts_with("timing.")),
+                    "Filtered response should include timing.* channels"
                 );
                 // Should NOT have unrequested sections
                 assert!(
-                    parsed.get("engine").is_none(),
-                    "Filtered response should NOT include engine"
+                    !obj.keys().any(|k| k.starts_with("engine.")),
+                    "Filtered response should NOT include engine.* channels"
                 );
                 assert!(
-                    parsed.get("weather").is_none(),
-                    "Filtered response should NOT include weather"
+                    !obj.keys().any(|k| k.starts_with("weather.")),
+                    "Filtered response should NOT include weather.* channels"
                 );
                 // Should always include meta (timestamp, game, tick)
                 assert!(
-                    parsed.get("meta").is_some(),
-                    "Filtered response should always include meta"
+                    obj.keys().any(|k| k.starts_with("meta.")),
+                    "Filtered response should always include meta.* channels"
                 );
             }
         }
@@ -605,14 +606,15 @@ async fn test_telemetry_stream_delta_first_frame_is_full() {
         if let Some(data_line) = text.lines().find(|l| l.starts_with("data:")) {
             let json_str = data_line.trim_start_matches("data:").trim();
             let parsed: serde_json::Value = serde_json::from_str(json_str).unwrap();
+            let obj = parsed.as_object().expect("frame should be a JSON object");
             // First frame should be full (no _delta marker)
             assert!(
-                parsed.get("_delta").is_none(),
+                obj.get("_delta").is_none(),
                 "First frame should be a full frame without _delta marker"
             );
-            // Should have all sections from Demo adapter
-            assert!(parsed.get("meta").is_some());
-            assert!(parsed.get("vehicle").is_some());
+            // Should have channels from Demo adapter
+            assert!(obj.keys().any(|k| k.starts_with("meta.")));
+            assert!(obj.keys().any(|k| k.starts_with("vehicle.")));
         }
     }
 }
@@ -657,12 +659,13 @@ async fn test_telemetry_stream_delta_false_no_marker() {
         if let Some(data_line) = text.lines().find(|l| l.starts_with("data:")) {
             let json_str = data_line.trim_start_matches("data:").trim();
             let parsed: serde_json::Value = serde_json::from_str(json_str).unwrap();
+            let obj = parsed.as_object().expect("frame should be a JSON object");
             // With delta=false, should never have _delta marker
             assert!(
-                parsed.get("_delta").is_none(),
+                obj.get("_delta").is_none(),
                 "delta=false should produce full frames without _delta marker"
             );
-            assert!(parsed.get("vehicle").is_some());
+            assert!(obj.keys().any(|k| k.starts_with("vehicle.")));
         }
     }
 }

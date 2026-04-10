@@ -54,31 +54,34 @@ class VehicleWidget extends Widget {
 
     update(store) {
         const f = store.currentFrame;
-        const v = f?.vehicle;
-        if (v?.speed != null) {
-            const sp = applyUnitPref('m/s', v.speed);
+        if (!f) return;
+        const speed = f['vehicle.speed'];
+        if (speed != null) {
+            const sp = applyUnitPref('m/s', speed);
             this.els.speed.textContent = Math.round(sp.value);
             this.els.speedUnit.textContent = sp.unit;
         } else {
             this.els.speed.textContent = '---';
         }
-        this.els.rpm.textContent = v?.rpm != null ? Math.round(v.rpm) : '---';
-        this.els.gear.textContent = v?.gear != null ? (v.gear === -1 ? 'R' : v.gear === 0 ? 'N' : v.gear) : 'N';
+        const rpm = f['vehicle.rpm'];
+        this.els.rpm.textContent = rpm != null ? Math.round(rpm) : '---';
+        const gear = f['vehicle.gear'];
+        this.els.gear.textContent = gear != null ? (gear === -1 ? 'R' : gear === 0 ? 'N' : gear) : 'N';
 
-        const thr = (v?.throttle ?? 0) * 100;
+        const thr = (f['vehicle.throttle'] ?? 0) * 100;
         this.els.thrBar.style.height = thr + '%';
         this.els.thrPct.textContent = Math.round(thr);
 
-        const brk = (v?.brake ?? 0) * 100;
+        const brk = (f['vehicle.brake'] ?? 0) * 100;
         this.els.brkBar.style.height = brk + '%';
         this.els.brkPct.textContent = Math.round(brk);
 
         // Clutch: 0=engaged, 1=disengaged; invert so pressing clutch fills bar
-        const clt = (1 - (v?.clutch ?? 0)) * 100;
+        const clt = (1 - (f['vehicle.clutch'] ?? 0)) * 100;
         this.els.cltBar.style.height = clt + '%';
         this.els.cltPct.textContent = Math.round(clt);
 
-        const newAngle = -(v?.steering_angle ?? 0) * Math.PI / 180;  // negate: iRacing positive=left, canvas positive=clockwise
+        const newAngle = -(f['vehicle.steering_angle'] ?? 0) * Math.PI / 180;  // negate: iRacing positive=left, canvas positive=clockwise
         if (newAngle !== this._steerAngle) {
             this._steerAngle = newAngle;
             this.renderWheel();
@@ -229,8 +232,9 @@ class GForceWidget extends Widget {
 
     update(store, now) {
         const f = store.currentFrame; if (!f) return;
-        const gf = f.motion?.g_force;
-        const gx = gf?.x ?? 0, gy = gf?.y ?? 0, gz = gf?.z ?? 0;
+        const gx = f['motion.g_force.x'] ?? 0;
+        const gy = f['motion.g_force.y'] ?? 0;
+        const gz = f['motion.g_force.z'] ?? 0;
         // Ring buffer trail
         this._trail[this._trailHead] = { x: gx, y: gz };
         this._trailHead = (this._trailHead + 1) % this.trailMax;
@@ -274,7 +278,7 @@ class GForceWidget extends Widget {
         this.valEls.vert.textContent = gy.toFixed(2);
         this.valEls.latMax.textContent = this._maxLat > 0 ? 'max ' + this._maxLat.toFixed(2) : '--';
         this.valEls.longMax.textContent = this._maxLong > 0 ? 'max ' + this._maxLong.toFixed(2) : '--';
-        const yawRate = f.motion?.yaw_rate ?? 0;
+        const yawRate = f['motion.yaw_rate'] ?? 0;
         this.valEls.yaw.textContent = yawRate.toFixed(1);
 
         if (gx !== this._prevGx || gz !== this._prevGz) {
@@ -525,8 +529,18 @@ class WheelsWidget extends Widget {
     }
 
     update(store) {
-        const f = store.currentFrame; if (!f?.wheels) return;
-        const map = { fl: f.wheels.front_left, fr: f.wheels.front_right, rl: f.wheels.rear_left, rr: f.wheels.rear_right };
+        const f = store.currentFrame; if (!f) return;
+        // Build per-corner views from flat channel keys (e.g. wheels.front_left.suspension_travel)
+        const corner = (c) => ({
+            suspension_travel: f[`wheels.${c}.suspension_travel`],
+            surface_temp_inner: f[`wheels.${c}.surface_temp_inner`],
+            surface_temp_middle: f[`wheels.${c}.surface_temp_middle`],
+            surface_temp_outer: f[`wheels.${c}.surface_temp_outer`],
+            tyre_wear: f[`wheels.${c}.tyre_wear`],
+        });
+        const map = { fl: corner('front_left'), fr: corner('front_right'), rl: corner('rear_left'), rr: corner('rear_right') };
+        // Bail if no wheel data is present at all
+        if (map.fl.suspension_travel == null && map.fl.surface_temp_inner == null && map.fl.tyre_wear == null) return;
         const isNewFrame = store._frameVersion !== this._lastFrameVersion;
         this._lastFrameVersion = store._frameVersion;
 

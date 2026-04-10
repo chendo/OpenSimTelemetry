@@ -1446,54 +1446,81 @@ impl TelemetryFrame {
     }
 }
 
-/// Compute a section-level delta between two JSON frame values.
+/// Flatten a nested JSON object into a flat map keyed by dot-separated paths.
 ///
-/// Returns a JSON object containing only sections that differ between `prev` and `curr`,
-/// plus `meta` (always included) and a `_delta: true` marker.
-/// Sections present in `prev` but missing from `curr` are set to `null`.
-pub fn compute_section_delta(
-    prev: &serde_json::Value,
-    curr: &serde_json::Value,
+/// Walks `value` recursively, joining keys with `.`. Anything that isn't a JSON
+/// object (numbers, strings, bools, arrays, null) is treated as a leaf.
+///
+/// e.g. `{"vehicle": {"speed": 45.2}}` → `{"vehicle.speed": 45.2}`.
+///
+/// If `value` is not an object at the top level, returns an empty map.
+pub fn flatten_to_channels(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    let mut out = serde_json::Map::new();
+    if let serde_json::Value::Object(map) = value {
+        for (k, v) in map {
+            flatten_into(&mut out, k, v);
+        }
+    }
+    out
+}
+
+fn flatten_into(
+    out: &mut serde_json::Map<String, serde_json::Value>,
+    prefix: String,
+    value: serde_json::Value,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                let path = format!("{}.{}", prefix, k);
+                flatten_into(out, path, v);
+            }
+        }
+        leaf => {
+            out.insert(prefix, leaf);
+        }
+    }
+}
+
+/// Compute a per-channel delta between two flat frame maps.
+///
+/// Returns a JSON object containing only channels whose value differs between
+/// `prev` and `curr`, plus a `_delta: true` marker. `meta.timestamp` is always
+/// included (it changes every frame), so clients can timestamp delta frames.
+/// Channels present in `prev` but missing from `curr` are set to `null`.
+pub fn compute_channel_delta(
+    prev: &serde_json::Map<String, serde_json::Value>,
+    curr: &serde_json::Map<String, serde_json::Value>,
 ) -> serde_json::Value {
-    let prev_map = prev.as_object();
-    let curr_map = curr.as_object();
-
-    // If either isn't an object, return curr as-is (shouldn't happen with well-formed frames)
-    let (prev_map, curr_map) = match (prev_map, curr_map) {
-        (Some(p), Some(c)) => (p, c),
-        _ => return curr.clone(),
-    };
-
     let mut delta = serde_json::Map::new();
     delta.insert("_delta".to_string(), serde_json::Value::Bool(true));
 
-    // Always include meta (timestamp changes every frame)
-    if let Some(meta) = curr_map.get("meta") {
-        delta.insert("meta".to_string(), meta.clone());
+    // Always include meta.timestamp so delta frames carry a time
+    if let Some(ts) = curr.get("meta.timestamp") {
+        delta.insert("meta.timestamp".to_string(), ts.clone());
     }
 
-    // Include changed or new sections
-    for (key, curr_val) in curr_map {
-        if key == "meta" {
+    // Include changed or new channels
+    for (key, curr_val) in curr {
+        if key == "meta.timestamp" {
             continue;
         }
-        match prev_map.get(key) {
+        match prev.get(key) {
             Some(prev_val) if prev_val == curr_val => {
-                // Section unchanged — omit from delta
+                // Channel unchanged — omit
             }
             _ => {
-                // Section is new or changed
                 delta.insert(key.clone(), curr_val.clone());
             }
         }
     }
 
-    // Sections removed (present in prev but not in curr)
-    for key in prev_map.keys() {
-        if key == "meta" || key == "_delta" {
+    // Channels removed (present in prev but not in curr)
+    for key in prev.keys() {
+        if key == "_delta" {
             continue;
         }
-        if !curr_map.contains_key(key) {
+        if !curr.contains_key(key) {
             delta.insert(key.clone(), serde_json::Value::Null);
         }
     }
@@ -1987,65 +2014,110 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_section_delta_unchanged_sections() {
+    fn test_flatten_to_channels_basic() {
+        let v = serde_json::json!({
+            "vehicle": { "speed": 45.2, "rpm": 5000 },
+            "motion": { "g_force": { "x": 0.4, "y": -0.1, "z": 1.2 } }
+        });
+        let flat = flatten_to_channels(v);
+        assert_eq!(flat.get("vehicle.speed"), Some(&serde_json::json!(45.2)));
+        assert_eq!(flat.get("vehicle.rpm"), Some(&serde_json::json!(5000)));
+        assert_eq!(flat.get("motion.g_force.x"), Some(&serde_json::json!(0.4)));
+        assert_eq!(flat.get("motion.g_force.y"), Some(&serde_json::json!(-0.1)));
+        assert_eq!(flat.get("motion.g_force.z"), Some(&serde_json::json!(1.2)));
+        // No nested objects in the output
+        for (_, val) in &flat {
+            assert!(!val.is_object(), "flat map should contain no objects");
+        }
+    }
+
+    #[test]
+    fn test_flatten_to_channels_arrays_are_leaves() {
+        let v = serde_json::json!({ "iracing": { "tags": ["a", "b"] } });
+        let flat = flatten_to_channels(v);
+        assert_eq!(
+            flat.get("iracing.tags"),
+            Some(&serde_json::json!(["a", "b"]))
+        );
+    }
+
+    #[test]
+    fn test_flatten_to_channels_empty_and_non_object() {
+        assert!(flatten_to_channels(serde_json::json!({})).is_empty());
+        assert!(flatten_to_channels(serde_json::json!(42)).is_empty());
+        assert!(flatten_to_channels(serde_json::json!("hi")).is_empty());
+    }
+
+    #[test]
+    fn test_flatten_full_test_frame_has_no_nested_objects() {
         let frame = make_test_frame();
-        let v1 = serde_json::to_value(&frame).unwrap();
-        // Same frame — only meta differs in practice, but here it's identical
-        let v2 = v1.clone();
-        let delta = compute_section_delta(&v1, &v2);
+        let v = serde_json::to_value(&frame).unwrap();
+        let flat = flatten_to_channels(v);
+        // Spot-check a few expected dot-paths
+        assert!(flat.contains_key("meta.timestamp"));
+        assert!(flat.contains_key("meta.game"));
+        assert!(flat.contains_key("vehicle.speed"));
+        assert!(flat.contains_key("motion.g_force.x"));
+        // No values should be objects
+        for (k, val) in &flat {
+            assert!(!val.is_object(), "{} should not be an object", k);
+        }
+    }
+
+    #[test]
+    fn test_compute_channel_delta_unchanged() {
+        let frame = make_test_frame();
+        let v = serde_json::to_value(&frame).unwrap();
+        let prev = flatten_to_channels(v.clone());
+        let curr = flatten_to_channels(v);
+        let delta = compute_channel_delta(&prev, &curr);
         let map = delta.as_object().unwrap();
         assert_eq!(map.get("_delta"), Some(&serde_json::Value::Bool(true)));
-        assert!(map.get("meta").is_some());
-        // No other sections should be present (all unchanged)
-        assert!(map.get("vehicle").is_none());
-        assert!(map.get("timing").is_none());
-        assert!(map.get("session").is_none());
+        // meta.timestamp is always included
+        assert!(map.get("meta.timestamp").is_some());
+        // Nothing else should change
+        assert!(map.get("vehicle.speed").is_none());
+        assert!(map.get("motion.g_force.x").is_none());
     }
 
     #[test]
-    fn test_compute_section_delta_changed_section() {
+    fn test_compute_channel_delta_changed() {
         let frame = make_test_frame();
-        let v1 = serde_json::to_value(&frame).unwrap();
+        let prev = flatten_to_channels(serde_json::to_value(&frame).unwrap());
         let mut frame2 = make_test_frame();
         frame2.vehicle.as_mut().unwrap().speed = Some(MetersPerSecond(99.0));
-        let v2 = serde_json::to_value(&frame2).unwrap();
-        let delta = compute_section_delta(&v1, &v2);
+        let curr = flatten_to_channels(serde_json::to_value(&frame2).unwrap());
+        let delta = compute_channel_delta(&prev, &curr);
         let map = delta.as_object().unwrap();
-        assert!(map.get("_delta").is_some());
-        assert!(map.get("meta").is_some());
-        // vehicle changed
-        assert!(map.get("vehicle").is_some());
-        // timing and session unchanged
-        assert!(map.get("timing").is_none());
-        assert!(map.get("session").is_none());
+        assert_eq!(map.get("_delta"), Some(&serde_json::Value::Bool(true)));
+        assert!(map.get("meta.timestamp").is_some());
+        assert_eq!(map.get("vehicle.speed"), Some(&serde_json::json!(99.0)));
+        // unchanged channel should not appear
+        assert!(map.get("vehicle.rpm").is_none());
     }
 
     #[test]
-    fn test_compute_section_delta_removed_section() {
+    fn test_compute_channel_delta_removed_channel() {
         let frame = make_test_frame();
-        let v1 = serde_json::to_value(&frame).unwrap();
+        let prev = flatten_to_channels(serde_json::to_value(&frame).unwrap());
         let mut frame2 = make_test_frame();
-        frame2.session = None;
-        let v2 = serde_json::to_value(&frame2).unwrap();
-        let delta = compute_section_delta(&v1, &v2);
+        frame2.vehicle.as_mut().unwrap().speed = None;
+        let curr = flatten_to_channels(serde_json::to_value(&frame2).unwrap());
+        let delta = compute_channel_delta(&prev, &curr);
         let map = delta.as_object().unwrap();
-        // session was present, now absent — should be null
-        assert_eq!(map.get("session"), Some(&serde_json::Value::Null));
+        assert_eq!(map.get("vehicle.speed"), Some(&serde_json::Value::Null));
     }
 
     #[test]
-    fn test_compute_section_delta_added_section() {
+    fn test_compute_channel_delta_added_channel() {
         let frame = make_test_frame();
-        let v1 = serde_json::to_value(&frame).unwrap();
-        // Build v2 with an extra section that wasn't in v1
-        let mut v2_map = v1.as_object().unwrap().clone();
-        v2_map.insert("weather".to_string(), serde_json::json!({"air_temp": 25.0}));
-        let v2 = serde_json::Value::Object(v2_map);
-        let delta = compute_section_delta(&v1, &v2);
+        let mut prev = flatten_to_channels(serde_json::to_value(&frame).unwrap());
+        prev.remove("vehicle.speed");
+        let curr = flatten_to_channels(serde_json::to_value(&frame).unwrap());
+        let delta = compute_channel_delta(&prev, &curr);
         let map = delta.as_object().unwrap();
-        // weather was absent, now present
-        assert!(map.get("weather").is_some());
-        assert!(!map["weather"].is_null());
+        assert!(map.get("vehicle.speed").is_some());
+        assert!(!map["vehicle.speed"].is_null());
     }
 
     // =========================================================================

@@ -90,53 +90,41 @@ class AllChannelsWidget extends Widget {
 
     _updateMinMax() {
         if (!this.lastFrame) return;
-        const walk = (obj, prefix) => {
-            for (const [key, value] of Object.entries(obj)) {
-                const fk = prefix ? `${prefix}.${key}` : key;
-                if (value && typeof value === 'object' && !Array.isArray(value)) {
-                    walk(value, fk);
-                } else if (typeof value === 'number' && isFinite(value)) {
-                    const mm = this._minMax[fk];
-                    if (mm) {
-                        if (value < mm.min) mm.min = value;
-                        if (value > mm.max) mm.max = value;
-                    } else {
-                        this._minMax[fk] = { min: value, max: value };
-                    }
-                }
+        // Frames are flat — keys are already dot-paths.
+        for (const [fk, value] of Object.entries(this.lastFrame)) {
+            if (fk === '_delta') continue;
+            if (typeof value !== 'number' || !isFinite(value)) continue;
+            const mm = this._minMax[fk];
+            if (mm) {
+                if (value < mm.min) mm.min = value;
+                if (value > mm.max) mm.max = value;
+            } else {
+                this._minMax[fk] = { min: value, max: value };
             }
-        };
-        walk(this.lastFrame, '');
+        }
     }
 
     renderChannels() {
         if (!this.lastFrame) return;
         const filter = this.filterInput.value;
 
-        // Extract all leaf values grouped by top-level section
+        // Extract all leaf values grouped by top-level section. Frames are flat.
         const sections = {};
         let totalMatches = 0;
         const allMatchedPaths = [];
-        const extract = (obj, prefix) => {
-            for (const [key, value] of Object.entries(obj)) {
-                const fk = prefix ? `${prefix}.${key}` : key;
-                if (value && typeof value === 'object' && !Array.isArray(value)) {
-                    extract(value, fk);
-                } else {
-                    if (this._hideNulls && (value === null || value === undefined)) continue;
-                    if (filter && !matchChannelFilter(fk, filter)) continue;
-                    const section = fk.split('.')[0];
-                    // For game namespaces (e.g. iracing.RFtempCM), show just the variable name
-                    const displayKey = TOP_LEVEL_SECTIONS.has(section) && fk.includes('.') ? fk.slice(section.length + 1) : fk;
-                    if (!sections[section]) sections[section] = [];
-                    const fmt = formatChannelValue(fk, value);
-                    sections[section].push({ key: displayKey, value, text: fmt.text, unit: fmt.unit, path: fk });
-                    if (typeof value === 'number') allMatchedPaths.push(fk); // full path for graph creation
-                    totalMatches++;
-                }
-            }
-        };
-        extract(this.lastFrame, '');
+        for (const [fk, value] of Object.entries(this.lastFrame)) {
+            if (fk === '_delta') continue;
+            if (this._hideNulls && (value === null || value === undefined)) continue;
+            if (filter && !matchChannelFilter(fk, filter)) continue;
+            const section = fk.split('.')[0];
+            // For game namespaces (e.g. iracing.RFtempCM), show just the variable name
+            const displayKey = TOP_LEVEL_SECTIONS.has(section) && fk.includes('.') ? fk.slice(section.length + 1) : fk;
+            if (!sections[section]) sections[section] = [];
+            const fmt = formatChannelValue(fk, value);
+            sections[section].push({ key: displayKey, value, text: fmt.text, unit: fmt.unit, path: fk });
+            if (typeof value === 'number') allMatchedPaths.push(fk); // full path for graph creation
+            totalMatches++;
+        }
 
         // Render sections
         const sortedSections = Object.entries(sections).sort((a, b) => a[0].localeCompare(b[0]));
@@ -261,7 +249,7 @@ class ApiWidget extends Widget {
                     <pre class="api-code">const es = new EventSource('${base}/api/telemetry/stream');
 es.onmessage = (e) => {
   const frame = JSON.parse(e.data);
-  console.log(frame.vehicle?.speed);
+  console.log(frame['vehicle.speed']);
 };</pre>
                 </div>
             </div>`;

@@ -566,24 +566,16 @@ document.getElementById('menu-export-data').addEventListener('click', () => {
 
         let blob, filename;
         if (format === 'csv') {
-            const paths = [];
-            function collectPaths(obj, prefix) {
-                for (const [k, v] of Object.entries(obj)) {
-                    const p = prefix ? prefix + '.' + k : k;
-                    if (typeof v === 'number') paths.push(p);
-                    else if (v && typeof v === 'object' && !Array.isArray(v)) collectPaths(v, p);
-                }
-            }
-            collectPaths(frames[0], '');
+            // Frames are flat — just collect numeric channel keys directly.
+            const paths = Object.keys(frames[0])
+                .filter(k => k !== 'meta.timestamp' && typeof frames[0][k] === 'number');
             const header = ['timestamp', ...paths].join(',');
             const rows = frames.map(f => {
                 const vals = paths.map(p => {
-                    const parts = p.split('.');
-                    let cur = f;
-                    for (const part of parts) { cur = cur?.[part]; }
-                    return typeof cur === 'number' ? cur : '';
+                    const v = f[p];
+                    return typeof v === 'number' ? v : '';
                 });
-                return [f.meta?.timestamp || '', ...vals].join(',');
+                return [f['meta.timestamp'] || '', ...vals].join(',');
             });
             blob = new Blob([header + '\n' + rows.join('\n')], { type: 'text/csv' });
             filename = `telemetry_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
@@ -642,45 +634,50 @@ function updateSessionBar() {
         return;
     }
 
-    const s = f.session;
-    const w = f.weather;
-    const t = f.timing;
-    const d = f.drivers?.current;
-    const v = f.vehicle;
+    // Frames are flat: f['session.session_time'], f['weather.air_temp'], etc.
+    const sessionTime = f['session.session_time'];
+    const sessionType = f['session.session_type'];
+    const sessionState = f['session.session_state'];
+    const trackName = f['session.track_name'];
+    const airTemp = f['weather.air_temp'];
+    const trackTemp = f['weather.track_temp'];
+    const trackWetness = f['weather.track_wetness'];
+    const driverName = f['drivers.current.name'];
+    const carName = f['vehicle.car_name'];
 
     // Only rebuild static HTML when driver/car/track/weather/state actually change
-    const sessionTimeSec = s?.session_time != null ? Math.floor(s.session_time) : null;
-    const key = (d?.name || '') + '|' + (v?.car_name || '') + '|' + (s?.track_name || '') + '|'
-        + (w?.air_temp != null ? w.air_temp.toFixed(0) : '') + '|'
-        + (w?.track_temp != null ? w.track_temp.toFixed(0) : '') + '|'
-        + (w?.track_wetness || '') + '|' + (s?.session_type || '') + '|'
-        + (s?.session_state || '') + '|' + sessionTimeSec;
+    const sessionTimeSec = sessionTime != null ? Math.floor(sessionTime) : null;
+    const key = (driverName || '') + '|' + (carName || '') + '|' + (trackName || '') + '|'
+        + (airTemp != null ? airTemp.toFixed(0) : '') + '|'
+        + (trackTemp != null ? trackTemp.toFixed(0) : '') + '|'
+        + (trackWetness || '') + '|' + (sessionType || '') + '|'
+        + (sessionState || '') + '|' + sessionTimeSec;
     if (key !== _sessionBarKey) {
         _sessionBarKey = key;
         let parts = [];
-        if (d?.name) parts.push(`<strong>${d.name}</strong>`);
-        const car = v?.car_name || '--';
-        const track = s?.track_name || '--';
+        if (driverName) parts.push(`<strong>${driverName}</strong>`);
+        const car = carName || '--';
+        const track = trackName || '--';
         parts.push(`<strong>${car}</strong> @ <strong>${track}</strong>`);
         const weatherParts = [];
-        if (w?.air_temp != null) weatherParts.push(`Air ${w.air_temp.toFixed(0)}\u00B0C`);
-        if (w?.track_temp != null) weatherParts.push(`Track ${w.track_temp.toFixed(0)}\u00B0C`);
-        if (w?.track_wetness) weatherParts.push(w.track_wetness);
+        if (airTemp != null) weatherParts.push(`Air ${airTemp.toFixed(0)}\u00B0C`);
+        if (trackTemp != null) weatherParts.push(`Track ${trackTemp.toFixed(0)}\u00B0C`);
+        if (trackWetness) weatherParts.push(trackWetness);
         if (weatherParts.length > 0) parts.push(weatherParts.join(', '));
         const stateParts = [];
-        if (s?.session_type) stateParts.push(s.session_type);
-        if (s?.session_state) stateParts.push(s.session_state);
-        const dur = _fmtDuration(s?.session_time);
+        if (sessionType) stateParts.push(sessionType);
+        if (sessionState) stateParts.push(sessionState);
+        const dur = _fmtDuration(sessionTime);
         if (dur) stateParts.push(dur);
         if (stateParts.length > 0) parts.push('State: ' + stateParts.join(' \u2014 '));
         sessionBarInfo.innerHTML = parts.join(' | ');
     }
 
     // Lap timing (always update — these change frequently but use textContent, not innerHTML)
-    sbCur.textContent = _fmtLapTime(t?.current_lap_time);
-    sbBest.textContent = _fmtLapTime(t?.best_lap_time);
-    sbLast.textContent = _fmtLapTime(t?.last_lap_time);
-    sbLap.textContent = t?.lap_number ?? '--';
+    sbCur.textContent = _fmtLapTime(f['timing.current_lap_time']);
+    sbBest.textContent = _fmtLapTime(f['timing.best_lap_time']);
+    sbLast.textContent = _fmtLapTime(f['timing.last_lap_time']);
+    sbLap.textContent = f['timing.lap_number'] ?? '--';
 }
 
 // ==================== FPS Performance Tracking ====================

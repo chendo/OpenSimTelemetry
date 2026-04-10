@@ -16,8 +16,8 @@ use axum::{
 };
 use futures::stream::{self, Stream, StreamExt as FuturesStreamExt};
 use ost_core::model::{
-    compute_section_delta, enumerate_leaf_paths, extract_value_at_path, ChannelMask,
-    ChannelSelector, TelemetryFrame,
+    compute_channel_delta, enumerate_leaf_paths, extract_value_at_path, flatten_to_channels,
+    ChannelMask, ChannelSelector, TelemetryFrame,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
@@ -175,42 +175,45 @@ fn round_json_floats(val: &mut serde_json::Value) {
 const DELTA_FULL_FRAME_INTERVAL: u64 = 60;
 
 /// Serialize a frame to JSON with optional delta encoding and custom channels merge.
-/// Returns the JSON string and the full Value to store as previous state.
+/// Frames are flattened to a `<channel.name>` → value object before serialization.
+/// `last_flat` carries the previous flat map (for delta diffing).
 fn serialize_frame_json(
     frame: &TelemetryFrame,
     mask: Option<&ChannelMask>,
     use_delta: bool,
-    last_json: &std::sync::Mutex<Option<serde_json::Value>>,
+    last_flat: &std::sync::Mutex<Option<serde_json::Map<String, serde_json::Value>>>,
     frame_count: u64,
     custom_channels: Option<&crate::state::CustomChannels>,
 ) -> Option<String> {
-    let mut curr_value = frame.to_json_value_filtered(mask).ok()?;
-    round_json_floats(&mut curr_value);
+    let mut nested = frame.to_json_value_filtered(mask).ok()?;
+    round_json_floats(&mut nested);
 
-    // Merge custom channels if any
+    // Merge custom channels (still operates on the nested value, then flattens)
     if let Some(cm) = custom_channels {
         if !cm.is_empty() {
             let tick = frame.meta.tick;
-            cm.merge_into(&mut curr_value, tick);
+            cm.merge_into(&mut nested, tick);
         }
     }
+
+    let curr_flat = flatten_to_channels(nested);
 
     let send_full = !use_delta || frame_count.is_multiple_of(DELTA_FULL_FRAME_INTERVAL);
 
     let json = if send_full {
-        serde_json::to_string(&curr_value).ok()?
+        serde_json::to_string(&serde_json::Value::Object(curr_flat.clone())).ok()?
     } else {
-        let prev = last_json.lock().unwrap();
+        let prev = last_flat.lock().unwrap();
         match prev.as_ref() {
-            Some(prev_val) => {
-                let delta = compute_section_delta(prev_val, &curr_value);
+            Some(prev_map) => {
+                let delta = compute_channel_delta(prev_map, &curr_flat);
                 serde_json::to_string(&delta).ok()?
             }
-            None => serde_json::to_string(&curr_value).ok()?,
+            None => serde_json::to_string(&serde_json::Value::Object(curr_flat.clone())).ok()?,
         }
     };
 
-    *last_json.lock().unwrap() = Some(curr_value);
+    *last_flat.lock().unwrap() = Some(curr_flat);
     Some(json)
 }
 
@@ -562,15 +565,17 @@ async fn get_channels(
     match history.latest_frame() {
         Some(frame) => {
             let mask = query.channel_mask.as_deref().map(ChannelMask::parse);
-            let mut val = frame
+            let mut nested = frame
                 .to_json_value_filtered(mask.as_ref())
                 .unwrap_or(serde_json::Value::Null);
-            // Merge custom channels
+            // Merge custom channels into the nested value, then flatten
             let cm = state.custom_channels.read().unwrap();
             if !cm.is_empty() {
-                cm.merge_into(&mut val, frame.meta.tick);
+                cm.merge_into(&mut nested, frame.meta.tick);
             }
-            let json = serde_json::to_string(&val).unwrap_or_else(|_| "{}".to_string());
+            let flat = flatten_to_channels(nested);
+            let json = serde_json::to_string(&serde_json::Value::Object(flat))
+                .unwrap_or_else(|_| "{}".to_string());
             (
                 StatusCode::OK,
                 [(header::CONTENT_TYPE, "application/json")],
@@ -801,15 +806,16 @@ async fn unified_stream(
     let throttle_state =
         std::sync::Arc::new(std::sync::Mutex::new(AdaptiveThrottle::new(min_interval)));
     let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
-    let last_sent_json: std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>> =
-        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let last_sent_flat: std::sync::Arc<
+        std::sync::Mutex<Option<serde_json::Map<String, serde_json::Value>>>,
+    > = std::sync::Arc::new(std::sync::Mutex::new(None));
     let delta_frame_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let custom_channels = state.custom_channels.clone();
     let telemetry = BroadcastStream::new(telemetry_rx).filter_map(move |result| {
         let mask = channel_mask.clone();
         let last = last_emit.clone();
         let throttle = throttle_state.clone();
-        let last_json = last_sent_json.clone();
+        let last_flat = last_sent_flat.clone();
         let frame_counter = delta_frame_count.clone();
         let cm = custom_channels.clone();
         async move {
@@ -842,7 +848,7 @@ async fn unified_stream(
                             &frame,
                             mask.as_ref(),
                             use_delta,
-                            &last_json,
+                            &last_flat,
                             count,
                             cm_ref,
                         )?;
@@ -858,7 +864,7 @@ async fn unified_stream(
                         effective_fps
                     );
                     // Reset delta state on lag — next frame will be full
-                    *last_json.lock().unwrap() = None;
+                    *last_flat.lock().unwrap() = None;
                     Some(Ok(
                         Event::default().comment(format!("throttled to {}fps", effective_fps))
                     ))
@@ -999,15 +1005,16 @@ async fn telemetry_stream(
     let throttle_state =
         std::sync::Arc::new(std::sync::Mutex::new(AdaptiveThrottle::new(min_interval)));
     let last_emit = std::sync::Arc::new(std::sync::Mutex::new(tokio::time::Instant::now()));
-    let last_sent_json: std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>> =
-        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let last_sent_flat: std::sync::Arc<
+        std::sync::Mutex<Option<serde_json::Map<String, serde_json::Value>>>,
+    > = std::sync::Arc::new(std::sync::Mutex::new(None));
     let delta_frame_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let custom_channels = state.custom_channels.clone();
     let stream = BroadcastStream::new(rx).filter_map(move |result| {
         let mask = channel_mask.clone();
         let last = last_emit.clone();
         let throttle = throttle_state.clone();
-        let last_json = last_sent_json.clone();
+        let last_flat = last_sent_flat.clone();
         let frame_counter = delta_frame_count.clone();
         let cm = custom_channels.clone();
         async move {
@@ -1040,7 +1047,7 @@ async fn telemetry_stream(
                             &frame,
                             mask.as_ref(),
                             use_delta,
-                            &last_json,
+                            &last_flat,
                             count,
                             cm_ref,
                         )?;
@@ -1050,7 +1057,7 @@ async fn telemetry_stream(
                 Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
                     let mut ts = throttle.lock().unwrap();
                     ts.on_lag(n);
-                    *last_json.lock().unwrap() = None;
+                    *last_flat.lock().unwrap() = None;
                     None
                 }
             }
@@ -1061,18 +1068,14 @@ async fn telemetry_stream(
 }
 
 /// Serialize a frame to base64-encoded MessagePack for SSE transport.
+/// Frames are flattened to a `<channel.name>` → value object before encoding.
 fn serialize_frame_msgpack(
     frame: &TelemetryFrame,
     mask: Option<&ChannelMask>,
 ) -> Option<Result<Event, Infallible>> {
-    // If there's a channel mask, filter through JSON first then serialize the filtered value
-    let bytes = if let Some(mask) = mask {
-        let json_str = frame.to_json_filtered(Some(mask)).ok()?;
-        let val: serde_json::Value = serde_json::from_str(&json_str).ok()?;
-        rmp_serde::to_vec(&val).ok()?
-    } else {
-        rmp_serde::to_vec(frame).ok()?
-    };
+    let nested = frame.to_json_value_filtered(mask).ok()?;
+    let flat = flatten_to_channels(nested);
+    let bytes = rmp_serde::to_vec(&serde_json::Value::Object(flat)).ok()?;
     use base64::Engine;
     let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Some(Ok(Event::default().event("msgpack").data(encoded)))
@@ -1332,6 +1335,7 @@ async fn replay_frames(
 }
 
 /// Serialize frames with optional channel mask filtering, shared by replay and history.
+/// Each frame's `f` payload is flattened to a `<channel.name>` → value object.
 fn serialize_frames(
     frames: impl Iterator<Item = (usize, TelemetryFrame)>,
     channel_mask: &Option<ChannelMask>,
@@ -1340,18 +1344,19 @@ fn serialize_frames(
     frames
         .map(|(idx, frame)| {
             let tick = frame.meta.tick;
-            let mut f_val = frame
+            let mut nested = frame
                 .to_json_value_filtered(channel_mask.as_ref())
                 .unwrap_or(serde_json::Value::Null);
-            round_json_floats(&mut f_val);
+            round_json_floats(&mut nested);
             if let Some(cm) = custom_channels {
                 if !cm.is_empty() {
-                    cm.merge_into(&mut f_val, tick);
+                    cm.merge_into(&mut nested, tick);
                 }
             }
+            let flat = flatten_to_channels(nested);
             serde_json::json!({
                 "i": idx,
-                "f": f_val
+                "f": serde_json::Value::Object(flat),
             })
         })
         .collect()

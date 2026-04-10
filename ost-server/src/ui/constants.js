@@ -77,20 +77,21 @@ function getChannelColor(path) {
 }
 
 /* ==================== Graph Channels Registry ==================== */
+// Frames are flat objects keyed by dot-separated channel paths (e.g. f['vehicle.speed']).
 const GRAPH_CHANNELS = {
-    speed:       { label: 'Speed',      color: '#38bdf8', unit: 'm/s',   norm: 'autoscale', extract: f => f.vehicle?.speed ?? 0 },
-    rpm:         { label: 'RPM',        color: '#a855f6', unit: 'rpm',   norm: 'autoscale', extract: f => f.vehicle?.rpm ?? 0 },
-    throttle:    { label: 'Throttle',   color: '#22c55e', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.throttle ?? 0 },
-    brake:       { label: 'Brake',      color: '#ef4444', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.brake ?? 0 },
-    clutch:      { label: 'Clutch',     color: '#3b82f6', unit: '%',     norm: 'pct',       extract: f => f.vehicle?.clutch ?? 0 },
-    steering:    { label: 'Steering',   color: '#f59e0b', unit: '\u00B0',  norm: 'centered',  extract: f => f.vehicle?.steering_angle ?? 0 },
-    abs_active:  { label: 'ABS',        color: '#f87171', unit: '',      norm: 'boolean',   extract: f => f.vehicle?.abs_active ?? false },
-    lat_g:       { label: 'Lateral G',  color: '#ef4444', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.x ?? 0 },
-    long_g:      { label: 'Long G',     color: '#3b82f6', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.z ?? 0 },
-    vert_g:      { label: 'Vert G',     color: '#22c55e', unit: 'G',     norm: 'centered',  extract: f => f.motion?.g_force?.y ?? 0 },
-    pitch:       { label: 'Pitch',      color: '#f97316', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.pitch ?? 0 },
-    yaw_rate:    { label: 'Yaw Rate',   color: '#a3e635', unit: '\u00B0/s',  norm: 'centered',  extract: f => f.motion?.yaw_rate ?? 0 },
-    roll:        { label: 'Roll',       color: '#06b6d4', unit: '\u00B0',    norm: 'centered',  extract: f => f.motion?.roll ?? 0 },
+    speed:       { label: 'Speed',      color: '#38bdf8', unit: 'm/s',   norm: 'autoscale', path: 'vehicle.speed',          extract: f => f['vehicle.speed'] ?? 0 },
+    rpm:         { label: 'RPM',        color: '#a855f6', unit: 'rpm',   norm: 'autoscale', path: 'vehicle.rpm',            extract: f => f['vehicle.rpm'] ?? 0 },
+    throttle:    { label: 'Throttle',   color: '#22c55e', unit: '%',     norm: 'pct',       path: 'vehicle.throttle',       extract: f => f['vehicle.throttle'] ?? 0 },
+    brake:       { label: 'Brake',      color: '#ef4444', unit: '%',     norm: 'pct',       path: 'vehicle.brake',          extract: f => f['vehicle.brake'] ?? 0 },
+    clutch:      { label: 'Clutch',     color: '#3b82f6', unit: '%',     norm: 'pct',       path: 'vehicle.clutch',         extract: f => f['vehicle.clutch'] ?? 0 },
+    steering:    { label: 'Steering',   color: '#f59e0b', unit: '\u00B0',  norm: 'centered',  path: 'vehicle.steering_angle', extract: f => f['vehicle.steering_angle'] ?? 0 },
+    abs_active:  { label: 'ABS',        color: '#f87171', unit: '',      norm: 'boolean',   path: 'vehicle.abs_active',     extract: f => f['vehicle.abs_active'] ?? false },
+    lat_g:       { label: 'Lateral G',  color: '#ef4444', unit: 'G',     norm: 'centered',  path: 'motion.g_force.x',       extract: f => f['motion.g_force.x'] ?? 0 },
+    long_g:      { label: 'Long G',     color: '#3b82f6', unit: 'G',     norm: 'centered',  path: 'motion.g_force.z',       extract: f => f['motion.g_force.z'] ?? 0 },
+    vert_g:      { label: 'Vert G',     color: '#22c55e', unit: 'G',     norm: 'centered',  path: 'motion.g_force.y',       extract: f => f['motion.g_force.y'] ?? 0 },
+    pitch:       { label: 'Pitch',      color: '#f97316', unit: '\u00B0',    norm: 'centered',  path: 'motion.pitch',           extract: f => f['motion.pitch'] ?? 0 },
+    yaw_rate:    { label: 'Yaw Rate',   color: '#a3e635', unit: '\u00B0/s',  norm: 'centered',  path: 'motion.yaw_rate',        extract: f => f['motion.yaw_rate'] ?? 0 },
+    roll:        { label: 'Roll',       color: '#06b6d4', unit: '\u00B0',    norm: 'centered',  path: 'motion.roll',            extract: f => f['motion.roll'] ?? 0 },
 };
 const GRAPH_CHANNEL_KEYS = Object.keys(GRAPH_CHANNELS);
 
@@ -283,22 +284,17 @@ function formatChannelValue(path, value) {
     return { text, unit: displayUnit };
 }
 
+// Frames are flat — channel path lookup is a single key access.
+// `parts` is the dot-split path; we rejoin and look it up directly.
 function resolveChannelPathParts(obj, parts) {
-    let cur = obj;
-    for (let i = 0; i < parts.length; i++) {
-        if (cur == null || typeof cur !== 'object') return null;
-        cur = cur[parts[i]];
-    }
-    return typeof cur === 'number' ? cur : null;
+    if (obj == null) return null;
+    const v = obj[parts.join('.')];
+    return typeof v === 'number' ? v : null;
 }
 
 function resolveChannelPathRaw(obj, parts) {
-    let cur = obj;
-    for (let i = 0; i < parts.length; i++) {
-        if (cur == null || typeof cur !== 'object') return undefined;
-        cur = cur[parts[i]];
-    }
-    return cur;
+    if (obj == null) return undefined;
+    return obj[parts.join('.')];
 }
 
 // Hash a string to a deterministic HSL color for text/enum channel bars

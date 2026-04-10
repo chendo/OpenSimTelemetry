@@ -148,8 +148,8 @@ class ComputedChannelsManager {
         codeArea.className = 'cm-code-input';
         codeArea.rows = 6;
         codeArea.spellcheck = false;
-        codeArea.value = existing?.code || 'return (f.vehicle?.speed ?? 0) * 2.237;';
-        codeArea.placeholder = 'return (f.vehicle?.speed ?? 0) * 2.237;';
+        codeArea.value = existing?.code || "return (f['vehicle.speed'] ?? 0) * 2.237;";
+        codeArea.placeholder = "return (f['vehicle.speed'] ?? 0) * 2.237;";
         modal.appendChild(codeArea);
 
         // Error display

@@ -64,15 +64,15 @@ nav a:hover{color:#00d4ff}
 <p class="desc">Unified SSE stream multiplexing telemetry frames, adapter status, sink config, and annotation updates. Uses named events: <code>frame</code>, <code>status</code>, <code>sinks</code>, <code>annotations</code>. Preferred over individual stream endpoints (avoids HTTP/1.1 connection limit).</p>
 <div class="params"><table>
 <tr><th>Param</th><th>Type</th><th>Description</th></tr>
-<tr><td><code>channel_mask</code></td><td>string</td><td>Comma-separated sections to include (e.g. <code>vehicle,timing</code>)</td></tr>
+<tr><td><code>channel_mask</code></td><td>string</td><td>Comma-separated sections to include (e.g. <code>vehicle,timing</code>); a section name selects all <code>&lt;section&gt;.*</code> channels</td></tr>
 <tr><td><code>rate</code></td><td>float</td><td>Frames per second (0.01–60, default 60)</td></tr>
 <tr><td><code>format</code></td><td>string</td><td><code>json</code> (default) or <code>msgpack</code> (base64-encoded MessagePack)</td></tr>
-<tr><td><code>delta</code></td><td>bool</td><td>Enable delta encoding (default <code>true</code>). Only changed sections are sent; full frame every 60th.</td></tr>
+<tr><td><code>delta</code></td><td>bool</td><td>Enable delta encoding (default <code>true</code>). Only changed channels are sent; full frame every 60th.</td></tr>
 </table></div>
 <p class="desc" style="margin-top:12px"><strong>SSE Event Types:</strong></p>
 <div class="params"><table>
 <tr><th>Event</th><th>Description</th></tr>
-<tr><td><code>frame</code></td><td>Telemetry frame (full or delta). Delta frames have <code>"_delta": true</code>.</td></tr>
+<tr><td><code>frame</code></td><td>Telemetry frame as a flat object keyed by dot-separated channel names (e.g. <code>{"vehicle.speed": 45.2, "motion.g_force.x": 0.4, ...}</code>). Delta frames contain only changed channels and carry <code>"_delta": true</code>.</td></tr>
 <tr><td><code>status</code></td><td>Adapter status change (JSON with <code>source</code>, connection info).</td></tr>
 <tr><td><code>sinks</code></td><td>Sink config list updated (JSON array of all sinks).</td></tr>
 <tr><td><code>annotations</code></td><td>Annotation list updated (JSON array of all annotations).</td></tr>
@@ -120,7 +120,7 @@ nav a:hover{color:#00d4ff}
 
 <div class="endpoint">
 <span class="method get">GET</span><span class="path">/api/channels</span>
-<p class="desc">Get the latest telemetry frame with custom channels merged in. Supports <code>channel_mask</code> query param for section filtering.</p>
+<p class="desc">Get the latest telemetry frame with custom channels merged in, as a flat object keyed by dot-separated channel names (e.g. <code>{"vehicle.speed": 45.2, "iracing.RFtempCM": 80}</code>). Supports <code>channel_mask</code> query param for section filtering.</p>
 <button class="try-btn" onclick="tryEndpoint(this,'/api/channels')">Try it</button>
 <pre class="try-result"></pre>
 </div>
@@ -194,7 +194,7 @@ nav a:hover{color:#00d4ff}
 
 <div class="endpoint">
 <span class="method get">GET</span><span class="path">/api/replay/frames</span>
-<p class="desc">Fetch a range of frames from replay or history buffer.</p>
+<p class="desc">Fetch a range of frames from replay or history buffer. Returns an array of <code>{"i": frameIndex, "f": &lt;flat frame&gt;}</code> objects, where each <code>f</code> is a flat object keyed by dot-separated channel names.</p>
 <div class="params"><table>
 <tr><th>Param</th><th>Type</th><th>Description</th></tr>
 <tr><td><code>start</code></td><td>int</td><td>0-based start frame index</td></tr>

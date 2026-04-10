@@ -24,9 +24,8 @@ class TrackMapWidget extends Widget {
         // Fetch track outline from server when replay changes
         this._maybeFetchOutline();
 
-        const m = f.motion;
-        const lat = m?.latitude;
-        const lng = m?.longitude;
+        const lat = f['motion.latitude'];
+        const lng = f['motion.longitude'];
         if (lat == null || lng == null || (lat === 0 && lng === 0)) {
             this.renderCanvas();
             return;

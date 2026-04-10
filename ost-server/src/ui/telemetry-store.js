@@ -69,18 +69,11 @@ class TelemetryStore {
 }
 
 // Map preset GRAPH_CHANNELS keys to their TelemetryFrame channel paths
-// e.g. speed → 'vehicle.speed', lat_g → 'motion.g_force.x'
-const GRAPH_CHANNEL_PATHS = {};
-(function() {
-    for (const [key, m] of Object.entries(GRAPH_CHANNELS)) {
-        const src = m.extract.toString();
-        // Match f.vehicle?.speed or f.motion?.g_force?.x etc.
-        const match = src.match(/f\.([\w?]+(?:\.[\w?]+)*)/);
-        if (match) {
-            GRAPH_CHANNEL_PATHS[key] = match[1].replace(/\?/g, '');
-        }
-    }
-})();
+// e.g. speed → 'vehicle.speed', lat_g → 'motion.g_force.x'.
+// The path lives directly on each GRAPH_CHANNELS entry.
+const GRAPH_CHANNEL_PATHS = Object.fromEntries(
+    Object.entries(GRAPH_CHANNELS).map(([key, m]) => [key, m.path])
+);
 
 // Lightweight channel mask for scrubbing: motion + timing + active graph channels only.
 // Uses specific channel paths (not full namespaces) to minimise data transfer.
