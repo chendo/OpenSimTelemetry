@@ -6,8 +6,8 @@ All notable changes to OpenSimTelemetry are documented in this file.
 
 ### Features
 
-- **`--stream` mode for `ost-cli parse`** — skips full-file scans (lap index, track outline) and begins frame output immediately after reading file headers. Channels are discovered from the first frame. Header `laps` and `track_outline` are omitted (`null`) in stream mode.
-- **`SessionHeader.laps` and `track_outline` are now nullable** — `null` when unavailable (stream mode), present as arrays otherwise.
+- **`--stream` mode for `ost-cli parse`** — skips full-file scans (lap index, track outline) and begins frame output immediately after reading file headers. Channels are discovered from the first frame and included in the header. `laps` and `track_outline` are omitted (`null`) in stream mode.
+- **`SessionHeader.laps` and `track_outline` are now nullable** — `null` when unavailable (stream mode), present as arrays otherwise. `channels` is always populated.
 
 ## 0.2.0 — 2026-04-11
 
