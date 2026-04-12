@@ -2117,7 +2117,10 @@ async fn parse_replay(
             )
         })?,
     };
-    let parse_opts = ost_parse::ParseOptions { mode };
+    let parse_opts = ost_parse::ParseOptions {
+        mode,
+        ..Default::default()
+    };
 
     // 3) Persist the upload to a per-request temp file. The guard's
     //    Drop runs on the blocking task's thread when the parse exits

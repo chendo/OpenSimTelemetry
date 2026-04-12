@@ -2,7 +2,18 @@
 
 All notable changes to OpenSimTelemetry are documented in this file.
 
-## Unreleased
+## 0.3.0 — 2026-04-12
+
+### Features
+
+- **`--stream` mode for `ost-cli parse`** — skips full-file scans (lap index, track outline) and begins frame output immediately after reading file headers. Channels are discovered from the first frame. Header `laps` and `track_outline` are omitted (`null`) in stream mode.
+- **`SessionHeader.laps` and `track_outline` are now nullable** — `null` when unavailable (stream mode), present as arrays otherwise.
+
+## 0.2.0 — 2026-04-11
+
+First tagged release. Everything below is the work that has landed since
+the project began; future releases will document deltas from the previous
+version.
 
 ### Features
 
@@ -38,6 +49,9 @@ All notable changes to OpenSimTelemetry are documented in this file.
 - **Channel mask** for filtering telemetry fields in API responses
 - **Chunked replay fetching** with pread optimization, abort support, and caching
 - **IBT conversion endpoint** (`POST /api/convert/ibt`) — upload .ibt file and stream back ZSTD-compressed NDJSON without buffering entire output in memory
+- **`ost-parse` crate** — streaming NDJSON parse path shared between the CLI and HTTP front-ends, bounded by channel set size rather than session length
+- **`ost-cli` binary** — synchronous `ost-cli parse <input>` command that streams NDJSON to stdout or a file, with `--format`, `--output`, and `--mode sparse|dense|compact` options and stdin spooling for pipeline use
+- **Stateless parse endpoint** (`POST /api/parse`) — streams NDJSON frames from an uploaded replay file via raw body or multipart upload, with `?format` and `?mode` query parameters and no shared server state between concurrent requests
 
 ### Infrastructure
 

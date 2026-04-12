@@ -57,18 +57,26 @@ impl ReplayParser for IbtReplayParser {
         let car_name = ibt.session_info().car_name.clone();
         let replay_id = compute_replay_id(file_size, total_frames, &track_name, &car_name);
 
-        // Lap index + track outline. Failures here are non-fatal — we
-        // emit empty lists rather than fail the whole parse.
-        let laps_raw = ibt.build_lap_index().unwrap_or_default();
-        let track_outline = ibt.build_track_outline(&laps_raw).unwrap_or_else(|e| {
-            eprintln!("warning: build_track_outline failed: {e}");
-            Vec::new()
-        });
-        let laps: Vec<LapInfo> = laps_raw.iter().map(LapInfo::from).collect();
-
-        // Channel discovery: walk every Nth sample, union the keys, and
-        // record the type of each channel for dense carry-forward.
-        let (all_channels, numeric_channels) = discover_channels(&ibt, total_frames)?;
+        // In stream mode, skip full-file scans (lap index, track outline)
+        // and derive channels from the first frame instead of sampling
+        // every Nth frame.
+        let (laps, track_outline, all_channels, numeric_channels) = if options.stream {
+            let (all_ch, num_ch) = if total_frames > 0 {
+                discover_channels_from_frame(&ibt, 0)?
+            } else {
+                (Vec::new(), Vec::new())
+            };
+            (None, None, all_ch, num_ch)
+        } else {
+            let laps_raw = ibt.build_lap_index().unwrap_or_default();
+            let outline = ibt.build_track_outline(&laps_raw).unwrap_or_else(|e| {
+                eprintln!("warning: build_track_outline failed: {e}");
+                Vec::new()
+            });
+            let laps: Vec<LapInfo> = laps_raw.iter().map(LapInfo::from).collect();
+            let (all_ch, num_ch) = discover_channels(&ibt, total_frames)?;
+            (Some(laps), Some(outline), all_ch, num_ch)
+        };
 
         // In compact mode the per-frame array is positional, so the
         // header's `channels` list IS the column index — and it must be
@@ -104,7 +112,7 @@ impl ReplayParser for IbtReplayParser {
         writer.write_all(b"\n")?;
 
         // Frame stream. We reuse a single Map allocation across frames.
-        let mut frame_obj = Map::with_capacity(all_channels.len());
+        let mut frame_obj = Map::with_capacity(all_channels.len().max(64));
 
         // Dense-mode carry-forward state: previous emitted value for
         // every numeric channel. Initialised to 0 so the first frame's
@@ -287,4 +295,42 @@ fn discover_channels(
         .filter_map(|(k, is_num)| if is_num { Some(k) } else { None })
         .collect();
     Ok((channels, numeric_channels))
+}
+
+/// Discover channels from a single frame. Used in stream mode to avoid
+/// scanning the full file. The IBT var header table declares all
+/// variables upfront, so the first frame's channel set is nearly
+/// identical to the full union — only truly conditional extras (e.g.
+/// pit-only vars) might be missing.
+fn discover_channels_from_frame(
+    ibt: &IbtFile,
+    frame_idx: usize,
+) -> Result<(Vec<String>, Vec<String>), ParseError> {
+    use std::collections::BTreeMap;
+
+    let samples = ibt
+        .read_samples_range(frame_idx, 1)
+        .map_err(|e| ParseError::Parse(format!("discover_channels_from_frame: {e}")))?;
+    let sample = match samples.first() {
+        Some(s) => s,
+        None => return Ok((Vec::new(), Vec::new())),
+    };
+
+    let frame = ibt.sample_to_frame(sample);
+    let value = serde_json::to_value(&frame)
+        .map_err(|e| ParseError::Parse(format!("discover_channels_from_frame: {e}")))?;
+    let mut frame_obj = Map::new();
+    flatten_frame(&value, &mut frame_obj);
+
+    let mut numeric: BTreeMap<String, bool> = BTreeMap::new();
+    for (k, v) in frame_obj.iter() {
+        numeric.insert(k.clone(), is_numeric(v));
+    }
+
+    let all: Vec<String> = numeric.keys().cloned().collect();
+    let num: Vec<String> = numeric
+        .into_iter()
+        .filter_map(|(k, is_num)| if is_num { Some(k) } else { None })
+        .collect();
+    Ok((all, num))
 }

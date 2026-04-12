@@ -2,7 +2,19 @@
 
 Breaking changes and migration notes for consumers of the OpenSimTelemetry API (SSE, REST, UDP sinks).
 
-## Unreleased
+## 0.3.0 — 2026-04-12
+
+### `ost-parse` Wire Format
+
+- **`SessionHeader.laps` and `track_outline` are now nullable.** When `--stream` is used (or the `stream` parse option is set), these fields are omitted from the JSON header (`null`). Consumers that previously assumed arrays should handle the absent case.
+- **`ost-cli parse --stream`** — new flag that skips lap index and track outline computation. Channels are still populated (derived from the first frame).
+- **`ParseOptions.stream`** — new boolean field (default `false`) available to library consumers and the `POST /api/parse` endpoint.
+
+## 0.2.0 — 2026-04-11
+
+First tagged release. The sections below describe the API & data model
+surface as of 0.2.0; "Breaking" tags refer to changes from the
+pre-release codebase. Subsequent releases will list deltas from 0.2.0.
 
 ### Columnar Telemetry Endpoint (New)
 

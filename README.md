@@ -89,6 +89,27 @@ curl http://localhost:9100/api/sinks
 curl -X DELETE http://localhost:9100/api/sinks/motion-platform
 ```
 
+### Parse Replay Files
+
+Convert a replay file into newline-delimited JSON frames, either via the CLI or the HTTP endpoint. Both share the same [ost-parse](ost-parse/README.md) streaming implementation — memory is bounded by channel count, not session length.
+
+```bash
+# CLI: parse an .ibt file to stdout
+ost-cli parse race.ibt
+
+# Write to a file, dense mode (emit every channel on every frame)
+ost-cli parse race.ibt --output race.ndjson --mode dense
+
+# Pipe from stdin (spools to a temp file for random access)
+cat race.ibt | ost-cli parse - --format ibt
+
+# HTTP: upload a file, stream NDJSON back
+curl --data-binary @race.ibt \
+  "http://localhost:9100/api/parse?format=ibt&mode=sparse"
+```
+
+The first line is a `SessionHeader`; every line after is one frame keyed by dot-separated channel names.
+
 ## Data Model
 
 The unified telemetry frame includes sections for: **motion** (position, velocity, G-forces, rotation), **vehicle** (speed, RPM, gear, pedal inputs), **engine** (temps, fuel, pressure), **wheels** (per-corner: suspension, tyre pressure/temp/wear, slip), **timing** (lap times, sectors, position), **session** (type, track, car, flags), **weather**, **pit**, **electronics**, **damage**, **driver**, and **extras** (game-specific fields passed through as-is).
@@ -118,6 +139,8 @@ just run      # Run server (debug, port 9100)
 ```
 ost-core        Data model, adapter trait, units
 ost-adapters    Game-specific adapters (iRacing, demo)
+ost-parse       Streaming NDJSON parse path for replay files
+ost-cli         CLI front-end around ost-parse
 ost-server      Axum HTTP/SSE server + embedded web UI
 ```
 

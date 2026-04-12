@@ -23,9 +23,13 @@ pub struct SessionHeader {
     /// the channels actually present at that tick (`sparse`).
     pub mode: String,
     pub metadata: ReplayMetadata,
-    pub laps: Vec<LapInfo>,
+    /// Lap index. `None` in stream mode (full-file scan skipped).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub laps: Option<Vec<LapInfo>>,
     /// Track outline as `[lat, lng]` pairs (on-track points only).
-    pub track_outline: Vec<[f64; 2]>,
+    /// `None` in stream mode (full-file scan skipped).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track_outline: Option<Vec<[f64; 2]>>,
     /// Union of all channel names discovered during parsing, in stable
     /// (sorted) order. Informational in sparse mode; defines the per-frame
     /// shape in dense mode.
@@ -133,15 +137,15 @@ mod tests {
                 file_size: 12345,
                 replay_id: compute_replay_id(12345, 36000, "Daytona", "F1"),
             },
-            laps: vec![LapInfo {
+            laps: Some(vec![LapInfo {
                 lap_number: 1,
                 lap_index: 0,
                 start_frame: 0,
                 lap_time_secs: Some(83.21),
                 incomplete: false,
                 invalid_reason: None,
-            }],
-            track_outline: vec![[28.1, -81.4], [28.2, -81.5]],
+            }]),
+            track_outline: Some(vec![[28.1, -81.4], [28.2, -81.5]]),
             channels: vec!["meta.tick".to_string(), "vehicle.speed".to_string()],
             total_frames: 36000,
         };
@@ -149,7 +153,7 @@ mod tests {
         let back: SessionHeader = serde_json::from_str(&json).unwrap();
         assert_eq!(back.metadata.replay_id, header.metadata.replay_id);
         assert_eq!(back.channels, header.channels);
-        assert_eq!(back.laps.len(), 1);
-        assert_eq!(back.track_outline.len(), 2);
+        assert_eq!(back.laps.as_ref().unwrap().len(), 1);
+        assert_eq!(back.track_outline.as_ref().unwrap().len(), 2);
     }
 }

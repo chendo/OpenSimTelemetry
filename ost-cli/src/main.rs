@@ -82,7 +82,10 @@ fn run_parse(args: &[OsString]) -> Result<(), CliError> {
         })?
     };
 
-    let parse_opts = ParseOptions { mode: opts.mode };
+    let parse_opts = ParseOptions {
+        mode: opts.mode,
+        stream: opts.stream,
+    };
 
     // Resolve output → BufWriter<dyn Write>.
     let mut writer: BufWriter<Box<dyn Write>> = match opts.output.as_deref() {
@@ -104,6 +107,7 @@ struct ParseArgs {
     format: Option<String>,
     output: Option<String>,
     mode: FrameMode,
+    stream: bool,
 }
 
 impl ParseArgs {
@@ -112,6 +116,7 @@ impl ParseArgs {
         let mut format: Option<String> = None;
         let mut output: Option<String> = None;
         let mut mode: FrameMode = FrameMode::Sparse;
+        let mut stream = false;
 
         let mut i = 0;
         while i < args.len() {
@@ -147,6 +152,9 @@ impl ParseArgs {
                         ))
                     })?;
                 }
+                "--stream" => {
+                    stream = true;
+                }
                 "--help" | "-h" => {
                     print_usage();
                     std::process::exit(0);
@@ -177,6 +185,7 @@ impl ParseArgs {
             format,
             output,
             mode,
+            stream,
         })
     }
 }
@@ -201,6 +210,9 @@ OPTIONS:
                                 with carry-forward; strings still sparse
                        compact  per-frame positional JSON array of every
                                 numeric channel (strings dropped)
+    --stream         Skip full-file scans (lap index, track outline, channel
+                     discovery). Header laps/track_outline/channels will be
+                     empty; frame output starts immediately after file headers.
     -h, --help       Show this help"
     );
 }

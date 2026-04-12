@@ -71,24 +71,33 @@ impl FrameMode {
 #[derive(Debug, Clone, Default)]
 pub struct ParseOptions {
     pub mode: FrameMode,
+    /// When true, skip full-file scans (lap index, track outline, channel
+    /// discovery). The header's `laps`, `track_outline`, and `channels`
+    /// will be empty, and frame output begins after reading only the file
+    /// headers. Channels for dense/compact carry-forward are discovered
+    /// from the first frame.
+    pub stream: bool,
 }
 
 impl ParseOptions {
     pub fn sparse() -> Self {
         Self {
             mode: FrameMode::Sparse,
+            ..Default::default()
         }
     }
 
     pub fn dense() -> Self {
         Self {
             mode: FrameMode::Dense,
+            ..Default::default()
         }
     }
 
     pub fn compact() -> Self {
         Self {
             mode: FrameMode::Compact,
+            ..Default::default()
         }
     }
 }
