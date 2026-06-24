@@ -77,6 +77,12 @@ pub struct ParseOptions {
     /// headers. Channels for dense/compact carry-forward are discovered
     /// from the first frame.
     pub stream: bool,
+    /// When true, emit periodic progress lines to **stderr** while writing
+    /// frames, formatted as `@progress <frames_done> <total> <channels>
+    /// <current_lap>`. Used by the Feather path, whose single IPC file can't
+    /// be decoded incrementally for progress on the consumer side. No-op for
+    /// the streaming NDJSON path (the consumer counts lines itself).
+    pub progress: bool,
 }
 
 impl ParseOptions {
@@ -122,6 +128,31 @@ pub trait ReplayParser: Send + Sync {
         writer: &mut dyn io::Write,
         options: &ParseOptions,
     ) -> Result<(), ParseError>;
+
+    /// Parse the file at `path` and write a columnar **Feather** (Arrow IPC
+    /// File) stream into `writer`.
+    ///
+    /// The schema carries one field per channel — numeric channels as
+    /// `Float32`, string channels as `Utf8` — and the full
+    /// [`SessionHeader`](crate::wire::SessionHeader) (laps, track outline,
+    /// metadata, channel order) JSON-encoded in the schema's custom
+    /// metadata under the key `ost_header`. Every column carries forward
+    /// (numeric default `0`, string default null), exactly like
+    /// [`FrameMode::Compact`]. This trades the per-float decimal formatting
+    /// and JSON parse of the NDJSON path for a raw f32 memcpy on both ends.
+    ///
+    /// The default implementation reports the format unsupported; only
+    /// adapters that opt in (currently `ibt`) implement it.
+    fn parse_to_feather(
+        &self,
+        _path: &Path,
+        _writer: &mut dyn io::Write,
+        _options: &ParseOptions,
+    ) -> Result<(), ParseError> {
+        Err(ParseError::UnsupportedFormat(
+            "feather output not supported for this format".to_string(),
+        ))
+    }
 }
 
 /// Look up a parser by lowercase file extension (e.g. `"ibt"`).

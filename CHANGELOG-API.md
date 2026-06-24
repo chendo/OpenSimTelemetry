@@ -2,6 +2,36 @@
 
 Breaking changes and migration notes for consumers of the OpenSimTelemetry API (SSE, REST, UDP sinks).
 
+## 0.5.0 — 2026-06-24
+
+### `ost-cli parse --feather` — columnar Feather (Arrow IPC) output (additive)
+
+- **New `--feather` flag** on `ost-cli parse` emits a columnar **Feather**
+  (Arrow IPC File) stream instead of NDJSON. One column per channel —
+  numeric channels as `Float32`, string channels as `Utf8` — with the full
+  `SessionHeader` JSON-encoded in the Arrow schema metadata under the key
+  `ost_header` (so the file is self-describing: laps, track outline,
+  metadata, and channel order all travel with it). Every column carries
+  forward exactly like `--mode compact` (numeric default `0`, string default
+  null). `--feather` overrides `--mode`.
+  - **Why:** skips the per-float decimal formatting (producer) and per-frame
+    `JSON.parse` (consumer) of the NDJSON path, and roughly halves the wire
+    size. Consumers read each numeric column as a typed `Float32Array`.
+  - **Compatibility:** purely additive. NDJSON output (`--mode
+    sparse|dense|compact`) is unchanged and remains the default. The new
+    `ReplayParser::parse_to_feather` trait method has a default
+    implementation that reports the format unsupported, so non-IBT adapters
+    are unaffected.
+
+### `--progress` — parse progress on stderr (additive)
+
+- **New `--progress` flag** makes `ost-cli parse` emit
+  `@progress <frames_done> <total> <channels> <current_lap>` lines to
+  **stderr** every 1000 frames (plus a final line at the true total). It
+  exists for the Feather path — a single Arrow IPC file can't be decoded
+  incrementally, so progress for an upload UI has to come out of band.
+  Off by default; stdout (NDJSON or Feather) is unchanged.
+
 ## 0.4.0 — 2026-06-24
 
 ### `ost-parse` Wire Format — `--mode compact` now carries string channels (BREAKING)

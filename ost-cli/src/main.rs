@@ -85,6 +85,7 @@ fn run_parse(args: &[OsString]) -> Result<(), CliError> {
     let parse_opts = ParseOptions {
         mode: opts.mode,
         stream: opts.stream,
+        progress: opts.progress,
     };
 
     // Resolve output → BufWriter<dyn Write>.
@@ -93,9 +94,15 @@ fn run_parse(args: &[OsString]) -> Result<(), CliError> {
         Some(path) => BufWriter::new(Box::new(File::create(path)?)),
     };
 
-    parser
-        .parse_to_ndjson(&input_path, &mut writer, &parse_opts)
-        .map_err(CliError::Parse)?;
+    if opts.feather {
+        parser
+            .parse_to_feather(&input_path, &mut writer, &parse_opts)
+            .map_err(CliError::Parse)?;
+    } else {
+        parser
+            .parse_to_ndjson(&input_path, &mut writer, &parse_opts)
+            .map_err(CliError::Parse)?;
+    }
 
     writer.flush()?;
     Ok(())
@@ -108,6 +115,8 @@ struct ParseArgs {
     output: Option<String>,
     mode: FrameMode,
     stream: bool,
+    feather: bool,
+    progress: bool,
 }
 
 impl ParseArgs {
@@ -117,6 +126,8 @@ impl ParseArgs {
         let mut output: Option<String> = None;
         let mut mode: FrameMode = FrameMode::Sparse;
         let mut stream = false;
+        let mut feather = false;
+        let mut progress = false;
 
         let mut i = 0;
         while i < args.len() {
@@ -155,6 +166,12 @@ impl ParseArgs {
                 "--stream" => {
                     stream = true;
                 }
+                "--feather" => {
+                    feather = true;
+                }
+                "--progress" => {
+                    progress = true;
+                }
                 "--help" | "-h" => {
                     print_usage();
                     std::process::exit(0);
@@ -186,6 +203,8 @@ impl ParseArgs {
             output,
             mode,
             stream,
+            feather,
+            progress,
         })
     }
 }
@@ -214,6 +233,12 @@ OPTIONS:
     --stream         Skip full-file scans (lap index, track outline, channel
                      discovery). Header laps/track_outline/channels will be
                      empty; frame output starts immediately after file headers.
+    --feather        Emit columnar Feather (Arrow IPC File) instead of NDJSON:
+                     one Float32/Utf8 column per channel, with the session
+                     header JSON-encoded in schema metadata ('ost_header').
+                     Overrides --mode. Skips per-float text formatting.
+    --progress       Emit '@progress <done> <total> <channels> <lap>' lines to
+                     stderr every 1000 frames (Feather mode; for upload UIs).
     -h, --help       Show this help"
     );
 }

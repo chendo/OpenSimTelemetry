@@ -13,3 +13,10 @@ ost-adapters = { path = "../ost-adapters" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# Columnar Feather (Arrow IPC File) output. Only the `ipc` feature is
+# enabled to keep build time / binary size down (no csv/json/prettyprint).
+arrow = { version = "55", default-features = false, features = ["ipc"] }
+
+[dev-dependencies]
+# Read Feather output back in the fixture round-trip test.
+arrow = { version = "55", default-features = false, features = ["ipc"] }

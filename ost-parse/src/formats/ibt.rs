@@ -15,7 +15,12 @@
 
 use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
 
+use arrow::array::{ArrayRef, Float32Array, StringArray};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::ipc::writer::FileWriter;
+use arrow::record_batch::RecordBatch;
 use ost_adapters::ibt_parser::IbtFile;
 use serde_json::{Map, Value};
 
@@ -33,6 +38,94 @@ const CHANNEL_DISCOVERY_STRIDE: usize = 100;
 /// in-flight batch.
 const FRAME_BATCH_SIZE: usize = 1000;
 
+/// Rows per Arrow `RecordBatch` in Feather output. Bounds peak builder
+/// memory (rows * channels * 4 bytes) and lets the IPC writer flush
+/// incrementally rather than buffering the whole session.
+const FEATHER_BATCH_SIZE: usize = 8192;
+
+/// Frame interval between `@progress` stderr lines in Feather mode (when
+/// `ParseOptions::progress` is set). Matches the NDJSON consumer's cadence.
+const FEATHER_PROGRESS_INTERVAL: usize = 1000;
+
+/// Everything needed to emit frames after the up-front scans: the open
+/// file handle, the assembled [`SessionHeader`], and the discovered
+/// channel sets (full union + numeric subset).
+struct SessionPrep {
+    ibt: IbtFile,
+    header: SessionHeader,
+    all_channels: Vec<String>,
+    numeric_channels: Vec<String>,
+}
+
+/// Open the file and run the up-front work shared by every output path:
+/// metadata, lap index, track outline, and channel discovery. The
+/// returned `header.channels` is the full union (numeric AND string) in
+/// stable discovery order — the positional index used by compact frames
+/// and the column order used by Feather.
+fn prepare_session(path: &Path, options: &ParseOptions) -> Result<SessionPrep, ParseError> {
+    if !path.exists() {
+        return Err(ParseError::NotFound(path.display().to_string()));
+    }
+
+    let mut ibt =
+        IbtFile::open(path).map_err(|e| ParseError::Parse(format!("IbtFile::open: {e}")))?;
+
+    let total_frames = ibt.record_count();
+    let tick_rate = ibt.tick_rate() as f64;
+    let duration_secs = ibt.duration_secs();
+    let file_size = ibt.file_size();
+    let track_name = ibt.session_info().track_display_name.clone();
+    let car_name = ibt.session_info().car_name.clone();
+    let replay_id = compute_replay_id(file_size, total_frames, &track_name, &car_name);
+
+    // In stream mode, skip full-file scans (lap index, track outline)
+    // and derive channels from the first frame instead of sampling
+    // every Nth frame.
+    let (laps, track_outline, all_channels, numeric_channels) = if options.stream {
+        let (all_ch, num_ch) = if total_frames > 0 {
+            discover_channels_from_frame(&ibt, 0)?
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        (None, None, all_ch, num_ch)
+    } else {
+        let laps_raw = ibt.build_lap_index().unwrap_or_default();
+        let outline = ibt.build_track_outline(&laps_raw).unwrap_or_else(|e| {
+            eprintln!("warning: build_track_outline failed: {e}");
+            Vec::new()
+        });
+        let laps: Vec<LapInfo> = laps_raw.iter().map(LapInfo::from).collect();
+        let (all_ch, num_ch) = discover_channels(&ibt, total_frames)?;
+        (Some(laps), Some(outline), all_ch, num_ch)
+    };
+
+    let header = SessionHeader {
+        format: "ost-parse".to_string(),
+        version: 1,
+        source_format: "ibt".to_string(),
+        mode: options.mode.as_wire_str().to_string(),
+        metadata: ReplayMetadata {
+            track_name,
+            car_name,
+            tick_rate,
+            duration_secs,
+            file_size,
+            replay_id,
+        },
+        laps,
+        track_outline,
+        channels: all_channels.clone(),
+        total_frames: total_frames as u64,
+    };
+
+    Ok(SessionPrep {
+        ibt,
+        header,
+        all_channels,
+        numeric_channels,
+    })
+}
+
 pub struct IbtReplayParser;
 
 impl ReplayParser for IbtReplayParser {
@@ -42,69 +135,13 @@ impl ReplayParser for IbtReplayParser {
         writer: &mut dyn Write,
         options: &ParseOptions,
     ) -> Result<(), ParseError> {
-        if !path.exists() {
-            return Err(ParseError::NotFound(path.display().to_string()));
-        }
-
-        let mut ibt =
-            IbtFile::open(path).map_err(|e| ParseError::Parse(format!("IbtFile::open: {e}")))?;
-
-        let total_frames = ibt.record_count();
-        let tick_rate = ibt.tick_rate() as f64;
-        let duration_secs = ibt.duration_secs();
-        let file_size = ibt.file_size();
-        let track_name = ibt.session_info().track_display_name.clone();
-        let car_name = ibt.session_info().car_name.clone();
-        let replay_id = compute_replay_id(file_size, total_frames, &track_name, &car_name);
-
-        // In stream mode, skip full-file scans (lap index, track outline)
-        // and derive channels from the first frame instead of sampling
-        // every Nth frame.
-        let (laps, track_outline, all_channels, numeric_channels) = if options.stream {
-            let (all_ch, num_ch) = if total_frames > 0 {
-                discover_channels_from_frame(&ibt, 0)?
-            } else {
-                (Vec::new(), Vec::new())
-            };
-            (None, None, all_ch, num_ch)
-        } else {
-            let laps_raw = ibt.build_lap_index().unwrap_or_default();
-            let outline = ibt.build_track_outline(&laps_raw).unwrap_or_else(|e| {
-                eprintln!("warning: build_track_outline failed: {e}");
-                Vec::new()
-            });
-            let laps: Vec<LapInfo> = laps_raw.iter().map(LapInfo::from).collect();
-            let (all_ch, num_ch) = discover_channels(&ibt, total_frames)?;
-            (Some(laps), Some(outline), all_ch, num_ch)
-        };
-
-        // In compact mode the per-frame array is positional, so the
-        // header's `channels` list IS the column index. We include *all*
-        // channels — numeric and string — in the full discovery order: a
-        // JSON array can hold mixed types, so string columns ride along
-        // positionally just like numeric ones. Consumers index strictly by
-        // `channels` order. In sparse / dense mode `channels` is likewise
-        // the full union, so this is the same list in every mode.
-        let header_channels = all_channels.clone();
-
-        let header = SessionHeader {
-            format: "ost-parse".to_string(),
-            version: 1,
-            source_format: "ibt".to_string(),
-            mode: options.mode.as_wire_str().to_string(),
-            metadata: ReplayMetadata {
-                track_name,
-                car_name,
-                tick_rate,
-                duration_secs,
-                file_size,
-                replay_id,
-            },
-            laps,
-            track_outline,
-            channels: header_channels,
-            total_frames: total_frames as u64,
-        };
+        let SessionPrep {
+            ibt,
+            header,
+            all_channels,
+            numeric_channels,
+        } = prepare_session(path, options)?;
+        let total_frames = header.total_frames as usize;
 
         // Header line.
         serde_json::to_writer(&mut *writer, &header)
@@ -230,6 +267,201 @@ impl ReplayParser for IbtReplayParser {
         writer.flush()?;
         Ok(())
     }
+
+    fn parse_to_feather(
+        &self,
+        path: &Path,
+        writer: &mut dyn Write,
+        options: &ParseOptions,
+    ) -> Result<(), ParseError> {
+        let SessionPrep {
+            ibt,
+            mut header,
+            all_channels,
+            numeric_channels,
+        } = prepare_session(path, options)?;
+        // Mode is meaningless for a columnar table; label it for clarity.
+        header.mode = "feather".to_string();
+        let total_frames = header.total_frames as usize;
+
+        // Per-column type: numeric → Float32, everything else → Utf8.
+        let numeric_set: std::collections::HashSet<&String> = numeric_channels.iter().collect();
+        let col_is_numeric: Vec<bool> = all_channels
+            .iter()
+            .map(|c| numeric_set.contains(c))
+            .collect();
+        // name → column index, for fast per-frame updates.
+        let col_index: std::collections::HashMap<&str, usize> = all_channels
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.as_str(), i))
+            .collect();
+        // Column index of the lap-number channel, for the `current_lap` field
+        // of progress lines (carried-forward in num_state like any other).
+        let lap_idx = col_index.get("timing.lap_number").copied();
+
+        // Arrow schema: one field per channel + the full SessionHeader
+        // JSON-encoded in schema metadata, so the Feather file is
+        // self-describing (laps, outline, tick_rate, channel order …).
+        let fields: Vec<Field> = all_channels
+            .iter()
+            .zip(&col_is_numeric)
+            .map(|(name, &is_num)| {
+                let dt = if is_num {
+                    DataType::Float32
+                } else {
+                    DataType::Utf8
+                };
+                Field::new(name, dt, true)
+            })
+            .collect();
+        let mut metadata = std::collections::HashMap::new();
+        metadata.insert(
+            "ost_header".to_string(),
+            serde_json::to_string(&header)
+                .map_err(|e| ParseError::Parse(format!("serialize header: {e}")))?,
+        );
+        let schema = Arc::new(Schema::new(fields).with_metadata(metadata));
+
+        let mut fw = FileWriter::try_new(&mut *writer, &schema)
+            .map_err(|e| ParseError::Parse(format!("arrow FileWriter: {e}")))?;
+
+        // Running carry-forward state, one slot per column. Numeric slots
+        // start at 0; string slots start null until first seen. Each frame
+        // updates only the columns present, then appends the full row.
+        let mut num_state: Vec<f32> = vec![0.0; all_channels.len()];
+        let mut str_state: Vec<Option<String>> = vec![None; all_channels.len()];
+
+        // Per-batch column builders, reset after each flush.
+        let mut num_builders: Vec<Vec<f32>> = all_channels
+            .iter()
+            .map(|_| Vec::with_capacity(FEATHER_BATCH_SIZE))
+            .collect();
+        let mut str_builders: Vec<Vec<Option<String>>> = all_channels
+            .iter()
+            .map(|_| Vec::with_capacity(FEATHER_BATCH_SIZE))
+            .collect();
+        let mut rows_in_batch = 0usize;
+        let mut frames_done = 0usize;
+
+        let mut frame_obj = Map::with_capacity(all_channels.len().max(64));
+
+        let mut start = 0;
+        while start < total_frames {
+            let count = FRAME_BATCH_SIZE.min(total_frames - start);
+            let samples = ibt
+                .read_samples_range(start, count)
+                .map_err(|e| ParseError::Parse(format!("read_samples_range: {e}")))?;
+
+            for sample in &samples {
+                let frame = ibt.sample_to_frame(sample);
+                let value = serde_json::to_value(&frame)
+                    .map_err(|e| ParseError::Parse(format!("serialize frame: {e}")))?;
+                frame_obj.clear();
+                flatten_frame(&value, &mut frame_obj);
+
+                // Update carry-forward state for columns present this frame.
+                for (k, v) in frame_obj.iter() {
+                    if let Some(&i) = col_index.get(k.as_str()) {
+                        if col_is_numeric[i] {
+                            if let Some(n) = v.as_f64() {
+                                num_state[i] = n as f32;
+                            }
+                        } else if let Some(s) = v.as_str() {
+                            str_state[i] = Some(s.to_string());
+                        }
+                    }
+                }
+
+                // Append the (carried-forward) row to the batch builders.
+                for i in 0..all_channels.len() {
+                    if col_is_numeric[i] {
+                        num_builders[i].push(num_state[i]);
+                    } else {
+                        str_builders[i].push(str_state[i].clone());
+                    }
+                }
+                rows_in_batch += 1;
+                frames_done += 1;
+
+                if options.progress && frames_done.is_multiple_of(FEATHER_PROGRESS_INTERVAL) {
+                    let cur_lap = lap_idx.map(|i| num_state[i].round() as i64).unwrap_or(0);
+                    eprintln!(
+                        "@progress {frames_done} {total_frames} {} {cur_lap}",
+                        all_channels.len()
+                    );
+                }
+
+                if rows_in_batch >= FEATHER_BATCH_SIZE {
+                    flush_feather_batch(
+                        &mut fw,
+                        &schema,
+                        &col_is_numeric,
+                        &mut num_builders,
+                        &mut str_builders,
+                    )?;
+                    rows_in_batch = 0;
+                }
+            }
+
+            start += samples.len();
+            if samples.is_empty() {
+                break; // safety: avoid infinite loop on misbehaving reader
+            }
+        }
+
+        // Final progress line so the consumer always sees the true total
+        // (the last partial 1000-frame chunk would otherwise be missed).
+        if options.progress && frames_done > 0 {
+            let cur_lap = lap_idx.map(|i| num_state[i].round() as i64).unwrap_or(0);
+            eprintln!(
+                "@progress {frames_done} {total_frames} {} {cur_lap}",
+                all_channels.len()
+            );
+        }
+
+        if rows_in_batch > 0 {
+            flush_feather_batch(
+                &mut fw,
+                &schema,
+                &col_is_numeric,
+                &mut num_builders,
+                &mut str_builders,
+            )?;
+        }
+
+        fw.finish()
+            .map_err(|e| ParseError::Parse(format!("arrow finish: {e}")))?;
+        drop(fw);
+        writer.flush()?;
+        Ok(())
+    }
+}
+
+/// Build one Arrow `RecordBatch` from the per-column builders and write it
+/// to the Feather stream, draining the builders for reuse.
+fn flush_feather_batch<W: Write>(
+    fw: &mut FileWriter<W>,
+    schema: &Arc<Schema>,
+    col_is_numeric: &[bool],
+    num_builders: &mut [Vec<f32>],
+    str_builders: &mut [Vec<Option<String>>],
+) -> Result<(), ParseError> {
+    let columns: Vec<ArrayRef> = (0..col_is_numeric.len())
+        .map(|i| {
+            if col_is_numeric[i] {
+                Arc::new(Float32Array::from(std::mem::take(&mut num_builders[i]))) as ArrayRef
+            } else {
+                let vals = std::mem::take(&mut str_builders[i]);
+                Arc::new(StringArray::from_iter(vals)) as ArrayRef
+            }
+        })
+        .collect();
+    let batch = RecordBatch::try_new(schema.clone(), columns)
+        .map_err(|e| ParseError::Parse(format!("arrow RecordBatch: {e}")))?;
+    fw.write(&batch)
+        .map_err(|e| ParseError::Parse(format!("arrow write batch: {e}")))?;
+    Ok(())
 }
 
 /// Walk every `CHANNEL_DISCOVERY_STRIDE`-th sample, union the keys, and

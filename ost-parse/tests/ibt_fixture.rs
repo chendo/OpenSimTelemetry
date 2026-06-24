@@ -297,6 +297,88 @@ fn smoke_test_real_ibt_compact_carries_strings() {
     );
 }
 
+/// Feather round-trip: parse the fixture to a columnar Arrow IPC stream,
+/// read it back, and check the self-describing header metadata, the row
+/// count, and that a known numeric channel is a Float32 column. Marked
+/// `#[ignore]` like the other full-session tests — Feather writes a single
+/// IPC file, so it can't early-exit; run with `--include-ignored`.
+#[test]
+#[ignore]
+fn feather_round_trips_header_and_columns() {
+    if !fixture_present() {
+        eprintln!("skipping: fixtures/race.ibt not present");
+        return;
+    }
+
+    use arrow::array::Float32Array;
+    use arrow::ipc::reader::FileReader;
+
+    let parser = parser_for_extension("ibt").expect("ibt parser");
+    let mut buf = Vec::new();
+    parser
+        .parse_to_feather(&fixture_path(), &mut buf, &ParseOptions::compact())
+        .expect("parse_to_feather");
+
+    // Arrow file magic.
+    assert_eq!(
+        &buf[..6],
+        b"ARROW1",
+        "feather output must start with ARROW1"
+    );
+
+    let reader = FileReader::try_new(Cursor::new(buf), None).expect("arrow FileReader");
+    let schema = reader.schema();
+
+    // Self-describing header lives in schema metadata.
+    let header_json = schema
+        .metadata()
+        .get("ost_header")
+        .expect("schema metadata must carry ost_header");
+    let header: SessionHeader = serde_json::from_str(header_json).expect("ost_header parse");
+    assert_eq!(header.format, "ost-parse");
+    assert_eq!(header.mode, "feather");
+    assert_eq!(header.total_frames, 73225);
+    assert_eq!(header.metadata.track_name, "Tsukuba Circuit 2k Full");
+
+    // One schema field per channel; vehicle.speed is a Float32 column.
+    let speed_field = schema
+        .field_with_name("vehicle.speed")
+        .expect("vehicle.speed column");
+    assert_eq!(
+        speed_field.data_type(),
+        &arrow::datatypes::DataType::Float32
+    );
+
+    // The raw track-location channel TM relies on must be present + numeric.
+    assert!(
+        schema.field_with_name("iracing.PlayerTrackSurface").is_ok(),
+        "feather must expose iracing.PlayerTrackSurface as a column"
+    );
+
+    // Sum row counts across batches; must equal total_frames, and the
+    // vehicle.speed column must be readable as Float32 with finite values.
+    let mut rows = 0usize;
+    let mut saw_speed_value = false;
+    for batch in reader {
+        let batch = batch.expect("record batch");
+        rows += batch.num_rows();
+        if !saw_speed_value {
+            let idx = batch.schema().index_of("vehicle.speed").unwrap();
+            let col = batch
+                .column(idx)
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .expect("vehicle.speed is Float32");
+            if !col.is_empty() {
+                assert!(col.value(0).is_finite());
+                saw_speed_value = true;
+            }
+        }
+    }
+    assert_eq!(rows, 73225, "feather row count must match total_frames");
+    assert!(saw_speed_value);
+}
+
 #[test]
 #[ignore]
 fn replay_id_matches_replaystate_hash() {
