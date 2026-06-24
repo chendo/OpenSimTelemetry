@@ -45,7 +45,7 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | SteeringWheelAngleMax | vehicle.steering_angle_max | rad, max steering lock |
 | IsOnTrack | vehicle.on_track | bool |
 | IsInGarage | vehicle.in_garage | bool |
-| PlayerTrackSurface | vehicle.track_surface | enum |
+| PlayerTrackSurface | vehicle.track_surface | normalized `irsdk_TrkLoc` location enum string (NotInWorld/OffTrack/InPitStall/ApproachingPits/OnTrack); raw code also at `iracing.PlayerTrackSurface` |
 
 ### Engine (12)
 | iRacing Variable | Model Path | Notes |
@@ -251,7 +251,7 @@ These are mapped to the standard TelemetryFrame model via `MAPPED_VARS` in
 | CarIdxPosition | competitors[].position | |
 | CarIdxClassPosition | competitors[].class_position | |
 | CarIdxOnPitRoad | competitors[].on_pit_road | |
-| CarIdxTrackSurface | competitors[].track_surface | |
+| CarIdxTrackSurface | competitors[].track_surface | normalized `irsdk_TrkLoc` location enum string (see PlayerTrackSurface) |
 | CarIdxBestLapTime | competitors[].best_lap_time | |
 | CarIdxLastLapTime | competitors[].last_lap_time | |
 | CarIdxEstTime | competitors[].est_time | |

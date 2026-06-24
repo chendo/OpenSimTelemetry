@@ -207,7 +207,7 @@ fn parse_dense_mode_frames_are_objects_with_numeric_fallback() {
 }
 
 #[test]
-fn parse_compact_mode_frames_are_positional_numeric_arrays() {
+fn parse_compact_mode_frames_are_positional_arrays_with_strings() {
     if !fixture_present() {
         return;
     }
@@ -223,18 +223,28 @@ fn parse_compact_mode_frames_are_positional_numeric_arrays() {
 
     let channels = header["channels"].as_array().unwrap();
     assert!(!channels.is_empty());
-    // Compact header excludes strings.
-    assert!(!channels.iter().any(|c| c == "session.track_name"));
     assert!(channels.iter().any(|c| c == "vehicle.speed"));
+    // Compact header now includes string channels too. `meta.game` is a
+    // constant string present in every iRacing frame.
+    let game_idx = channels
+        .iter()
+        .position(|c| c == "meta.game")
+        .expect("compact header should include the string channel meta.game");
 
-    // Every frame is a JSON array of length channels.len(), numeric-only.
+    // Every frame is a JSON array of length channels.len(). Numeric
+    // columns are numbers; the meta.game column carries a string,
+    // positionally aligned with header.channels.
+    let speed_idx = channels.iter().position(|c| c == "vehicle.speed").unwrap();
     for line in &lines[1..] {
         let arr: Vec<serde_json::Value> =
             serde_json::from_str(line).expect("compact frame should parse as JSON array");
         assert_eq!(arr.len(), channels.len());
-        for v in &arr {
-            assert!(v.is_number());
-        }
+        assert!(arr[speed_idx].is_number(), "vehicle.speed must be numeric");
+        assert_eq!(
+            arr[game_idx],
+            serde_json::json!("iRacing Replay"),
+            "string channel must survive compact mode at its column"
+        );
     }
 }
 

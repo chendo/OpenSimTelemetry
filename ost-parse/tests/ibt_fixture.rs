@@ -215,6 +215,88 @@ fn smoke_test_real_ibt_header_and_first_frames() {
     );
 }
 
+/// Fast compact-mode smoke test: the header carries the full channel
+/// union (numeric AND string), and each positional frame array holds the
+/// string channel `meta.game` at its column — proving strings survive
+/// compact output rather than being dropped.
+#[test]
+fn smoke_test_real_ibt_compact_carries_strings() {
+    if !fixture_present() {
+        eprintln!("skipping: fixtures/race.ibt not present");
+        return;
+    }
+
+    use std::io::Write;
+
+    struct EarlyExitSink {
+        buf: Vec<u8>,
+        target_lines: usize,
+        lines_seen: usize,
+    }
+    impl Write for EarlyExitSink {
+        fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+            for &b in data {
+                self.buf.push(b);
+                if b == b'\n' {
+                    self.lines_seen += 1;
+                    if self.lines_seen >= self.target_lines {
+                        return Err(std::io::Error::from(std::io::ErrorKind::WriteZero));
+                    }
+                }
+            }
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let parser = parser_for_extension("ibt").expect("ibt parser");
+    let mut sink = EarlyExitSink {
+        buf: Vec::new(),
+        target_lines: 11, // header + 10 frames
+        lines_seen: 0,
+    };
+    let _ = parser.parse_to_ndjson(&fixture_path(), &mut sink, &ParseOptions::compact());
+
+    let mut reader = BufReader::new(Cursor::new(sink.buf));
+    let mut header_line = String::new();
+    reader.read_line(&mut header_line).unwrap();
+    let header: SessionHeader = serde_json::from_str(header_line.trim()).expect("header parse");
+
+    assert_eq!(header.mode, "compact");
+    // The string channel is present in the compact header...
+    let game_idx = header
+        .channels
+        .iter()
+        .position(|c| c == "meta.game")
+        .expect("compact header must include string channel meta.game");
+    let speed_idx = header
+        .channels
+        .iter()
+        .position(|c| c == "vehicle.speed")
+        .expect("compact header must include vehicle.speed");
+
+    // ...and every positional frame array carries its string value at the
+    // right column, with numeric columns staying numeric.
+    let mut frame_count = 0;
+    for line in reader.lines() {
+        let line = line.unwrap();
+        if line.is_empty() {
+            continue;
+        }
+        let arr: Vec<Value> = serde_json::from_str(&line).expect("compact frame is a JSON array");
+        assert_eq!(arr.len(), header.channels.len());
+        assert_eq!(arr[game_idx], Value::from("iRacing Replay"));
+        assert!(arr[speed_idx].is_number());
+        frame_count += 1;
+    }
+    assert!(
+        frame_count >= 5,
+        "expected several frames, got {frame_count}"
+    );
+}
+
 #[test]
 #[ignore]
 fn replay_id_matches_replaystate_hash() {

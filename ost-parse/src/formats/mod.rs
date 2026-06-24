@@ -38,11 +38,11 @@ pub enum FrameMode {
     Dense,
     /// Each frame line is a positional JSON **array** of length
     /// `header.channels.len()`. Values are in the same order as the
-    /// header's `channels` list. Carry-forward applies (same rules as
-    /// dense). String channels are excluded entirely from compact output
-    /// — `header.channels` in compact mode contains only numeric
-    /// channels, since positional arrays cannot accommodate variable
-    /// per-frame string slots.
+    /// header's `channels` list, which is the full channel union (numeric
+    /// AND string) — a JSON array holds mixed types, so string columns sit
+    /// positionally alongside numeric ones. Carry-forward applies to every
+    /// column: numeric columns default to `0`, string columns to `null`
+    /// until first seen, and both retain their last value when absent.
     Compact,
 }
 

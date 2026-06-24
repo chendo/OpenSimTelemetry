@@ -2,6 +2,47 @@
 
 Breaking changes and migration notes for consumers of the OpenSimTelemetry API (SSE, REST, UDP sinks).
 
+## 0.4.0 — 2026-06-24
+
+### `ost-parse` Wire Format — `--mode compact` now carries string channels (BREAKING)
+
+- **Compact frames are no longer numeric-only.** `--mode compact` previously
+  dropped every string channel: `SessionHeader.channels` listed only numeric
+  channels and the positional frame arrays contained only numbers. A JSON array
+  can hold mixed types, so string columns now ride along positionally.
+  - `SessionHeader.channels` in compact mode is now the **full** channel union
+    (numeric **and** string), in the same sorted discovery order as
+    sparse/dense. It is identical to `channels` in the other modes.
+  - Each compact frame array is positionally aligned with `header.channels`.
+    String columns occupy their slot like any other; a column not yet seen is
+    `null` (numeric columns still default to `0`), and both carry their last
+    value forward when absent from a tick.
+  - **Migration:** consumers that index compact arrays by `header.channels`
+    order keep working, but **must stop assuming every slot is a number** —
+    some slots are now JSON strings (or `null`). Readers that coerce
+    non-numeric positions to `0` must be updated to pass strings through.
+
+### `vehicle.track_surface` is now a track *location*, not a material (BREAKING)
+
+- **`vehicle.track_surface` / `competitors[].track_surface` changed meaning and
+  values.** The field was sourced from iRacing's `PlayerTrackSurface` (an
+  `irsdk_TrkLoc` *location*) but decoded through the *material* table, so values
+  were wrong (e.g. `OnTrack` rendered as `"Asphalt"`, `OffTrack` as
+  `"Undefined"`). It now serializes as a normalized location enum **string**:
+  `"NotInWorld"`, `"OffTrack"`, `"InPitStall"`, `"ApproachingPits"`,
+  `"OnTrack"`, or `"Unknown"`.
+  - **Migration:** consumers should read the location strings above. For
+    off-track detection, iRacing's raw numeric code remains available under the
+    game namespace at `iracing.PlayerTrackSurface` (`0` = OffTrack … `3` =
+    OnTrack), which — being numeric — also survives `--mode compact`. The
+    surface *material* (Asphalt/Grass/…) is likewise available raw at
+    `iracing.PlayerTrackSurfaceMaterial`.
+
+> Note: iRacing-specific signals such as the running incident count
+> (`PlayerCarMyIncidentCount`) are not normalized into the cross-sim model;
+> they remain available raw under the `iracing.` namespace (e.g.
+> `iracing.PlayerCarMyIncidentCount`, which a consumer can edge-detect).
+
 ## 0.3.0 — 2026-04-12
 
 ### `ost-parse` Wire Format

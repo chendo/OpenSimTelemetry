@@ -209,7 +209,8 @@ OPTIONS:
                        dense    per-frame JSON object of every numeric channel
                                 with carry-forward; strings still sparse
                        compact  per-frame positional JSON array of every
-                                numeric channel (strings dropped)
+                                channel (numeric and string) with
+                                carry-forward, aligned to header.channels
     --stream         Skip full-file scans (lap index, track outline, channel
                      discovery). Header laps/track_outline/channels will be
                      empty; frame output starts immediately after file headers.

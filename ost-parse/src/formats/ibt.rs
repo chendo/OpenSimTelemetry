@@ -79,13 +79,13 @@ impl ReplayParser for IbtReplayParser {
         };
 
         // In compact mode the per-frame array is positional, so the
-        // header's `channels` list IS the column index — and it must be
-        // numeric-only because positional arrays can't carry strings.
-        // In sparse / dense mode `channels` is the full union.
-        let header_channels = match options.mode {
-            FrameMode::Compact => numeric_channels.clone(),
-            _ => all_channels.clone(),
-        };
+        // header's `channels` list IS the column index. We include *all*
+        // channels — numeric and string — in the full discovery order: a
+        // JSON array can hold mixed types, so string columns ride along
+        // positionally just like numeric ones. Consumers index strictly by
+        // `channels` order. In sparse / dense mode `channels` is likewise
+        // the full union, so this is the same list in every mode.
+        let header_channels = all_channels.clone();
 
         let header = SessionHeader {
             format: "ost-parse".to_string(),
@@ -133,14 +133,26 @@ impl ReplayParser for IbtReplayParser {
         let mut transient_string_keys: Vec<String> = Vec::new();
 
         // Compact-mode state: positional Vec<Value> aligned with
-        // `numeric_channels`, plus a name→index lookup table for fast
-        // per-frame updates. Same carry-forward semantics as dense.
+        // `all_channels` (numeric AND string), plus a name→index lookup
+        // table for fast per-frame updates. Every column carries forward:
+        // numeric columns start at 0, string columns start at null until
+        // first seen.
         let (mut compact_state, compact_index): (
             Vec<Value>,
             std::collections::HashMap<String, usize>,
         ) = if options.mode == FrameMode::Compact {
-            let row = vec![Value::from(0); numeric_channels.len()];
-            let idx = numeric_channels
+            let numeric_set: std::collections::HashSet<&String> = numeric_channels.iter().collect();
+            let row: Vec<Value> = all_channels
+                .iter()
+                .map(|ch| {
+                    if numeric_set.contains(ch) {
+                        Value::from(0)
+                    } else {
+                        Value::Null
+                    }
+                })
+                .collect();
+            let idx = all_channels
                 .iter()
                 .enumerate()
                 .map(|(i, k)| (k.clone(), i))
@@ -192,14 +204,14 @@ impl ReplayParser for IbtReplayParser {
                         }
                     }
                     FrameMode::Compact => {
-                        // Positional carry-forward: walk frame_obj and
-                        // update slots indexed by compact_index. Strings
-                        // are dropped (they're not in compact_index).
+                        // Positional carry-forward across all columns: walk
+                        // frame_obj and update slots indexed by
+                        // compact_index. Both numeric and string values are
+                        // carried forward; a JSON array holds them side by
+                        // side.
                         for (k, v) in frame_obj.iter() {
-                            if is_numeric(v) {
-                                if let Some(&i) = compact_index.get(k) {
-                                    compact_state[i] = v.clone();
-                                }
+                            if let Some(&i) = compact_index.get(k) {
+                                compact_state[i] = v.clone();
                             }
                         }
                         serde_json::to_writer(&mut *writer, &compact_state)

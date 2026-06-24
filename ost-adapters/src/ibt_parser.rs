@@ -1091,8 +1091,12 @@ impl IbtFile {
                 .map(|v| MetersPerSecond((v.x.0.powi(2) + v.y.0.powi(2) + v.z.0.powi(2)).sqrt()))
         });
 
+        // PlayerTrackSurface is the irsdk_TrkLoc *location* enum
+        // (OffTrack/OnTrack/pits), NOT the surface material — decode it as
+        // a location. The raw code is still exposed under
+        // `iracing.PlayerTrackSurface`.
         let track_surface =
-            get_i32("PlayerTrackSurface").map(crate::iracing::iracing_track_surface);
+            get_i32("PlayerTrackSurface").map(crate::iracing::iracing_track_location);
 
         let vehicle = Some(VehicleData {
             speed,

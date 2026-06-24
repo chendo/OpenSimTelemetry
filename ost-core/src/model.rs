@@ -229,9 +229,13 @@ pub struct VehicleData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_garage: Option<bool>,
 
-    /// What surface the player's car is currently on
+    /// Where the player's car is on the track, as a normalized location
+    /// enum (e.g. `"OnTrack"`, `"OffTrack"`; see [`TrackLocation`]). On
+    /// iRacing this comes from `PlayerTrackSurface` (the `irsdk_TrkLoc`
+    /// *location*); the sim's raw numeric code stays available under
+    /// `iracing.PlayerTrackSurface`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub track_surface: Option<TrackSurface>,
+    pub track_surface: Option<TrackLocation>,
 
     /// Player's car name
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -328,6 +332,44 @@ pub enum TrackSurface {
     Grasscrete,
     Astroturf,
     Unknown,
+}
+
+// =============================================================================
+// TrackLocation enum (irsdk_TrkLoc)
+// =============================================================================
+
+/// Where the car is on the track, normalized from iRacing's `irsdk_TrkLoc`
+/// *location* enum (distinct from `irsdk_TrkSurf`, the surface material).
+///
+/// Serializes as a known string variant (e.g. `"OnTrack"`, `"OffTrack"`),
+/// matching the cross-sim style of [`TrackSurface`]. The sim's raw numeric
+/// code remains available game-side under the `iracing` namespace (e.g.
+/// `iracing.PlayerTrackSurface`).
+///
+/// Codes (iRacing SDK `irsdk_defines.h`): -1 NotInWorld, 0 OffTrack,
+/// 1 InPitStall, 2 ApproachingPits, 3 OnTrack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TrackLocation {
+    NotInWorld,
+    OffTrack,
+    InPitStall,
+    ApproachingPits,
+    OnTrack,
+    Unknown,
+}
+
+impl TrackLocation {
+    /// Decode a raw `irsdk_TrkLoc` location code.
+    pub fn from_irsdk(code: i32) -> Self {
+        match code {
+            -1 => Self::NotInWorld,
+            0 => Self::OffTrack,
+            1 => Self::InPitStall,
+            2 => Self::ApproachingPits,
+            3 => Self::OnTrack,
+            _ => Self::Unknown,
+        }
+    }
 }
 
 // =============================================================================
@@ -1112,9 +1154,10 @@ pub struct CompetitorData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_pit_road: Option<bool>,
 
-    /// Surface this car is on
+    /// Where this car is on the track, as a normalized location enum
+    /// (on iRacing from `CarIdxTrackSurface`; see [`TrackLocation`]).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub track_surface: Option<TrackSurface>,
+    pub track_surface: Option<TrackLocation>,
 
     /// Best lap time
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1672,6 +1715,33 @@ impl ChannelSelector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn track_location_decodes_irsdk_codes() {
+        // PlayerTrackSurface is the irsdk_TrkLoc *location* enum — decoding
+        // it as a location (not the material table) is the bug fix.
+        assert_eq!(TrackLocation::from_irsdk(-1), TrackLocation::NotInWorld);
+        assert_eq!(TrackLocation::from_irsdk(0), TrackLocation::OffTrack);
+        assert_eq!(TrackLocation::from_irsdk(1), TrackLocation::InPitStall);
+        assert_eq!(TrackLocation::from_irsdk(2), TrackLocation::ApproachingPits);
+        assert_eq!(TrackLocation::from_irsdk(3), TrackLocation::OnTrack);
+        // Out-of-range codes fall back to Unknown.
+        assert_eq!(TrackLocation::from_irsdk(7), TrackLocation::Unknown);
+    }
+
+    #[test]
+    fn track_location_serializes_as_known_string() {
+        assert_eq!(
+            serde_json::to_value(TrackLocation::OffTrack).unwrap(),
+            serde_json::json!("OffTrack")
+        );
+        assert_eq!(
+            serde_json::to_value(TrackLocation::OnTrack).unwrap(),
+            serde_json::json!("OnTrack")
+        );
+        let back: TrackLocation = serde_json::from_value(serde_json::json!("OnTrack")).unwrap();
+        assert_eq!(back, TrackLocation::OnTrack);
+    }
 
     /// Helper to construct a minimal TelemetryFrame for testing
     fn make_test_frame() -> TelemetryFrame {
