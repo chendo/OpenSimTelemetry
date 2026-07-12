@@ -266,7 +266,7 @@ pub fn cleanup_old_sessions(config: &RetentionConfig) {
     }
 
     // Sort newest first
-    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.sort_by_key(|f| std::cmp::Reverse(f.1));
 
     // Enforce max_age_days: delete files older than N days
     if let Some(max_days) = config.max_age_days {
