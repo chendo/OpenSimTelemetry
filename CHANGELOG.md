@@ -2,6 +2,26 @@
 
 All notable changes to OpenSimTelemetry are documented in this file.
 
+## 0.6.0 — 2026-07-29
+
+Maintenance release with no functional changes since 0.5.0 — internal lint
+cleanup in `ost-server`. This is the first tagged release since v0.1.0 and
+ships the 0.4.0 and 0.5.0 changes documented below.
+
+## 0.5.0 — 2026-06-24
+
+### Features
+
+- **`ost-cli parse --feather`** — emits a columnar **Feather** (Arrow IPC File) stream instead of NDJSON: one column per channel (numeric as `Float32`, string as `Utf8`), with the full `SessionHeader` JSON-encoded in the Arrow schema metadata under `ost_header`. Columns carry forward like `--mode compact`. Skips per-float decimal formatting and per-frame `JSON.parse`, roughly halving wire size. Purely additive — NDJSON remains the default. See CHANGELOG-API.md for details.
+- **`ost-cli parse --progress`** — emits `@progress <frames_done> <total> <channels> <current_lap>` lines to stderr every 1000 frames, for upload UIs consuming the Feather path (a single Arrow IPC file can't be decoded incrementally). Off by default; stdout is unchanged.
+
+## 0.4.0 — 2026-06-24
+
+### Bug Fixes
+
+- **`--mode compact` no longer drops string channels** (BREAKING) — `SessionHeader.channels` in compact mode is now the full channel union (numeric and string) and string columns ride along positionally in frame arrays (`null` until first seen, carried forward after). Consumers must stop assuming every compact slot is a number. See CHANGELOG-API.md for migration notes.
+- **`vehicle.track_surface` is now a track location, not a material** (BREAKING) — the field was sourced from iRacing's `irsdk_TrkLoc` location but decoded through the material table, producing wrong values. It now serializes as a normalized location enum string (`"NotInWorld"`, `"OffTrack"`, `"InPitStall"`, `"ApproachingPits"`, `"OnTrack"`, `"Unknown"`). Raw iRacing codes remain available under `iracing.PlayerTrackSurface` and `iracing.PlayerTrackSurfaceMaterial`.
+
 ## 0.3.0 — 2026-04-12
 
 ### Features
