@@ -2,6 +2,34 @@
 
 Breaking changes and migration notes for consumers of the OpenSimTelemetry API (SSE, REST, UDP sinks).
 
+## Unreleased
+
+### Lap timing is reported for every lap, with flags instead of omissions
+
+- **`LapInfo.lap_time_secs` is now populated whenever a time can be
+  established at all.** It previously came back `null` for any lap whose
+  `LapDistPct` distribution didn't look like a full tour of the circuit, and
+  for any lap whose official `LapLastLapTime` wasn't corroborated by the
+  frame range. Both conditions are normal around a pit stop, so a race lost
+  the timing for its in- and out-laps — and, because the same gate covered
+  them, for the racing laps either side.
+  - **Why:** a consumer can decide that an in-lap doesn't belong in a
+    consistency figure. It cannot decide anything about a lap whose time was
+    discarded before it arrived. Withholding data is not a way of describing
+    it.
+- **New `LapInfo.full_lap: bool`** — the car drove the whole circuit, start
+  line to start line. This is the condition that used to gate timing, now
+  reported alongside it. Use it to pick a representative lap.
+- **New `LapInfo.time_source: "official" | "frame_duration" | null`** — where
+  the time came from. `official` is iRacing's `LapLastLapTime` corroborated
+  by the frame range; `frame_duration` was measured from the frames because
+  the official time was absent or disagreed with them.
+- **Compatibility:** additive on the wire — both fields carry `#[serde(default)]`,
+  so older payloads deserialize unchanged. Consumers that treated "has a lap
+  time" as a proxy for "is a full clean lap" must now test `full_lap`
+  explicitly; OST's own track-outline selection was one of them and has been
+  updated.
+
 ## 0.5.0 — 2026-06-24
 
 ### `ost-cli parse --feather` — columnar Feather (Arrow IPC) output (additive)

@@ -194,6 +194,8 @@ impl ReplayState {
                         lap_time_secs: None,
                         incomplete: false,
                         invalid_reason: None,
+                        full_lap: false,
+                        time_source: None,
                     });
                 } else {
                     // Same lap number — check for reset checkpoint (pct going backwards)
@@ -229,6 +231,8 @@ impl ReplayState {
                                 lap_time_secs: None,
                                 incomplete: false,
                                 invalid_reason: None,
+                                full_lap: false,
+                                time_source: None,
                             });
                         }
                     }
@@ -277,7 +281,11 @@ impl ReplayState {
         let complete_laps: Vec<_> = laps
             .iter()
             .enumerate()
-            .filter(|(_i, lap)| lap.lap_time_secs.is_some() && !lap.incomplete)
+            .filter(|(_i, lap)| {
+                // The outline has to come from a lap that covered the whole
+                // circuit, not merely one that has a time.
+                lap.lap_time_secs.is_some() && !lap.incomplete && lap.full_lap
+            })
             .collect();
         let best_lap = complete_laps
             .iter()

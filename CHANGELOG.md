@@ -2,6 +2,20 @@
 
 All notable changes to OpenSimTelemetry are documented in this file.
 
+## Unreleased
+
+### Fixes
+
+- **Lap timing is no longer discarded for laps that aren't clean full tours.**
+  `lap_time_secs` was withheld when a lap's `LapDistPct` distribution didn't
+  look like a complete lap, or when iRacing's `LapLastLapTime` disagreed with
+  the frame range — both normal around a pit stop. On a 25-lap race that cost
+  8 lap times, including two ordinary racing laps next to the stops. Every lap
+  that has a time now reports it; whether the lap was a full tour is reported
+  beside it as `full_lap`, and how the time was arrived at as `time_source`.
+  Track-outline selection now asks for `full_lap` explicitly, where it used to
+  rely on timing being absent for anything else.
+
 ## 0.6.0 — 2026-07-29
 
 Maintenance release with no functional changes since 0.5.0 — internal lint

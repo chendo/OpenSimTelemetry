@@ -4,6 +4,7 @@
 //! object). Each subsequent line is a JSON object of channel-name → value
 //! pairs (see top-level crate docs).
 
+use ost_adapters::ibt_parser::LapTimeSource;
 use serde::{Deserialize, Serialize};
 
 /// Header line of an `ost-parse` NDJSON stream.
@@ -61,6 +62,13 @@ pub struct LapInfo {
     pub lap_time_secs: Option<f64>,
     pub incomplete: bool,
     pub invalid_reason: Option<String>,
+    /// The car drove the whole circuit. Pick representative laps with this;
+    /// it is never a reason for `lap_time_secs` to be absent.
+    #[serde(default)]
+    pub full_lap: bool,
+    /// Where the time came from, for callers deciding how far to trust it.
+    #[serde(default)]
+    pub time_source: Option<LapTimeSource>,
 }
 
 impl From<&ost_adapters::ibt_parser::LapInfo> for LapInfo {
@@ -72,6 +80,8 @@ impl From<&ost_adapters::ibt_parser::LapInfo> for LapInfo {
             lap_time_secs: src.lap_time_secs,
             incomplete: src.incomplete,
             invalid_reason: src.invalid_reason.clone(),
+            full_lap: src.full_lap,
+            time_source: src.time_source,
         }
     }
 }
@@ -144,6 +154,8 @@ mod tests {
                 lap_time_secs: Some(83.21),
                 incomplete: false,
                 invalid_reason: None,
+                full_lap: true,
+                time_source: Some(LapTimeSource::Official),
             }]),
             track_outline: Some(vec![[28.1, -81.4], [28.2, -81.5]]),
             channels: vec!["meta.tick".to_string(), "vehicle.speed".to_string()],

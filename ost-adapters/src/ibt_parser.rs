@@ -118,7 +118,56 @@ impl VarValue {
     }
 }
 
+/// How a lap's time was arrived at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LapTimeSource {
+    /// iRacing's own LapLastLapTime, corroborated by the frame range.
+    Official,
+    /// Measured from the frame timestamps, because the official time was
+    /// absent or disagreed with the frames.
+    FrameDuration,
+}
+
+/// Longest a lap time can plausibly be before it is a stuck clock.
+const MAX_LAP_SECS: f64 = 3600.0;
+
+/// Decide a lap's time from what the file offers.
+///
+/// iRacing reports `LapLastLapTime`, but it goes stale across session resets,
+/// so it is only trusted when the frame range agrees with it. When they
+/// disagree the frames win — they are what was actually recorded.
+///
+/// The important property is that this returns a time whenever one can be
+/// established at all. It previously returned nothing when the official time
+/// was present but uncorroborated, which is exactly the case around a pit
+/// stop, and silently cost a race its in- and out-lap times.
+pub(crate) fn resolve_lap_time(
+    official: Option<f64>,
+    frame_duration: Option<f64>,
+) -> (Option<f64>, Option<LapTimeSource>) {
+    let frame_duration = frame_duration.filter(|&fd| fd > 0.0 && fd < MAX_LAP_SECS);
+    match (official, frame_duration) {
+        // The official time, corroborated by the frames.
+        (Some(t), Some(fd)) if fd > t * 0.9 && fd < t * 1.1 => {
+            (Some(t), Some(LapTimeSource::Official))
+        }
+        // They disagree, or there is no official time. Measure the frames.
+        (_, Some(fd)) => (Some(fd), Some(LapTimeSource::FrameDuration)),
+        // No usable frame range; the official time is all there is.
+        (Some(t), None) if t > 0.0 && t < MAX_LAP_SECS => {
+            (Some(t), Some(LapTimeSource::Official))
+        }
+        _ => (None, None),
+    }
+}
+
 /// Lap boundary info for replay seeking
+///
+/// Timing is reported for every lap that has one. Whether a lap was a clean,
+/// full tour of the circuit is reported *alongside* the time as a flag, never
+/// by withholding it: a race needs its in- and out-lap times, and only the
+/// consumer knows whether a given lap belongs in a given calculation.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LapInfo {
     pub lap_number: i32,
@@ -130,6 +179,14 @@ pub struct LapInfo {
     pub incomplete: bool,
     /// Reason the lap is invalid (e.g., "Off track"), None if valid
     pub invalid_reason: Option<String>,
+    /// The car drove the whole circuit, start line to start line. False for
+    /// pit in- and out-laps, which cover a different distance, and for
+    /// fragments. Use this to pick a representative lap; do not use it to
+    /// decide whether a lap has a time.
+    pub full_lap: bool,
+    /// Where `lap_time_secs` came from, for callers that care how much to
+    /// trust it. None when the lap has no time at all.
+    pub time_source: Option<LapTimeSource>,
 }
 
 /// Main .ibt file header (48 bytes at offset 0)
@@ -558,44 +615,37 @@ impl IbtFile {
                     let lap_complete =
                         avg_pct > 0.45 && avg_pct < 0.55 && std_dev > 0.25 && std_dev < 0.32;
 
-                    if lap_complete {
-                        // Use iRacing's official LapLastLapTime (set at start of new lap)
-                        let official_time = last_lap_time_vh
-                            .as_ref()
-                            .and_then(|vh| read_f32(frame_buf, vh))
-                            .filter(|&t| t > 0.0)
-                            .map(|t| t as f64);
+                    laps[prev_idx].full_lap = lap_complete;
 
-                        // Verify frame range duration matches the reported lap time.
-                        // After session resets, LapLastLapTime can be stale from a
-                        // previous session while the frame range is much shorter.
-                        let t_end = session_time_vh
-                            .as_ref()
-                            .and_then(|vh| read_f64(frame_buf, vh));
-                        let prev_frame =
-                            &bulk_buf[laps[prev_idx].start_frame * buf_len..][..buf_len];
-                        let t_start = session_time_vh
-                            .as_ref()
-                            .and_then(|vh| read_f64(prev_frame, vh));
-                        let frame_duration = match (t_start, t_end) {
-                            (Some(ts), Some(te)) if te > ts => Some(te - ts),
-                            _ => None,
-                        };
+                    // Time every lap that has a time. Whether it was a full
+                    // tour is a flag above, not a reason to discard timing —
+                    // an in-lap is still a lap somebody drove, and a race
+                    // needs it.
+                    //
+                    // Use iRacing's official LapLastLapTime (set at start of new lap)
+                    let official_time = last_lap_time_vh
+                        .as_ref()
+                        .and_then(|vh| read_f32(frame_buf, vh))
+                        .filter(|&t| t > 0.0)
+                        .map(|t| t as f64);
 
-                        if let Some(t) = official_time {
-                            // Only accept if frame duration is within 10% of reported time
-                            let duration_ok =
-                                frame_duration.is_some_and(|fd| fd > t * 0.9 && fd < t * 1.1);
-                            if duration_ok {
-                                laps[prev_idx].lap_time_secs = Some(t);
-                            }
-                        } else if let Some(fd) = frame_duration {
-                            // Fallback: use frame duration directly
-                            if fd > 0.0 && fd < 3600.0 {
-                                laps[prev_idx].lap_time_secs = Some(fd);
-                            }
-                        }
-                    }
+                    // Frame range duration, for corroboration. After session
+                    // resets, LapLastLapTime can be stale from a previous
+                    // session while the frame range is much shorter.
+                    let t_end = session_time_vh
+                        .as_ref()
+                        .and_then(|vh| read_f64(frame_buf, vh));
+                    let prev_frame = &bulk_buf[laps[prev_idx].start_frame * buf_len..][..buf_len];
+                    let t_start = session_time_vh
+                        .as_ref()
+                        .and_then(|vh| read_f64(prev_frame, vh));
+                    let frame_duration = match (t_start, t_end) {
+                        (Some(ts), Some(te)) if te > ts => Some(te - ts),
+                        _ => None,
+                    };
+                    let (lap_time, time_source) = resolve_lap_time(official_time, frame_duration);
+                    laps[prev_idx].lap_time_secs = lap_time;
+                    laps[prev_idx].time_source = time_source;
 
                     // Mark invalid laps
                     if went_off_track {
@@ -620,6 +670,8 @@ impl IbtFile {
                     lap_time_secs: None,
                     incomplete: false,
                     invalid_reason: None,
+                    full_lap: false,
+                    time_source: None,
                 });
                 prev_lap = Some(lap_num);
                 prev_pct = None; // Reset pct tracking on lap transition
@@ -660,6 +712,8 @@ impl IbtFile {
                             lap_time_secs: None,
                             incomplete: false,
                             invalid_reason: None,
+                            full_lap: false,
+                            time_source: None,
                         });
                     }
                 }
@@ -722,7 +776,13 @@ impl IbtFile {
         let complete_laps: Vec<_> = laps
             .iter()
             .enumerate()
-            .filter(|(_i, lap)| lap.lap_time_secs.is_some() && !lap.incomplete)
+            .filter(|(_i, lap)| {
+                // full_lap is what makes a lap representative of the circuit.
+                // It used to be implied by having a time at all; now that
+                // every lap is timed, it has to be asked for explicitly or
+                // the outline could be traced from an in-lap through the pits.
+                lap.lap_time_secs.is_some() && !lap.incomplete && lap.full_lap
+            })
             .collect();
         // Tier 1: fastest clean lap (no off-track, no invalid reason)
         let best_lap = complete_laps
@@ -1540,6 +1600,49 @@ fn read_array_value(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lap_time_prefers_the_official_time_when_frames_agree() {
+        let (t, src) = resolve_lap_time(Some(83.21), Some(83.3));
+        assert_eq!(t, Some(83.21));
+        assert_eq!(src, Some(LapTimeSource::Official));
+    }
+
+    #[test]
+    fn lap_time_measures_the_frames_when_the_official_time_disagrees() {
+        // A stale LapLastLapTime from before a session reset: the frames only
+        // cover 40s, so the reported 83s cannot be this lap.
+        let (t, src) = resolve_lap_time(Some(83.21), Some(40.0));
+        assert_eq!(t, Some(40.0));
+        assert_eq!(src, Some(LapTimeSource::FrameDuration));
+    }
+
+    #[test]
+    fn lap_time_is_never_dropped_merely_for_being_uncorroborated() {
+        // The regression this guards: a lap around a pit stop, where the
+        // official time and the frame range legitimately differ, used to come
+        // back with no time at all. A race needs that lap.
+        for (official, frames) in [
+            (Some(120.0), Some(95.0)),
+            (None, Some(95.0)),
+            (Some(120.0), None),
+        ] {
+            let (t, src) = resolve_lap_time(official, frames);
+            assert!(t.is_some(), "{official:?}/{frames:?} produced no time");
+            assert!(src.is_some());
+        }
+    }
+
+    #[test]
+    fn lap_time_is_none_only_when_there_is_nothing_to_go_on() {
+        assert_eq!(resolve_lap_time(None, None), (None, None));
+        // A zero or negative frame range is not a measurement.
+        assert_eq!(resolve_lap_time(None, Some(0.0)), (None, None));
+        assert_eq!(resolve_lap_time(None, Some(-5.0)), (None, None));
+        // A stuck clock is not a lap time.
+        assert_eq!(resolve_lap_time(None, Some(7200.0)), (None, None));
+        assert_eq!(resolve_lap_time(Some(7200.0), None), (None, None));
+    }
 
     #[test]
     fn test_var_type_from_i32() {
