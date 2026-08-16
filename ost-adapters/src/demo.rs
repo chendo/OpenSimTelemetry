@@ -609,9 +609,9 @@ impl DemoAdapter {
         let session = Some(SessionData {
             session_type: Some(SessionType::Race),
             session_state: Some(SessionState::Racing),
-            session_time: Some(Seconds(elapsed)),
-            session_time_remaining: Some(Seconds((1800.0 - elapsed).max(0.0))),
-            session_time_of_day: Some(Seconds(43200.0 + elapsed)),
+            session_time: Some(SessionSeconds(elapsed as f64)),
+            session_time_remaining: Some(SessionSeconds(((1800.0 - elapsed) as f64).max(0.0))),
+            session_time_of_day: Some(SessionSeconds(43200.0 + elapsed as f64)),
             session_laps: Some(30),
             session_laps_remaining: Some(30u32.saturating_sub(self.laps_completed)),
             flags: Some(FlagState {

@@ -394,9 +394,9 @@ mod windows_impl {
             let session = Some(SessionData {
                 session_type,
                 session_state,
-                session_time: get_f64("SessionTime").map(|t| Seconds(t as f32)),
-                session_time_remaining: get_f64("SessionTimeRemain").map(|t| Seconds(t as f32)),
-                session_time_of_day: get_f32("SessionTimeOfDay").map(Seconds),
+                session_time: get_f64("SessionTime").map(SessionSeconds),
+                session_time_remaining: get_f64("SessionTimeRemain").map(SessionSeconds),
+                session_time_of_day: get_f32("SessionTimeOfDay").map(|t| SessionSeconds(t as f64)),
                 session_laps,
                 session_laps_remaining: get_i32("SessionLapsRemainEx").map(|l| l as u32),
                 flags,

@@ -6,6 +6,28 @@ All notable changes to OpenSimTelemetry are documented in this file.
 
 ### Fixes
 
+- **Position is no longer truncated to `f32` in Feather output.** Every
+  numeric channel was emitted as `Float32`, but iRacing stores `Lat` and `Lon`
+  as doubles precisely because `f32` cannot hold them: an absolute coordinate
+  spends its mantissa on the magnitude. Rounding to the nearest `f32` cost
+  85cm of longitude and 21cm of latitude at The Bend. At 60Hz a car covers
+  about half a metre per frame, so the error exceeded the step between samples
+  — the recorded path became a staircase on which half the frames repeated the
+  previous position exactly, invisible across a lap and the entire shape of
+  the line across one corner. `motion.latitude` and `motion.longitude` are now
+  `Float64`; the pedals, g-forces, speed and distances are natively `f32` in
+  the IBT and are unchanged.
+
+- **The session clock is no longer narrowed to `f32` either.** `SessionTime`,
+  `SessionTimeRemain` and `SessionTimeOfDay` now travel as a new
+  `SessionSeconds(f64)` rather than `Seconds(f32)`. It is the same unit as a
+  lap time but not the same range: a lap time lives in the tens or hundreds,
+  where `f32` still resolves microseconds, while a session clock reaches
+  86,400 in a twenty-four hour race, where consecutive `f32` values sit 7.8ms
+  apart. Serialisation keeps the existing four-decimal convention but at
+  double width, so the clock is now accurate to 0.1ms whatever the session
+  length instead of degrading as it runs.
+
 - **Lap timing is no longer discarded for laps that aren't clean full tours.**
   `lap_time_secs` was withheld when a lap's `LapDistPct` distribution didn't
   look like a complete lap, or when iRacing's `LapLastLapTime` disagreed with

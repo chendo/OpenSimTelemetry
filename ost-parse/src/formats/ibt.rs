@@ -17,7 +17,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, Float32Array, StringArray};
+use arrow::array::{ArrayRef, Float32Array, Float64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::ipc::writer::FileWriter;
 use arrow::record_batch::RecordBatch;
@@ -46,6 +46,48 @@ const FEATHER_BATCH_SIZE: usize = 8192;
 /// Frame interval between `@progress` stderr lines in Feather mode (when
 /// `ParseOptions::progress` is set). Matches the NDJSON consumer's cadence.
 const FEATHER_PROGRESS_INTERVAL: usize = 1000;
+
+/// Channels emitted as `Float64` rather than `Float32`.
+///
+/// An IBT stores exactly five variables as doubles — `Lat`, `Lon`,
+/// `SessionTime`, `SessionTimeRemain` and `SessionTimeTotal` — and iRacing
+/// chose that width because f32 cannot hold them. They are absolute
+/// quantities with small meaningful increments, which is the case f32 is
+/// worst at: the mantissa is spent on the magnitude, leaving nothing for the
+/// detail.
+///
+/// The session clock is here for the same reason the coordinates are, one
+/// magnitude down: it climbs to 86,400 in a twenty-four hour race, where
+/// consecutive f32 values sit 7.8ms apart. It is carried through the model as
+/// `SessionSeconds(f64)` rather than the `Seconds(f32)` used for lap times and
+/// deltas, which are small enough that f32 still resolves microseconds.
+///
+/// `SessionTimeTotal` is the IBT's fifth double and is not here: it has no
+/// channel of its own in the frame model, so there is no column to widen.
+///
+/// Measured on a real session at The Bend (latitude 35.3, longitude 139.5),
+/// rounding each to the nearest f32 costs:
+///
+/// - longitude  7.6e-6 deg  =  85 cm
+/// - latitude   1.9e-6 deg  =  21 cm
+/// - session time            0.03 ms over 790 s, and it grows with the clock
+///
+/// At 60Hz a car at racing speed covers about half a metre per frame, so an
+/// 85cm error is larger than the step between samples: the recorded path
+/// becomes a staircase, and half the frames repeat the previous position
+/// exactly. Zoomed to a whole lap that is sub-pixel. Zoomed to one corner it
+/// is the shape of the line.
+///
+/// Every other IBT variable is natively f32 — `Speed`, `Alt`, `LapDist`, the
+/// pedals, the g-forces — so widening those would double the bytes to store
+/// the same numbers.
+const WIDE_CHANNELS: &[&str] = &[
+    "motion.latitude",
+    "motion.longitude",
+    "session.session_time",
+    "session.session_time_remaining",
+    "session.session_time_of_day",
+];
 
 /// Everything needed to emit frames after the up-front scans: the open
 /// file handle, the assembled [`SessionHeader`], and the discovered
@@ -284,11 +326,16 @@ impl ReplayParser for IbtReplayParser {
         header.mode = "feather".to_string();
         let total_frames = header.total_frames as usize;
 
-        // Per-column type: numeric → Float32, everything else → Utf8.
+        // Per-column type: numeric → Float32 (or Float64, see WIDE_CHANNELS),
+        // everything else → Utf8.
         let numeric_set: std::collections::HashSet<&String> = numeric_channels.iter().collect();
         let col_is_numeric: Vec<bool> = all_channels
             .iter()
             .map(|c| numeric_set.contains(c))
+            .collect();
+        let col_is_wide: Vec<bool> = all_channels
+            .iter()
+            .map(|c| WIDE_CHANNELS.contains(&c.as_str()))
             .collect();
         // name → column index, for fast per-frame updates.
         let col_index: std::collections::HashMap<&str, usize> = all_channels
@@ -308,7 +355,11 @@ impl ReplayParser for IbtReplayParser {
             .zip(&col_is_numeric)
             .map(|(name, &is_num)| {
                 let dt = if is_num {
-                    DataType::Float32
+                    if WIDE_CHANNELS.contains(&name.as_str()) {
+                        DataType::Float64
+                    } else {
+                        DataType::Float32
+                    }
                 } else {
                     DataType::Utf8
                 };
@@ -329,11 +380,11 @@ impl ReplayParser for IbtReplayParser {
         // Running carry-forward state, one slot per column. Numeric slots
         // start at 0; string slots start null until first seen. Each frame
         // updates only the columns present, then appends the full row.
-        let mut num_state: Vec<f32> = vec![0.0; all_channels.len()];
+        let mut num_state: Vec<f64> = vec![0.0; all_channels.len()];
         let mut str_state: Vec<Option<String>> = vec![None; all_channels.len()];
 
         // Per-batch column builders, reset after each flush.
-        let mut num_builders: Vec<Vec<f32>> = all_channels
+        let mut num_builders: Vec<Vec<f64>> = all_channels
             .iter()
             .map(|_| Vec::with_capacity(FEATHER_BATCH_SIZE))
             .collect();
@@ -365,7 +416,7 @@ impl ReplayParser for IbtReplayParser {
                     if let Some(&i) = col_index.get(k.as_str()) {
                         if col_is_numeric[i] {
                             if let Some(n) = v.as_f64() {
-                                num_state[i] = n as f32;
+                                num_state[i] = n;
                             }
                         } else if let Some(s) = v.as_str() {
                             str_state[i] = Some(s.to_string());
@@ -397,6 +448,7 @@ impl ReplayParser for IbtReplayParser {
                         &mut fw,
                         &schema,
                         &col_is_numeric,
+                        &col_is_wide,
                         &mut num_builders,
                         &mut str_builders,
                     )?;
@@ -425,6 +477,7 @@ impl ReplayParser for IbtReplayParser {
                 &mut fw,
                 &schema,
                 &col_is_numeric,
+                &col_is_wide,
                 &mut num_builders,
                 &mut str_builders,
             )?;
@@ -444,13 +497,21 @@ fn flush_feather_batch<W: Write>(
     fw: &mut FileWriter<W>,
     schema: &Arc<Schema>,
     col_is_numeric: &[bool],
-    num_builders: &mut [Vec<f32>],
+    col_is_wide: &[bool],
+    num_builders: &mut [Vec<f64>],
     str_builders: &mut [Vec<Option<String>>],
 ) -> Result<(), ParseError> {
     let columns: Vec<ArrayRef> = (0..col_is_numeric.len())
         .map(|i| {
             if col_is_numeric[i] {
-                Arc::new(Float32Array::from(std::mem::take(&mut num_builders[i]))) as ArrayRef
+                let vals = std::mem::take(&mut num_builders[i]);
+                if col_is_wide[i] {
+                    Arc::new(Float64Array::from(vals)) as ArrayRef
+                } else {
+                    Arc::new(Float32Array::from(
+                        vals.into_iter().map(|v| v as f32).collect::<Vec<f32>>(),
+                    )) as ArrayRef
+                }
             } else {
                 let vals = std::mem::take(&mut str_builders[i]);
                 Arc::new(StringArray::from_iter(vals)) as ArrayRef

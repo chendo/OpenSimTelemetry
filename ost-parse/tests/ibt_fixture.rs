@@ -379,6 +379,88 @@ fn feather_round_trips_header_and_columns() {
     assert!(saw_speed_value);
 }
 
+/// Position keeps the width the IBT gave it.
+///
+/// iRacing stores `Lat`/`Lon` as doubles because f32 cannot hold an absolute
+/// coordinate: at Tsukuba's longitude the nearest f32 is 7.6e-6 of a degree
+/// away, which is most of a metre of road. Emitting these as Float32 turned
+/// the recorded path into a staircase with half the frames repeating the
+/// previous position exactly, which is invisible over a lap and is the whole
+/// picture over one corner.
+#[test]
+#[ignore]
+fn feather_keeps_position_at_double_width() {
+    if !fixture_present() {
+        eprintln!("skipping: fixtures/race.ibt not present");
+        return;
+    }
+
+    use arrow::array::Float64Array;
+    use arrow::datatypes::DataType;
+    use arrow::ipc::reader::FileReader;
+
+    let parser = parser_for_extension("ibt").expect("ibt parser");
+    let mut buf = Vec::new();
+    parser
+        .parse_to_feather(&fixture_path(), &mut buf, &ParseOptions::compact())
+        .expect("parse_to_feather");
+
+    let reader = FileReader::try_new(Cursor::new(buf), None).expect("arrow FileReader");
+    let schema = reader.schema();
+
+    for name in [
+        "motion.latitude",
+        "motion.longitude",
+        "session.session_time",
+    ] {
+        let field = schema
+            .field_with_name(name)
+            .unwrap_or_else(|_| panic!("{name} column"));
+        assert_eq!(
+            field.data_type(),
+            &DataType::Float64,
+            "{name} must survive at the width the IBT stored it"
+        );
+    }
+
+    // Narrow channels stay narrow: these are f32 in the IBT, so widening them
+    // would double the bytes to store exactly the same numbers.
+    for name in ["vehicle.speed", "timing.lap_distance"] {
+        assert_eq!(
+            schema.field_with_name(name).unwrap().data_type(),
+            &DataType::Float32,
+            "{name} is f32 in the IBT and should stay f32"
+        );
+    }
+
+    // The values must actually carry detail finer than an f32 could hold,
+    // otherwise the column is merely wider and nothing has been preserved.
+    let mut finer_than_f32 = false;
+    for batch in reader {
+        let batch = batch.expect("record batch");
+        let idx = batch.schema().index_of("motion.latitude").unwrap();
+        let col = batch
+            .column(idx)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("motion.latitude is Float64");
+        for i in 0..col.len() {
+            let v = col.value(i);
+            if v != 0.0 && v != (v as f32) as f64 {
+                finer_than_f32 = true;
+                break;
+            }
+        }
+        if finer_than_f32 {
+            break;
+        }
+    }
+    assert!(
+        finer_than_f32,
+        "latitude should hold precision an f32 would have rounded away"
+    );
+}
+
 #[test]
 #[ignore]
 fn replay_id_matches_replaystate_hash() {

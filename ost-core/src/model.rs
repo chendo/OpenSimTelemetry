@@ -751,15 +751,15 @@ pub struct SessionData {
 
     /// Elapsed session time
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_time: Option<Seconds>,
+    pub session_time: Option<SessionSeconds>,
 
     /// Time remaining in session
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_time_remaining: Option<Seconds>,
+    pub session_time_remaining: Option<SessionSeconds>,
 
     /// In-sim time of day
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_time_of_day: Option<Seconds>,
+    pub session_time_of_day: Option<SessionSeconds>,
 
     /// Total laps for this session (None = unlimited)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1848,7 +1848,7 @@ mod tests {
                 session_type: Some(SessionType::Race),
                 session_state: None,
                 session_time: None,
-                session_time_remaining: Some(Seconds(1200.0)),
+                session_time_remaining: Some(SessionSeconds(1200.0)),
                 session_time_of_day: None,
                 session_laps: None,
                 session_laps_remaining: None,

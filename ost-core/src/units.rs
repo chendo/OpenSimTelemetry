@@ -12,6 +12,16 @@ fn round4<S: serde::Serializer>(val: &f32, s: S) -> Result<S::Ok, S::Error> {
     s.serialize_f32((*val * 10000.0).round() / 10000.0)
 }
 
+/// Four decimal places, kept at double width.
+///
+/// The f32 version rounds and then narrows, which is fine while the value is
+/// small: a lap time of 93.3 has f32 steps of 7 microseconds, far below the
+/// 0.1ms grid. A session clock at 86,400 has f32 steps of 7.8ms, so narrowing
+/// there would quantise well above the grid the rounding asks for.
+fn round4_f64<S: serde::Serializer>(val: &f64, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_f64((*val * 10000.0).round() / 10000.0)
+}
+
 /// Meters
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Meters(#[serde(serialize_with = "round4")] pub f32);
@@ -111,6 +121,22 @@ impl Percentage {
 /// Seconds (timestamps, durations)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Seconds(#[serde(serialize_with = "round4")] pub f32);
+
+/// Seconds carried at double precision, for clocks rather than durations.
+///
+/// [`Seconds`] is f32, which is the right width for a lap time or a delta:
+/// those live in the tens to hundreds, where f32 still resolves microseconds.
+/// A session clock is the same unit with a different lifetime — it climbs to
+/// 86,400 in a twenty-four hour race, and by then consecutive f32 values sit
+/// 7.8ms apart. iRacing stores these as doubles for exactly that reason, so
+/// narrowing them here would discard something the file went to the trouble
+/// of keeping.
+///
+/// The magnitude is also why this cannot round-trip through
+/// [`round4`]: that serialises as f32, which would undo the width on the way
+/// out.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct SessionSeconds(#[serde(serialize_with = "round4_f64")] pub f64);
 
 /// G-force (multiples of gravitational acceleration)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
