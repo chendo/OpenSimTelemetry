@@ -253,6 +253,9 @@ pub struct IbtDriverEntry {
     /// class; a multiclass field needs this to compare like with like.
     pub car_class_id: i32,
     pub car_screen_name: String,
+    /// The pace car is entered like anyone else. It is not in the field, and
+    /// counting it makes a 41-car grid read as 42.
+    pub is_pace_car: bool,
 }
 
 /// One entry in `QualifyResultsInfo:Results`.
@@ -468,6 +471,7 @@ fn parse_driver_entries(yaml: &str) -> Vec<IbtDriverEntry> {
             car_number: field(item, "CarNumber").unwrap_or_default().to_string(),
             car_class_id: field_i32(item, "CarClassID"),
             car_screen_name: field(item, "CarScreenName").unwrap_or_default().to_string(),
+            is_pace_car: field_i32(item, "CarIsPaceCar") != 0,
         })
         .collect()
 }
@@ -1965,6 +1969,7 @@ SessionInfo:
         assert_eq!(info.drivers[0].car_number, "07");
         assert_eq!(info.drivers[1].car_number, "7");
         assert_eq!(info.drivers[0].car_class_id, 11);
+        assert!(!info.drivers[0].is_pace_car);
 
         assert_eq!(info.qualify_results.len(), 2);
         assert_eq!(info.qualify_results[0].car_idx, 1);
@@ -2053,6 +2058,11 @@ DriverInfo:
         let info = &ibt.session_info;
 
         assert_eq!(info.drivers.len(), 42, "41 entries plus the pace car");
+        assert_eq!(
+            info.drivers.iter().filter(|d| !d.is_pace_car).count(),
+            info.qualify_results.len(),
+            "the field, once the pace car is set aside, is who qualified"
+        );
         assert_eq!(info.driver_car_idx, 0);
         assert_eq!(info.drivers[0].car_idx, 0);
         assert_eq!(info.drivers[0].user_name, "JJ Chen");

@@ -11,8 +11,9 @@ All notable changes to OpenSimTelemetry are documented in this file.
   `QualifyResultsInfo:Results`; both were read past on the way to the track
   and car names and then discarded with the rest of the block. The parse
   header gains `roster` (`driver_car_idx` plus one entry per car: `car_idx`,
-  `user_name`, `car_number`, `car_class_id`, `car_name`) and `qualifying`
-  (`position`, `class_position`, `car_idx`, `fastest_lap`, `fastest_time`).
+  `user_name`, `car_number`, `car_class_id`, `car_name`, `is_pace_car`) and
+  `qualifying` (`position`, `class_position`, `car_idx`, `fastest_lap`,
+  `fastest_time`).
   Both are omitted when the file has nothing to say, which for qualifying is
   usually: of 73 iRacing files, 14 carried results, 10 carried the key with an
   empty list and 49 had no such block.

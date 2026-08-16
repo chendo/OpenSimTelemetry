@@ -67,6 +67,9 @@ pub struct RosterEntry {
     /// Entries sharing a class are the ones whose times compare.
     pub car_class_id: i32,
     pub car_name: String,
+    /// The pace car is entered like anyone else but is not in the field.
+    #[serde(default)]
+    pub is_pace_car: bool,
 }
 
 /// One qualifying result, with the file's sentinels left in place.
@@ -94,6 +97,7 @@ impl From<&IbtDriverEntry> for RosterEntry {
             car_number: src.car_number.clone(),
             car_class_id: src.car_class_id,
             car_name: src.car_screen_name.clone(),
+            is_pace_car: src.is_pace_car,
         }
     }
 }
@@ -240,6 +244,7 @@ mod tests {
                     car_number: "07".to_string(),
                     car_class_id: 0,
                     car_name: "F1".to_string(),
+                    is_pace_car: false,
                 }],
             }),
             qualifying: Some(vec![QualifyResult {
