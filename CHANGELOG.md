@@ -4,7 +4,46 @@ All notable changes to OpenSimTelemetry are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- **The session's entry list and qualifying results now reach callers.** The
+  IBT's session YAML carries `DriverInfo:Drivers` and
+  `QualifyResultsInfo:Results`; both were read past on the way to the track
+  and car names and then discarded with the rest of the block. The parse
+  header gains `roster` (`driver_car_idx` plus one entry per car: `car_idx`,
+  `user_name`, `car_number`, `car_class_id`, `car_name`) and `qualifying`
+  (`position`, `class_position`, `car_idx`, `fastest_lap`, `fastest_time`).
+  Both are omitted when the file has nothing to say, which for qualifying is
+  usually: of 73 iRacing files, 14 carried results, 10 carried the key with an
+  empty list and 49 had no such block.
+
+  The roster is a field list and only that. It says who was entered and in
+  what, never where anyone was at any moment — the IBT holds no per-car
+  position history — so it cannot name the car you passed.
+
+  Qualifying entries keep the file's sentinels rather than being cleaned up,
+  because the block is not always what it looks like. `fastest_time` is -1
+  when a car set no time. And in a heat-racing event iRacing fills the block
+  from the grid-setting race instead: in one Okayama file the "qualifying"
+  times were 0.0, 4.169, 4.615, 12.252 … — the CONSOLATION race's finishing
+  gaps, matched entry for entry. They are seconds, as a lap time is, and mean
+  something else entirely. The tell is the leader: a `fastest_lap` of 0 with a
+  `fastest_time` of 0. Both fields travel so callers can make that check;
+  across the same 73 files it separates the 10 files holding real lap times
+  (pole 2–6% off `DriverCarEstLapTime`) from the 3 holding race gaps and the 1
+  where nobody set a time.
+
 ### Fixes
+
+- **The session's driver and car are now read from `DriverCarIdx`, not from
+  whichever entry appears first.** `IbtSessionInfo` took the first `UserName`
+  and `CarScreenName` in the YAML, which is entry 0 of the field rather than
+  the entry that recorded the file. Across 73 iRacing files that named another
+  entrant as the driver in 22 of them, and in the 4 where the pace car sits at
+  entry 0 it reported the session's car as `safety pcporsche911cup` or
+  `safety pctruck` — so a McLaren 570S GT4 race at Bathurst was filed under a
+  Porsche safety car. The roster now resolves it directly; the old first-match
+  values remain the fallback for files without a parseable roster.
 
 - **Position is no longer truncated to `f32` in Feather output.** Every
   numeric channel was emitted as `Float32`, but iRacing stores `Lat` and `Lon`

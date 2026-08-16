@@ -237,6 +237,42 @@ pub struct VarHeader {
 // Session info parsed from YAML
 // ============================================================================
 
+/// One entry in the session's field, from `DriverInfo:Drivers`.
+///
+/// This is a roster and nothing more: it says who was entered and in which
+/// car, never where anyone was at any point in the session. The IBT carries
+/// no per-car position history, so an entry here cannot be matched to the car
+/// you passed on lap 4.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct IbtDriverEntry {
+    pub car_idx: i32,
+    pub user_name: String,
+    /// As displayed, so `"07"` and `"7"` stay distinct — hence a string.
+    pub car_number: String,
+    /// Which class the entry ran in. Single-make fields put everyone in one
+    /// class; a multiclass field needs this to compare like with like.
+    pub car_class_id: i32,
+    pub car_screen_name: String,
+}
+
+/// One entry in `QualifyResultsInfo:Results`.
+///
+/// Fields are reported exactly as the file gives them, including the
+/// sentinels: `fastest_time` is -1 when the car set no time, and `fastest_lap`
+/// is 0 when the entry does not refer to a lap at all. Callers need both to
+/// judge whether the block holds lap times — in a heat-racing event iRacing
+/// fills it with the grid-setting race's finishing gaps instead, which are
+/// seconds like a lap time is and mean something completely different.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct IbtQualifyResult {
+    /// Zero-based: position 0 is pole.
+    pub position: i32,
+    pub class_position: i32,
+    pub car_idx: i32,
+    pub fastest_lap: i32,
+    pub fastest_time: f64,
+}
+
 /// Key session info extracted from the YAML string in the .ibt file
 #[derive(Debug, Clone, Default)]
 pub struct IbtSessionInfo {
@@ -249,6 +285,12 @@ pub struct IbtSessionInfo {
     pub driver_name: String,
     pub driver_car_idx: i32,
     pub session_type: String,
+    /// The field, in file order. Empty when the file carries no roster.
+    pub drivers: Vec<IbtDriverEntry>,
+    /// Qualifying results, in file order. Empty far more often than not —
+    /// across 73 iRacing files only 14 had this populated, 10 had the key
+    /// present with an empty list, and 49 omitted it entirely.
+    pub qualify_results: Vec<IbtQualifyResult>,
 }
 
 impl IbtSessionInfo {
@@ -291,6 +333,29 @@ impl IbtSessionInfo {
             info.track_display_name = info.track_name.clone();
         }
 
+        info.drivers = parse_driver_entries(yaml);
+        info.qualify_results = parse_qualify_results(yaml);
+
+        // The scalar sweep above takes the first `UserName` and
+        // `CarScreenName` it meets, which is the first entry in the field and
+        // not necessarily the one holding the wheel. Now that the roster is
+        // parsed, `DriverCarIdx` says which entry that is. Measured across 73
+        // iRacing files: 22 named another entrant as the driver, and 4 — the
+        // ones where the pace car is entry 0 — reported the session's car as
+        // "safety pcporsche911cup" or "safety pctruck".
+        if let Some(me) = info
+            .drivers
+            .iter()
+            .find(|d| d.car_idx == info.driver_car_idx)
+        {
+            if !me.user_name.is_empty() {
+                info.driver_name = me.user_name.clone();
+            }
+            if !me.car_screen_name.is_empty() {
+                info.car_screen_name = me.car_screen_name.clone();
+            }
+        }
+
         info.car_name = info.car_screen_name.clone();
 
         Ok(info)
@@ -299,6 +364,127 @@ impl IbtSessionInfo {
 
 fn try_extract_yaml_value(line: &str, key: &str) -> Option<String> {
     line.strip_prefix(key).map(|rest| rest.trim().to_string())
+}
+
+/// Number of leading spaces on a line. The IBT's YAML indents with spaces
+/// only, one level per space at the top and two per level below that.
+fn indent_of(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
+/// Strip the quoting iRacing applies inconsistently — `CarNumber` is quoted,
+/// `UserName` is not, and a quoted value is not otherwise escaped.
+fn unquote(value: &str) -> &str {
+    let trimmed = value.trim();
+    trimmed
+        .strip_prefix('"')
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or(trimmed)
+}
+
+/// Pull the `- ` items out of the list at `section:` → `list:`, each as its
+/// own key/value pairs.
+///
+/// Written by hand rather than with a YAML crate because the session block is
+/// only nearly YAML: unquoted values routinely contain colons and other
+/// characters a conforming parser rejects, and a hard failure there would cost
+/// the track and car names too. Scanning by indentation degrades to an empty
+/// list for the parts it cannot read and leaves the rest intact.
+fn yaml_list_items(yaml: &str, section: &str, list: &str) -> Vec<Vec<(String, String)>> {
+    let mut items: Vec<Vec<(String, String)>> = Vec::new();
+    let mut in_section = false;
+    let mut list_indent: Option<usize> = None;
+
+    for line in yaml.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let indent = indent_of(line);
+        let trimmed = line.trim_end();
+
+        if indent == 0 {
+            // A new top-level key ends whatever we were reading.
+            if in_section {
+                break;
+            }
+            in_section = trimmed.trim_start() == format!("{section}:");
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+
+        match list_indent {
+            None => {
+                if trimmed.trim_start() == format!("{list}:") {
+                    list_indent = Some(indent);
+                }
+            }
+            Some(start) => {
+                let body = trimmed.trim_start();
+                if let Some(first) = body.strip_prefix("- ") {
+                    if indent > start {
+                        continue; // A nested list inside the current item.
+                    }
+                    items.push(Vec::new());
+                    push_pair(items.last_mut().unwrap(), first);
+                } else if indent > start {
+                    if let Some(item) = items.last_mut() {
+                        push_pair(item, body);
+                    }
+                } else {
+                    // Back out to the list's own level or above: list over.
+                    break;
+                }
+            }
+        }
+    }
+
+    items
+}
+
+fn push_pair(item: &mut Vec<(String, String)>, body: &str) {
+    if let Some((key, value)) = body.split_once(':') {
+        item.push((key.trim().to_string(), unquote(value).to_string()));
+    }
+}
+
+fn field<'a>(item: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    item.iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.as_str())
+}
+
+fn field_i32(item: &[(String, String)], key: &str) -> i32 {
+    field(item, key).and_then(|v| v.parse().ok()).unwrap_or(0)
+}
+
+fn parse_driver_entries(yaml: &str) -> Vec<IbtDriverEntry> {
+    yaml_list_items(yaml, "DriverInfo", "Drivers")
+        .iter()
+        .map(|item| IbtDriverEntry {
+            car_idx: field_i32(item, "CarIdx"),
+            user_name: field(item, "UserName").unwrap_or_default().to_string(),
+            car_number: field(item, "CarNumber").unwrap_or_default().to_string(),
+            car_class_id: field_i32(item, "CarClassID"),
+            car_screen_name: field(item, "CarScreenName").unwrap_or_default().to_string(),
+        })
+        .collect()
+}
+
+fn parse_qualify_results(yaml: &str) -> Vec<IbtQualifyResult> {
+    yaml_list_items(yaml, "QualifyResultsInfo", "Results")
+        .iter()
+        .map(|item| IbtQualifyResult {
+            position: field_i32(item, "Position"),
+            class_position: field_i32(item, "ClassPosition"),
+            car_idx: field_i32(item, "CarIdx"),
+            fastest_lap: field_i32(item, "FastestLap"),
+            fastest_time: field(item, "FastestTime")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(-1.0),
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -1730,6 +1916,86 @@ SessionInfo:
         }
     }
 
+    /// The two list blocks, laid out the way real files lay them out: the
+    /// item dash sits at the same indent as the list key, and `DriverTires`
+    /// is a sibling list that must not be mistaken for the roster.
+    #[test]
+    fn test_roster_and_qualifying_from_yaml() {
+        let yaml = r#"---
+WeekendInfo:
+ TrackName: mount panorama
+DriverInfo:
+ DriverCarIdx: 1
+ DriverTires:
+ - TireIndex: 0
+   TireCompoundType: "Hard"
+ Drivers:
+ - CarIdx: 0
+   UserName: Ada Lovelace
+   CarNumber: "07"
+   CarClassID: 11
+   CarScreenName: BMW M4 GT3 EVO
+ - CarIdx: 1
+   UserName: Grace Hopper
+   CarNumber: "7"
+   CarClassID: 11
+   CarScreenName: Ferrari 296 GT3
+QualifyResultsInfo:
+ Results:
+ - Position: 0
+   ClassPosition: 0
+   CarIdx: 1
+   FastestLap: 3
+   FastestTime: 123.7933
+ - Position: 1
+   ClassPosition: 1
+   CarIdx: 0
+   FastestLap: 0
+   FastestTime: -1.0000
+SessionInfo:
+ Sessions:
+ - SessionNum: 0
+   SessionType: Race
+"#;
+        let info = IbtSessionInfo::from_yaml(yaml).unwrap();
+
+        assert_eq!(info.drivers.len(), 2);
+        assert_eq!(info.drivers[1].user_name, "Grace Hopper");
+        // Quoted in the file, and a string here so "07" survives as itself.
+        assert_eq!(info.drivers[0].car_number, "07");
+        assert_eq!(info.drivers[1].car_number, "7");
+        assert_eq!(info.drivers[0].car_class_id, 11);
+
+        assert_eq!(info.qualify_results.len(), 2);
+        assert_eq!(info.qualify_results[0].car_idx, 1);
+        assert_eq!(info.qualify_results[0].fastest_time, 123.7933);
+        // The no-time sentinel travels rather than being turned into a zero,
+        // which would read as an impossibly quick lap.
+        assert_eq!(info.qualify_results[1].fastest_time, -1.0);
+        assert_eq!(info.qualify_results[1].fastest_lap, 0);
+
+        // DriverCarIdx is 1, so the session's driver and car are the second
+        // entry's — not the first one the scalar sweep happens to meet.
+        assert_eq!(info.driver_name, "Grace Hopper");
+        assert_eq!(info.car_name, "Ferrari 296 GT3");
+    }
+
+    /// The common case by a wide margin: a roster but no qualifying results.
+    #[test]
+    fn test_empty_qualify_results_yield_nothing() {
+        let yaml = r#"---
+QualifyResultsInfo:
+ Results:
+DriverInfo:
+ Drivers:
+ - CarIdx: 0
+   UserName: Solo
+"#;
+        let info = IbtSessionInfo::from_yaml(yaml).unwrap();
+        assert!(info.qualify_results.is_empty());
+        assert_eq!(info.drivers.len(), 1);
+    }
+
     // ========================================================================
     // Integration test: load the real fixtures/race.ibt file
     // ========================================================================
@@ -1771,6 +2037,37 @@ SessionInfo:
         let info = &ibt.session_info;
         assert_eq!(info.track_display_name, "Tsukuba Circuit 2k Full");
         assert_eq!(info.session_type, "Practice");
+    }
+
+    /// The Bathurst fixture is committed, so this one always runs. It is a
+    /// 41-car GT3 grid with a real qualifying session behind it, which makes
+    /// it the file to check the list parsing against.
+    #[test]
+    fn test_ibt_roster_and_qualifying_from_fixture() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../fixtures/bmwm4gt3_bathurst 2026-02-20 21-45-59.ibt");
+        if !path.exists() {
+            return;
+        }
+        let ibt = IbtFile::open(&path).expect("Failed to open .ibt file");
+        let info = &ibt.session_info;
+
+        assert_eq!(info.drivers.len(), 42, "41 entries plus the pace car");
+        assert_eq!(info.driver_car_idx, 0);
+        assert_eq!(info.drivers[0].car_idx, 0);
+        assert_eq!(info.drivers[0].user_name, "JJ Chen");
+        assert_eq!(info.drivers[0].car_number, "64");
+
+        assert_eq!(info.qualify_results.len(), 41);
+        let pole = &info.qualify_results[0];
+        assert_eq!(pole.position, 0, "positions are zero-based");
+        assert_eq!(pole.car_idx, 18);
+        assert!((pole.fastest_time - 123.7933).abs() < 1e-6);
+        // Every car set a time here, so the list is monotonic in time as well
+        // as in position — a sanity check that entries are not being shuffled.
+        for pair in info.qualify_results.windows(2) {
+            assert!(pair[0].fastest_time <= pair[1].fastest_time);
+        }
     }
 
     /// Flatten a JSON value into sorted key-value pairs, skipping nulls.

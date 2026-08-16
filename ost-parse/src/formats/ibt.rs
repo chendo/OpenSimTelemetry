@@ -26,7 +26,9 @@ use serde_json::{Map, Value};
 
 use crate::flatten::{flatten_frame, is_numeric};
 use crate::formats::{FrameMode, ParseError, ParseOptions, ReplayParser};
-use crate::wire::{compute_replay_id, LapInfo, ReplayMetadata, SessionHeader};
+use crate::wire::{
+    compute_replay_id, LapInfo, QualifyResult, ReplayMetadata, Roster, RosterEntry, SessionHeader,
+};
 
 /// How often we sample frames during channel discovery. Walking every
 /// 100th sample catches conditional channels (pit-only vars, off-track
@@ -120,6 +122,27 @@ fn prepare_session(path: &Path, options: &ParseOptions) -> Result<SessionPrep, P
     let car_name = ibt.session_info().car_name.clone();
     let replay_id = compute_replay_id(file_size, total_frames, &track_name, &car_name);
 
+    // Both blocks come from the session YAML, which is read when the file is
+    // opened, so this costs nothing extra even in stream mode. Empty means the
+    // file did not carry them — far and away the common case for qualifying.
+    let roster = {
+        let entries: Vec<RosterEntry> =
+            ibt.session_info().drivers.iter().map(Into::into).collect();
+        (!entries.is_empty()).then(|| Roster {
+            driver_car_idx: ibt.session_info().driver_car_idx,
+            entries,
+        })
+    };
+    let qualifying: Option<Vec<QualifyResult>> = {
+        let results: Vec<QualifyResult> = ibt
+            .session_info()
+            .qualify_results
+            .iter()
+            .map(Into::into)
+            .collect();
+        (!results.is_empty()).then_some(results)
+    };
+
     // In stream mode, skip full-file scans (lap index, track outline)
     // and derive channels from the first frame instead of sampling
     // every Nth frame.
@@ -158,6 +181,8 @@ fn prepare_session(path: &Path, options: &ParseOptions) -> Result<SessionPrep, P
         track_outline,
         channels: all_channels.clone(),
         total_frames: total_frames as u64,
+        roster,
+        qualifying,
     };
 
     Ok(SessionPrep {

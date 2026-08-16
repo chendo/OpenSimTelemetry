@@ -4,7 +4,7 @@
 //! object). Each subsequent line is a JSON object of channel-name → value
 //! pairs (see top-level crate docs).
 
-use ost_adapters::ibt_parser::LapTimeSource;
+use ost_adapters::ibt_parser::{IbtDriverEntry, IbtQualifyResult, LapTimeSource};
 use serde::{Deserialize, Serialize};
 
 /// Header line of an `ost-parse` NDJSON stream.
@@ -36,6 +36,78 @@ pub struct SessionHeader {
     /// shape in dense mode.
     pub channels: Vec<String>,
     pub total_frames: u64,
+    /// The field that was entered, and which of them recorded the file.
+    /// `None` when the source carries no roster.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roster: Option<Roster>,
+    /// Qualifying results, when the file has them. Absent far more often than
+    /// present — of 73 iRacing files, 14 carried results, 10 carried an empty
+    /// list and 49 had no such block at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qualifying: Option<Vec<QualifyResult>>,
+}
+
+/// The session's entry list.
+///
+/// A list of who was in the session and in which car — it holds no positions
+/// and no times, so it can say who was out there but never who was where.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Roster {
+    /// Index into `entries` by `car_idx`: which entry recorded this file.
+    pub driver_car_idx: i32,
+    pub entries: Vec<RosterEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RosterEntry {
+    pub car_idx: i32,
+    pub user_name: String,
+    /// The number as displayed, so `"07"` stays distinct from `"7"`.
+    pub car_number: String,
+    /// Entries sharing a class are the ones whose times compare.
+    pub car_class_id: i32,
+    pub car_name: String,
+}
+
+/// One qualifying result, with the file's sentinels left in place.
+///
+/// `fastest_time` is -1 when the car set no time, and the whole block is not
+/// necessarily lap times: in a heat-racing event iRacing populates it from the
+/// grid-setting race instead, where the numbers are finishing gaps in seconds.
+/// `fastest_lap` of 0 alongside a leader time of 0 is the tell, so both fields
+/// travel rather than being collapsed into one "the pole time" number here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QualifyResult {
+    /// Zero-based: position 0 is pole.
+    pub position: i32,
+    pub class_position: i32,
+    pub car_idx: i32,
+    pub fastest_lap: i32,
+    pub fastest_time: f64,
+}
+
+impl From<&IbtDriverEntry> for RosterEntry {
+    fn from(src: &IbtDriverEntry) -> Self {
+        RosterEntry {
+            car_idx: src.car_idx,
+            user_name: src.user_name.clone(),
+            car_number: src.car_number.clone(),
+            car_class_id: src.car_class_id,
+            car_name: src.car_screen_name.clone(),
+        }
+    }
+}
+
+impl From<&IbtQualifyResult> for QualifyResult {
+    fn from(src: &IbtQualifyResult) -> Self {
+        QualifyResult {
+            position: src.position,
+            class_position: src.class_position,
+            car_idx: src.car_idx,
+            fastest_lap: src.fastest_lap,
+            fastest_time: src.fastest_time,
+        }
+    }
 }
 
 /// Per-session metadata.
@@ -160,6 +232,23 @@ mod tests {
             track_outline: Some(vec![[28.1, -81.4], [28.2, -81.5]]),
             channels: vec!["meta.tick".to_string(), "vehicle.speed".to_string()],
             total_frames: 36000,
+            roster: Some(Roster {
+                driver_car_idx: 0,
+                entries: vec![RosterEntry {
+                    car_idx: 0,
+                    user_name: "Test Driver".to_string(),
+                    car_number: "07".to_string(),
+                    car_class_id: 0,
+                    car_name: "F1".to_string(),
+                }],
+            }),
+            qualifying: Some(vec![QualifyResult {
+                position: 0,
+                class_position: 0,
+                car_idx: 0,
+                fastest_lap: 1,
+                fastest_time: 83.21,
+            }]),
         };
         let json = serde_json::to_string(&header).unwrap();
         let back: SessionHeader = serde_json::from_str(&json).unwrap();
@@ -167,5 +256,24 @@ mod tests {
         assert_eq!(back.channels, header.channels);
         assert_eq!(back.laps.as_ref().unwrap().len(), 1);
         assert_eq!(back.track_outline.as_ref().unwrap().len(), 2);
+        // The car number stays a string: "07" must not come back as 7.
+        assert_eq!(back.roster.as_ref().unwrap().entries[0].car_number, "07");
+        assert_eq!(back.qualifying.as_ref().unwrap()[0].fastest_time, 83.21);
+    }
+
+    /// A header written before rosters existed still reads.
+    #[test]
+    fn header_without_roster_deserializes() {
+        let json = r#"{
+            "format": "ost-parse", "version": 1, "source_format": "ibt",
+            "mode": "sparse",
+            "metadata": {"track_name": "Daytona", "car_name": "F1",
+                "tick_rate": 60.0, "duration_secs": 1.0, "file_size": 1,
+                "replay_id": "abc"},
+            "channels": [], "total_frames": 0
+        }"#;
+        let header: SessionHeader = serde_json::from_str(json).unwrap();
+        assert!(header.roster.is_none());
+        assert!(header.qualifying.is_none());
     }
 }
