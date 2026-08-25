@@ -810,7 +810,12 @@ mod windows_impl {
             Value::INT(i) => serde_json::json!(*i),
             Value::BITS(u) => serde_json::json!(*u),
             Value::FLOAT(f) => serde_json::json!((*f * 10000.0).round() / 10000.0),
-            Value::DOUBLE(d) => serde_json::json!((*d * 10000.0).round() / 10000.0),
+            // Doubles pass through untouched, matching IbtFile::var_value_to_json.
+            // The 1e-4 grid is absolute, so on a coordinate in degrees it is
+            // about 11 metres — see the note there. The live path had its own
+            // copy of this rounding and needs the same exemption, or the same
+            // session reads differently live and from its recording.
+            Value::DOUBLE(d) => serde_json::json!(*d),
             Value::IntVec(v) => serde_json::json!(v),
             Value::FloatVec(v) => {
                 let rounded: Vec<f32> = v.iter().map(|x| (x * 10000.0).round() / 10000.0).collect();

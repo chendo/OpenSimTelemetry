@@ -1234,7 +1234,16 @@ impl IbtFile {
             VarValue::Int(i) => serde_json::json!(*i),
             VarValue::BitField(u) => serde_json::json!(*u),
             VarValue::Float(f) => serde_json::json!((*f * 10000.0).round() / 10000.0),
-            VarValue::Double(d) => serde_json::json!((*d * 10000.0).round() / 10000.0),
+            // Doubles are passed through untouched. The 1e-4 grid is an
+            // ABSOLUTE one, so what it costs depends entirely on the magnitude
+            // of the value it is applied to — harmless on a brake pressure in
+            // the tens, ruinous on a coordinate. iRacing reports Lat and Lon as
+            // doubles in degrees, where a ten-thousandth is about 11 metres:
+            // rounded, 96% of samples through a corner collapse onto the same
+            // position. There are only a handful of double channels, so the
+            // payload this costs is small and the precision it keeps is the
+            // whole point of their being doubles.
+            VarValue::Double(d) => serde_json::json!(*d),
             VarValue::CharArray(v) => {
                 let s = String::from_utf8_lossy(v)
                     .trim_end_matches('\0')
@@ -1246,10 +1255,7 @@ impl IbtFile {
                 let rounded: Vec<f32> = v.iter().map(|x| (x * 10000.0).round() / 10000.0).collect();
                 serde_json::json!(rounded)
             }
-            VarValue::DoubleArray(v) => {
-                let rounded: Vec<f64> = v.iter().map(|x| (x * 10000.0).round() / 10000.0).collect();
-                serde_json::json!(rounded)
-            }
+            VarValue::DoubleArray(v) => serde_json::json!(v),
         }
     }
 
