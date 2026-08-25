@@ -1431,7 +1431,7 @@ impl IbtFile {
             lap_number: get_i32("Lap").map(|l| l as u32),
             laps_completed: get_i32("LapCompleted").map(|l| l as u32),
             lap_distance: get_f32("LapDist").map(Meters),
-            lap_distance_pct: get_f32("LapDistPct").map(Percentage::new),
+            lap_distance_pct: get_f32("LapDistPct").map(LapFraction::new),
             race_position: get_i32("PlayerCarPosition").map(|p| p as u32),
             class_position: get_i32("PlayerCarClassPosition").map(|p| p as u32),
             num_cars: None,

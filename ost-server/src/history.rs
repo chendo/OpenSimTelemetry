@@ -305,7 +305,7 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use ost_core::model::{MetaData, SessionData, TimingData};
-    use ost_core::units::{Percentage, Seconds};
+    use ost_core::units::{LapFraction, Seconds};
 
     fn make_frame(lap: Option<u32>, last_lap_time: Option<f64>) -> TelemetryFrame {
         TelemetryFrame {
@@ -584,7 +584,7 @@ mod tests {
         let mut frame = make_frame(lap, last_lap_time);
         frame.meta.timestamp = ts;
         if let Some(ref mut timing) = frame.timing {
-            timing.lap_distance_pct = pct.map(Percentage::new);
+            timing.lap_distance_pct = pct.map(LapFraction::new);
         }
         frame
     }

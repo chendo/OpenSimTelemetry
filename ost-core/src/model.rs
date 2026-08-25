@@ -687,7 +687,7 @@ pub struct TimingData {
 
     /// Distance around track as percentage (0.0 to 1.0)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub lap_distance_pct: Option<Percentage>,
+    pub lap_distance_pct: Option<LapFraction>,
 
     /// Overall race position
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1140,7 +1140,7 @@ pub struct CompetitorData {
 
     /// Track position as percentage (0.0 to 1.0)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub lap_distance_pct: Option<Percentage>,
+    pub lap_distance_pct: Option<LapFraction>,
 
     /// Overall position
     #[serde(skip_serializing_if = "Option::is_none")]

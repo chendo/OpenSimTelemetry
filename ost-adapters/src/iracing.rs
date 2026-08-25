@@ -317,7 +317,7 @@ mod windows_impl {
                 lap_number: get_i32("Lap").map(|l| l as u32),
                 laps_completed: get_i32("LapCompleted").map(|l| l as u32),
                 lap_distance: get_f32("LapDist").map(Meters),
-                lap_distance_pct: get_f32("LapDistPct").map(Percentage::new),
+                lap_distance_pct: get_f32("LapDistPct").map(LapFraction::new),
                 race_position: get_i32("PlayerCarPosition").map(|p| p as u32),
                 class_position: get_i32("PlayerCarClassPosition").map(|p| p as u32),
                 num_cars,
@@ -766,7 +766,7 @@ mod windows_impl {
                         .map(|l| l as u32),
                     lap_distance_pct: lap_dist_pct
                         .and_then(|v| v.get(i).copied())
-                        .map(Percentage::new),
+                        .map(LapFraction::new),
                     position: positions.and_then(|v| v.get(i).copied()).map(|p| p as u32),
                     class_position: class_positions
                         .and_then(|v| v.get(i).copied())
